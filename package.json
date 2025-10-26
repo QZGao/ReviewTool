@@ -1,0 +1,15 @@
+{
+  "name": "reviewtool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Review articles and provide feedback on Chinese Wikipedia.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  }
+}
+
