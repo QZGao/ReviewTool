@@ -1,6 +1,7 @@
-import { openCheckWritingDialog, openReviewManagementDialog } from "./app";
 import state from "./state";
-import { getSectionRegexes } from "./templates";
+import {getSectionRegexes} from "./templates";
+import {openReviewManagementDialog} from "./dialogs/review_management";
+import {openCheckWritingDialog} from "./dialogs/check_writing";
 
 /**
  * 創建 mw-editsection 風格的按鈕元素。
@@ -69,16 +70,14 @@ function decideAssessmentType(articleTitle: string, sectionTitle: string): strin
  */
 function createReviewManagementButton(articleTitle: string, sectionTitle: string): HTMLElement {
     const assessmentType = decideAssessmentType(articleTitle, sectionTitle);
-    
-    return createMwEditSectionButton(
-        state.convByVar({ hant: '管理評審', hans: '管理评审' }),
-        state.convByVar({ hant: '使用 ReviewTool 小工具管理評審', hans: '使用 ReviewTool 小工具管理评审' }),
-        (e) => {
-            state.articleTitle = articleTitle;
-            state.assessmentType = assessmentType;
-            openReviewManagementDialog();
-        }
-    );
+
+    return createMwEditSectionButton(state.convByVar({
+        hant: '管理評審', hans: '管理评审'
+    }), state.convByVar({hant: '使用 ReviewTool 小工具管理評審', hans: '使用 ReviewTool 小工具管理评审'}), (e) => {
+        state.articleTitle = articleTitle;
+        state.assessmentType = assessmentType;
+        openReviewManagementDialog();
+    });
 }
 
 /**
@@ -90,15 +89,13 @@ function createReviewManagementButton(articleTitle: string, sectionTitle: string
 function createCheckWritingButton(articleTitle: string, sectionTitle: string): HTMLElement {
     const assessmentType = decideAssessmentType(articleTitle, sectionTitle);
 
-    return createMwEditSectionButton(
-        state.convByVar({ hant: '檢查文筆', hans: '检查文笔' }),
-        state.convByVar({ hant: '使用 ReviewTool 小工具檢查文筆', hans: '使用 ReviewTool 小工具检查文笔' }),
-        (e) => {
-            state.articleTitle = articleTitle;
-            state.assessmentType = assessmentType;
-            openCheckWritingDialog();
-        }
-    );
+    return createMwEditSectionButton(state.convByVar({
+        hant: '檢查文筆', hans: '检查文笔'
+    }), state.convByVar({hant: '使用 ReviewTool 小工具檢查文筆', hans: '使用 ReviewTool 小工具检查文笔'}), (e) => {
+        state.articleTitle = articleTitle;
+        state.assessmentType = assessmentType;
+        openCheckWritingDialog();
+    });
 }
 
 /**
@@ -183,6 +180,7 @@ function getSectionTitle(heading: Element): string | null {
  * @param heading {Element} mw-heading 元素
  * @param articleTitle {string} 評審條目標題
  * @param sectionTitle {string} 當前頁面的小節標題
+ * @param buttonType {'review' | 'check'} 按鈕類型
  */
 function appendButtonToHeading(heading: Element, articleTitle: string, sectionTitle: string, buttonType: 'review' | 'check'): void {
     const mwEditSection = heading.querySelector('.mw-editsection');

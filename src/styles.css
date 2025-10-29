@@ -1,107 +1,107 @@
 /* Styles for ReviewTool dialog blocks and compact controls */
 
 .review-tool-dialog.review-tool-check-writing-dialog {
-	/* Make dialog wider for denser layout */
-	max-width: 900px;
-	width: 90vw;
+    /* Make dialog wider for denser layout */
+    max-width: 900px;
+    width: 90vw;
 }
 
 .review-tool-dialog .chapter-block {
-	border: 1px solid rgba(0, 0, 0, 0.08);
-	background: rgba(0, 0, 0, 0.02);
-	padding: 12px;
-	margin-bottom: 12px;
-	border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: rgba(0, 0, 0, 0.02);
+    padding: 12px;
+    margin-bottom: 12px;
+    border-radius: 6px;
 }
 
 .review-tool-dialog .chapter-suggestions {
-	margin-top: 8px;
+    margin-top: 8px;
 }
 
 .review-tool-dialog .suggestion-row {
-	display: flex;
-	gap: 8px;
-	align-items: flex-start;
-	padding: 6px 0;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 6px 0;
 }
 
 .review-tool-dialog .suggestion-row:last-child {
-	border-bottom: none;
-	margin-bottom: 0;
+    border-bottom: none;
+    margin-bottom: 0;
 }
 
 .review-tool-dialog .suggestion-bullet {
-	display: list-item;
-	color: var(--color-placeholder, #666);
-	list-style-position: inside;
-	padding-left: 5px;
+    display: list-item;
+    color: var(--color-placeholder, #666);
+    list-style-position: inside;
+    padding-left: 5px;
 }
 
 .review-tool-dialog .suggestion-columns {
-	display: flex;
-	gap: 8px;
-	flex: 1 1 auto;
-	align-items: flex-start;
+    display: flex;
+    gap: 8px;
+    flex: 1 1 auto;
+    align-items: flex-start;
 }
 
 .review-tool-dialog .quote-col {
-	flex: 0 0 35%;
+    flex: 0 0 35%;
 }
 
 .review-tool-dialog .suggestion-col {
-	flex: 1 1 auto;
+    flex: 1 1 auto;
 }
 
 .review-tool-dialog textarea {
-	min-height: 32px;
-	max-height: 160px;
-	resize: vertical;
+    min-height: 32px;
+    max-height: 160px;
+    resize: vertical;
 }
 
 .review-tool-dialog .quote-area textarea {
-	color: #008560;
+    color: #008560;
 }
 
 .review-tool-dialog .suggestion-controls {
-	display: flex;
-	gap: 8px;
-	justify-content: flex-end;
-	margin-top: 3px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 3px;
 }
 
 /* Controls row that places the add-suggestion button and chapter-level controls on one line */
 .review-tool-dialog .row-controls {
-	display: flex;
-	gap: 8px;
-	align-items: center;
-	justify-content: space-between;
-	margin-top: 8px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
 }
 
 .review-tool-dialog .suggestion-add {
-	margin-top: 0;
-	/* align with chapter controls inside .row-controls */
-	display: flex;
-	justify-content: flex-start;
+    margin-top: 0;
+    /* align with chapter controls inside .row-controls */
+    display: flex;
+    justify-content: flex-start;
 }
 
 .review-tool-dialog .chapter-controls {
-	display: flex;
-	gap: 8px;
-	justify-content: flex-end;
-	margin-top: 0;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 0;
 }
 
 /* Compact appearance for icon-only buttons */
 .review-tool-dialog .cdx-button--icon-only {
-	padding: 4px;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
+    padding: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* Ensure the icon span inherits reasonable size */
 .review-tool-dialog .cdx-button__icon {
-	width: 16px;
-	height: 16px;
+    width: 16px;
+    height: 16px;
 }

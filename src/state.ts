@@ -1,6 +1,5 @@
 /**
  * 全局狀態管理。
- * @type {object}
  */
 const state = {
     convByVar: (langDict) => "繁簡轉換未初始化！",  // 簡繁轉換
