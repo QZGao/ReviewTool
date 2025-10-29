@@ -1,4 +1,13 @@
-/* Styles for ReviewTool dialog blocks and compact controls */
+.review-tool-dialog .review-tool-suggested-criteria-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0;
+    margin-top: 5px;
+}
+
+.review-tool-dialog .review-tool-form-section:not(:first-child) {
+    margin-top: 10px;
+}
 
 .review-tool-dialog.review-tool-check-writing-dialog {
     /* Make dialog wider for denser layout */
@@ -32,7 +41,7 @@
 
 .review-tool-dialog .suggestion-bullet {
     display: list-item;
-    color: var(--color-placeholder, #666);
+    color: #666;
     list-style-position: inside;
     padding-left: 5px;
 }

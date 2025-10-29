@@ -7,6 +7,7 @@ const state = {
     inTalkPage: false, // 是否在Talk名字空間
     assessmentType: '', // 評級類型
     userName: '', // 用戶名
+    vueApp: null, // Vue 應用實例
 };
 
 export default state;

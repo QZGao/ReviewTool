@@ -3,8 +3,6 @@ import {assessments, getAssessmentLabels} from "../templates";
 
 declare var mw: any;
 
-let vueApp: any = null;
-
 /**
  * 創建評審對話框。
  */
@@ -84,10 +82,42 @@ function createReviewManagementDialog(): void {
                         if (mountPoint) {
                             mountPoint.remove();
                         }
-                        vueApp = null;
+                        state.vueApp = null;
                     }, 300);
                 }, submitReview() {
-                    // Submission logic here
+                    if (!this.selectedAssessmentType) {
+                        mw.notify(state.convByVar({hant: '請選擇評審標準。', hans: '请选择评审标准。'}), {
+                            type: 'error',
+                            title: '[ReviewTool]'
+                        });
+                        return;
+                    }
+
+                    this.isSubmitting = true;
+
+                    const payload = {
+                        articleTitle: state.articleTitle,
+                        userName: state.userName,
+                        submitUnderOpinionSubsection: !!this.submitUnderOpinionSubsection,
+                        assessmentType: this.selectedAssessmentType,
+                        selectedCriteria: Array.isArray(this.selectedCriteria) ? this.selectedCriteria.slice() : [],
+                        criterion: this.criterion,
+                    };
+
+                    console.debug('[ReviewTool] submitReview payload', payload);
+
+                    // Simulate async submission (replace with real API call as needed)
+                    setTimeout(() => {
+                        this.isSubmitting = false;
+                        this.open = false;
+                        setTimeout(() => {
+                            const mountPoint = document.getElementById('review-tool-dialog-mount');
+                            if (mountPoint) {
+                                mountPoint.remove();
+                            }
+                            state.vueApp = null;
+                        }, 200);
+                    }, 500);
                 }
             }, template: `
 				<cdx-dialog
@@ -137,7 +167,7 @@ function createReviewManagementDialog(): void {
             .component('cdx-text-area', Codex.CdxTextArea)
             .component('cdx-checkbox', Codex.CdxCheckbox)
             .component('cdx-select', Codex.CdxSelect);
-        vueApp = app.mount('#review-tool-dialog-mount');
+        state.vueApp = app.mount('#review-tool-dialog-mount');
     }).catch((error) => {
         console.error('[ReviewTool] 無法加載 Codex:', error);
         mw.notify(state.convByVar({hant: '無法加載對話框組件。', hans: '无法加载对话框组件。'}), {
@@ -151,12 +181,12 @@ function createReviewManagementDialog(): void {
  * 打開評審對話框。
  */
 export function openReviewManagementDialog(): void {
-    if (vueApp) {
+    if (state.vueApp) {
         const mountPoint = document.getElementById('review-tool-dialog-mount');
         if (mountPoint) {
             mountPoint.remove();
         }
-        vueApp = null;
+        state.vueApp = null;
     }
     createReviewManagementDialog();
 }

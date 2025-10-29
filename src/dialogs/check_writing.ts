@@ -2,8 +2,6 @@ import state from "../state";
 
 declare var mw: any;
 
-let vueApp: any = null;
-
 /**
  * 創建檢查文筆對話框。
  */
@@ -71,7 +69,7 @@ function createCheckWritingDialog(): void {
                         if (mountPoint) {
                             mountPoint.remove();
                         }
-                        vueApp = null;
+                        state.vueApp = null;
                     }, 300);
                 }, saveCheckWriting() {
                     this.isSaving = true;
@@ -89,7 +87,7 @@ function createCheckWritingDialog(): void {
                         setTimeout(() => {
                             const mountPoint = document.getElementById('review-tool-dialog-mount');
                             if (mountPoint) mountPoint.remove();
-                            vueApp = null;
+                            state.vueApp = null;
                         }, 200);
                     }, 500);
                 }, addChapter() {
@@ -184,7 +182,7 @@ function createCheckWritingDialog(): void {
             .component('cdx-select', Codex.CdxSelect)
             .component('cdx-button', Codex.CdxButton)
             .component('cdx-button-group', Codex.CdxButtonGroup);
-        vueApp = app.mount('#review-tool-dialog-mount');
+        state.vueApp = app.mount('#review-tool-dialog-mount');
     }).catch((error) => {
         console.error('[ReviewTool] 無法加載 Codex:', error);
         mw.notify(state.convByVar({hant: '無法加載對話框組件。', hans: '无法加载对话框组件。'}), {
@@ -198,12 +196,12 @@ function createCheckWritingDialog(): void {
  * 打開檢查文筆對話框。
  */
 export function openCheckWritingDialog(): void {
-    if (vueApp) {
+    if (state.vueApp) {
         const mountPoint = document.getElementById('review-tool-dialog-mount');
         if (mountPoint) {
             mountPoint.remove();
         }
-        vueApp = null;
+        state.vueApp = null;
     }
     createCheckWritingDialog();
 }
