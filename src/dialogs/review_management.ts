@@ -1,22 +1,14 @@
 import state from "../state";
 import {assessments, getAssessmentLabels} from "../templates";
 
+import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 declare var mw: any;
 
 /**
  * 創建評審對話框。
  */
 function createReviewManagementDialog(): void {
-    mw.loader.using('@wikimedia/codex').then((require) => {
-        const Vue = require('vue');
-        const Codex = require('@wikimedia/codex');
-
-        if (!document.getElementById('review-tool-dialog-mount')) {
-            const mountPoint = document.createElement('div');
-            mountPoint.id = 'review-tool-dialog-mount';
-            document.body.appendChild(mountPoint);
-        }
-
+    loadCodexAndVue().then(({Vue, Codex}: any) => {
         const app = Vue.createMwApp({
             i18n: {
                 submitting: state.convByVar({hant: '添加中…', hans: '添加中…'}),
@@ -78,11 +70,7 @@ function createReviewManagementDialog(): void {
                 }, closeDialog() {
                     this.open = false;
                     setTimeout(() => {
-                        const mountPoint = document.getElementById('review-tool-dialog-mount');
-                        if (mountPoint) {
-                            mountPoint.remove();
-                        }
-                        state.vueApp = null;
+                        removeDialogMount();
                     }, 300);
                 }, submitReview() {
                     if (!this.selectedAssessmentType) {
@@ -111,11 +99,7 @@ function createReviewManagementDialog(): void {
                         this.isSubmitting = false;
                         this.open = false;
                         setTimeout(() => {
-                            const mountPoint = document.getElementById('review-tool-dialog-mount');
-                            if (mountPoint) {
-                                mountPoint.remove();
-                            }
-                            state.vueApp = null;
+                            removeDialogMount();
                         }, 200);
                     }, 500);
                 }
@@ -162,12 +146,8 @@ function createReviewManagementDialog(): void {
 			`,
         });
 
-        app.component('cdx-dialog', Codex.CdxDialog)
-            .component('cdx-text-input', Codex.CdxTextInput)
-            .component('cdx-text-area', Codex.CdxTextArea)
-            .component('cdx-checkbox', Codex.CdxCheckbox)
-            .component('cdx-select', Codex.CdxSelect);
-        state.vueApp = app.mount('#review-tool-dialog-mount');
+        registerCodexComponents(app, Codex);
+        mountApp(app);
     }).catch((error) => {
         console.error('[ReviewTool] 無法加載 Codex:', error);
         mw.notify(state.convByVar({hant: '無法加載對話框組件。', hans: '无法加载对话框组件。'}), {
@@ -181,12 +161,6 @@ function createReviewManagementDialog(): void {
  * 打開評審對話框。
  */
 export function openReviewManagementDialog(): void {
-    if (state.vueApp) {
-        const mountPoint = document.getElementById('review-tool-dialog-mount');
-        if (mountPoint) {
-            mountPoint.remove();
-        }
-        state.vueApp = null;
-    }
+    if (getMountedApp && getMountedApp()) removeDialogMount();
     createReviewManagementDialog();
 }

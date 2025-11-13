@@ -1,13 +1,46 @@
+declare var mw: any;
+
 /**
  * 全局狀態管理。
  */
-const state = {
-    convByVar: (langDict) => "繁簡轉換未初始化！",  // 簡繁轉換
-    articleTitle: '', // 當前條目標題
-    inTalkPage: false, // 是否在Talk名字空間
-    assessmentType: '', // 評級類型
-    userName: '', // 用戶名
-    vueApp: null, // Vue 應用實例
-};
+class State {
+    // 簡繁轉換
+    convByVar = function (langDict: any) {
+        if (langDict && langDict['hant']) {
+            return langDict['hant']; // 預設返回繁體中文
+        }
+        return "繁簡轉換未初始化，且 langDict 無效！";
+    };
+    initHanAssist(): Promise<void> {
+        return mw.loader.using('ext.gadget.HanAssist').then((require) => {
+            const { convByVar } = require('ext.gadget.HanAssist');
+            if (typeof convByVar === 'function') {
+                this.convByVar = convByVar;
+            }
+        });
+    }
 
+    // 當前條目標題
+    articleTitle = '';
+
+    // 是否在Talk名字空間
+    inTalkPage = false;
+
+    // 評級類型
+    assessmentType = '';
+
+    // 用戶名
+    readonly userName = mw.config.get('wgUserName') || 'Example';
+
+    // MediaWiki API 實例
+    private _api: any = null;
+    getApi() {
+        if (!this._api) {
+            this._api = new mw.Api({ 'User-Agent': 'ReviewTool/1.0' });
+        }
+        return this._api;
+    }
+}
+
+export const state = new State();
 export default state;

@@ -1,4 +1,5 @@
 import state from "../state";
+import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 
 declare var mw: any;
 
@@ -6,16 +7,7 @@ declare var mw: any;
  * 創建檢查文筆對話框。
  */
 function createCheckWritingDialog(): void {
-    mw.loader.using('@wikimedia/codex').then((require) => {
-        const Vue = require('vue');
-        const Codex = require('@wikimedia/codex');
-
-        if (!document.getElementById('review-tool-dialog-mount')) {
-            const mountPoint = document.createElement('div');
-            mountPoint.id = 'review-tool-dialog-mount';
-            document.body.appendChild(mountPoint);
-        }
-
+    loadCodexAndVue().then(({Vue, Codex}: any) => {
         const app = Vue.createMwApp({
             i18n: {
                 dialogTitle: state.convByVar({
@@ -65,11 +57,7 @@ function createCheckWritingDialog(): void {
                 }, closeDialog() {
                     this.open = false;
                     setTimeout(() => {
-                        const mountPoint = document.getElementById('review-tool-dialog-mount');
-                        if (mountPoint) {
-                            mountPoint.remove();
-                        }
-                        state.vueApp = null;
+                        removeDialogMount();
                     }, 300);
                 }, saveCheckWriting() {
                     this.isSaving = true;
@@ -85,9 +73,7 @@ function createCheckWritingDialog(): void {
                         this.isSaving = false;
                         this.open = false;
                         setTimeout(() => {
-                            const mountPoint = document.getElementById('review-tool-dialog-mount');
-                            if (mountPoint) mountPoint.remove();
-                            state.vueApp = null;
+                            removeDialogMount();
                         }, 200);
                     }, 500);
                 }, addChapter() {
@@ -175,14 +161,8 @@ function createCheckWritingDialog(): void {
 			`,
         });
 
-        app.component('cdx-dialog', Codex.CdxDialog)
-            .component('cdx-text-input', Codex.CdxTextInput)
-            .component('cdx-text-area', Codex.CdxTextArea)
-            .component('cdx-checkbox', Codex.CdxCheckbox)
-            .component('cdx-select', Codex.CdxSelect)
-            .component('cdx-button', Codex.CdxButton)
-            .component('cdx-button-group', Codex.CdxButtonGroup);
-        state.vueApp = app.mount('#review-tool-dialog-mount');
+        registerCodexComponents(app, Codex);
+        mountApp(app);
     }).catch((error) => {
         console.error('[ReviewTool] 無法加載 Codex:', error);
         mw.notify(state.convByVar({hant: '無法加載對話框組件。', hans: '无法加载对话框组件。'}), {
@@ -196,12 +176,6 @@ function createCheckWritingDialog(): void {
  * 打開檢查文筆對話框。
  */
 export function openCheckWritingDialog(): void {
-    if (state.vueApp) {
-        const mountPoint = document.getElementById('review-tool-dialog-mount');
-        if (mountPoint) {
-            mountPoint.remove();
-        }
-        state.vueApp = null;
-    }
+    if (getMountedApp()) removeDialogMount();
     createCheckWritingDialog();
 }

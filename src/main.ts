@@ -26,11 +26,12 @@ function injectStyles(css: string): void {
  * 小工具入口。
  */
 function init(): void {
-    // Inject bundled CSS into the page
+    // Inject bundled CSS into the page.
     if (typeof document !== 'undefined') {
         injectStyles(styles);
     }
 
+    // 檢查當前頁面是否為目標頁面；不是則終止小工具。
     const namespace = mw.config.get('wgNamespaceNumber');
     const pageName = mw.config.get('wgPageName');
     const allowedPrefixes = [
@@ -41,11 +42,7 @@ function init(): void {
         return;
     }
 
-    mw.loader.using('ext.gadget.HanAssist').then((require) => {
-        const {convByVar} = require('ext.gadget.HanAssist');
-        state.convByVar = convByVar;
-        state.userName = mw.config.get('wgUserName') || 'Example';
-
+    state.initHanAssist().then(() => {
         addButtonsToDOM(namespace, pageName);
     });
 }
