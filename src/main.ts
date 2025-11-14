@@ -1,6 +1,7 @@
 import state from "./state";
 import styles from './styles.css';
-import {addButtonsToDOM} from "./dom";
+import {addTalkPageReviewToolButtonsToDOM} from "./dom/talk_page";
+import {addMainPageReviewToolButtonsToDOM} from "./dom/article_page";
 
 declare var mw: any;
 
@@ -34,16 +35,25 @@ function init(): void {
     // 檢查當前頁面是否為目標頁面；不是則終止小工具。
     const namespace = mw.config.get('wgNamespaceNumber');
     const pageName = mw.config.get('wgPageName');
-    const allowedPrefixes = [
+    const allowedNamespaces = [
+        0,  // 主
+        1   // 討論頁
+    ];
+    const allowedNamePrefixes = [
         'Wikipedia:同行评审', 'Wikipedia:優良條目評選', 'Wikipedia:典范条目评选', 'Wikipedia:特色列表評選'
     ];
-    if (namespace !== 1 && !allowedPrefixes.some((p) => pageName.startsWith(p))) {
+    if (!allowedNamespaces.includes(namespace) && !allowedNamePrefixes.some((p) => pageName.startsWith(p))) {
         console.log('[ReviewTool] 不是目標頁面，小工具終止。');
         return;
     }
 
     state.initHanAssist().then(() => {
-        addButtonsToDOM(namespace, pageName);
+        if (namespace === 0) {
+            state.articleTitle = pageName;
+            addMainPageReviewToolButtonsToDOM(pageName);
+        } else {
+            addTalkPageReviewToolButtonsToDOM(namespace, pageName);
+        }
     });
 }
 

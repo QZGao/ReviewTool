@@ -39,3 +39,9 @@ importScript('User:SuperGrey/gadgets/ReviewTool/main.js');  // Backlink: [[User:
      ```js
      importScript('User:你的用戶名/ReviewTool.js');  // 修改為你的用戶名
      ```
+
+## Roadmap
+
+- [ ] 選擇評審標準模板，插入新小標題和留言內容。
+- [ ] 排版文筆評審意見，插入「文筆」章節中。
+- [ ] 劃線標註，置入sessionStorage；從文筆評審插入處載入標註。
