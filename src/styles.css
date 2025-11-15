@@ -187,3 +187,11 @@
 .review-tool-annotation-ui .sentence:hover {
     background: rgba(255, 235, 59, 0.2);
 }
+
+/* Cursor behavior for annotation sentences */
+.review-tool-annotation-ui.sentence { cursor: pointer; }
+html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
+
+/* Ensure floating button is always clickable */
+.review-tool-annotation-ui.floating-button,
+.floating-button.review-tool-annotation-ui { cursor: pointer; }

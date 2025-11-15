@@ -11,14 +11,13 @@ let activeSectionEnd: Element | null = null;
 let activeSectionPath: string | null = null;
 let activePageName: string | null = null;
 let isMouseDown = false; // new flag to ignore selectionchange during drag
+let mouseDownPos: {x: number, y: number} | null = null; // track mouse position to detect drag vs click
 
-const HOVER_INTENT_DELAY_MS = 180;
 const HIDE_DELAY_MS = 180;
 const SELECTION_SHOW_DELAY_MS = 120;
 
 let selectionShowTimer: number | null = null;
 let floatingHideTimer: number | null = null;
-const hoverTimers = new WeakMap<HTMLElement, { show?: number; hide?: number }>();
 
 export function installSelectionListenersForSection(pageName: string, sectionStart: Element, sectionEnd: Element, sectionPath: string) {
     uninstallSelectionListeners();
@@ -44,6 +43,8 @@ export function uninstallSelectionListeners() {
     if (selectionShowTimer) { clearTimeout(selectionShowTimer); selectionShowTimer = null; }
     if (floatingHideTimer) { clearTimeout(floatingHideTimer); floatingHideTimer = null; }
     hideFloatingButton();
+    // Ensure cursor state is restored
+    document.documentElement.classList.remove('rt-selecting');
     activeSectionStart = null;
     activeSectionEnd = null;
     activeSectionPath = null;
@@ -98,8 +99,14 @@ function onMouseDown(e?: MouseEvent) {
     if (target && floatingButton && (target === floatingButton || floatingButton.contains(target))) {
         return;
     }
+    // Track mouse position to detect drag vs click
+    if (e) {
+        mouseDownPos = { x: e.clientX, y: e.clientY };
+    }
     // When user starts pressing mouse, ignore selectionchange events until mouseup.
     isMouseDown = true;
+    // Add selecting class to switch cursor to I-beam during drag selection
+    document.documentElement.classList.add('rt-selecting');
     hideFloatingButton();
 }
 
@@ -108,11 +115,29 @@ function onMouseUp(e?: MouseEvent) {
     const target = e?.target as Node | undefined;
     if (target && floatingButton && (target === floatingButton || floatingButton.contains(target))) {
         isMouseDown = false;
+        mouseDownPos = null;
+        // Remove selecting class
+        document.documentElement.classList.remove('rt-selecting');
         return;
     }
     // End of drag/selection — allow processing and run selection handler once.
     isMouseDown = false;
+    mouseDownPos = null;
+    // Remove selecting class
+    document.documentElement.classList.remove('rt-selecting');
     onSelectionChange();
+}
+
+function wasMouseDragged(e: MouseEvent): boolean {
+    // If we didn't track the initial position, treat as a simple click
+    if (!mouseDownPos) return false;
+
+    // Calculate distance moved
+    const dx = Math.abs(e.clientX - mouseDownPos.x);
+    const dy = Math.abs(e.clientY - mouseDownPos.y);
+
+    // If moved more than 3 pixels in any direction, it's a drag
+    return dx > 3 || dy > 3;
 }
 
 function onTouchStart(e?: TouchEvent) {
@@ -122,6 +147,8 @@ function onTouchStart(e?: TouchEvent) {
         return;
     }
     isMouseDown = true;
+    // Add selecting class as a conservative default (has no effect on touch cursors but keeps logic consistent)
+    document.documentElement.classList.add('rt-selecting');
     hideFloatingButton();
 }
 
@@ -130,9 +157,11 @@ function onTouchEnd(e?: TouchEvent) {
     const target = e?.target as Node | undefined;
     if (target && floatingButton && (target === floatingButton || floatingButton.contains(target))) {
         isMouseDown = false;
+        document.documentElement.classList.remove('rt-selecting');
         return;
     }
     isMouseDown = false;
+    document.documentElement.classList.remove('rt-selecting');
     onSelectionChange();
 }
 
@@ -221,11 +250,67 @@ function hideFloatingButton() {
 
 // Wrap text nodes inside the section into sentence spans, handling nested markup (templates, references, etc.)
 export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element | null) {
+    // Helper to check if an element should be skipped (belongs to other scripts/widgets)
+    function shouldSkipElement(node: Node): boolean {
+        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+        const el = node as Element;
+
+        // Skip elements that are already wrapped by us
+        if (el.classList.contains(ANNOTATION_CONTAINER_CLASS)) return true;
+
+        // Skip elements with data attributes indicating they're from other scripts
+        if (el.hasAttribute('data-gadget') || el.hasAttribute('data-widget')) return true;
+
+        // Skip common script-inserted containers
+        const skipClasses = [
+            'mw-editsection',
+            'mw-indicator',
+            'navbox',
+            'infobox',
+            'metadata',
+            'noprint',
+            'navigation',
+            'catlinks',
+            'printfooter',
+            'mw-jump-link',
+            'skin-',  // prefix match for skin-specific elements
+            'vector-',  // prefix match for Vector skin elements
+            'qeec-ref-tag-copy-btn',
+        ];
+
+        for (const cls of skipClasses) {
+            if (el.className && (
+                el.classList.contains(cls) ||
+                (typeof el.className === 'string' && el.className.includes(cls))
+            )) {
+                return true;
+            }
+        }
+
+        // Skip elements with certain IDs that indicate non-content
+        if (el.id) {
+            if (el.id.startsWith('mw-') ||
+                el.id.startsWith('footer-') ||
+                el.id.startsWith('p-') ||
+                el.id === 'siteSub' ||
+                el.id === 'contentSub') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     // Collect all elements between sectionStart and sectionEnd (not inclusive of sectionEnd)
     const sectionElements: Node[] = [];
     let cur: Node | null = sectionStart.nextSibling;
     while (cur && cur !== sectionEnd) {
-        sectionElements.push(cur);
+        // Only collect nodes that are safe to process
+        if (!shouldSkipElement(cur)) {
+            sectionElements.push(cur);
+        } else {
+            console.log('[ReviewTool] Skipping element to preserve other scripts:', cur);
+        }
         cur = cur.nextSibling;
     }
 
@@ -259,7 +344,27 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
 
     // Process an element root - gather its text nodes and map offsets
     function processElementRoot(root: Element) {
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+        // Custom filter to skip text nodes inside elements we want to preserve
+        const filterNode = (node: Node): number => {
+            if (node.nodeType !== Node.TEXT_NODE) return NodeFilter.FILTER_SKIP;
+
+            // Check if any ancestor should be skipped
+            let parent = node.parentElement;
+            while (parent && parent !== root) {
+                if (shouldSkipElement(parent)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                parent = parent.parentElement;
+            }
+
+            return NodeFilter.FILTER_ACCEPT;
+        };
+
+        const walker = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_TEXT,
+            { acceptNode: filterNode }
+        );
         const segments: Array<{node: Text, start:number, end:number}> = [];
         let acc = '';
         let tn = walker.nextNode() as Text | null;
@@ -344,7 +449,11 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
         if (successCount === 0) {
             // If no ranges could be safely wrapped, fall back to naive wrapping for this root
             console.warn('[ReviewTool] no mapped ranges wrapped successfully, performing fallback wrapping for this root');
-            const walker2 = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+            const walker2 = document.createTreeWalker(
+                root,
+                NodeFilter.SHOW_TEXT,
+                { acceptNode: filterNode }
+            );
             let tn2 = walker2.nextNode() as Text | null;
             while (tn2) {
                 const text = tn2.nodeValue || '';
@@ -401,11 +510,11 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
         }
     });
     // end of function's existing processing
-    // attach hover handlers for the sentences we created
+    // attach click handlers for the sentences we created
     try {
-        attachSentenceHoverHandlers(sectionStart, sectionEnd);
+        attachSentenceClickHandlers(sectionStart, sectionEnd);
     } catch (e) {
-        console.warn('[ReviewTool] attachSentenceHoverHandlers failed', e);
+        console.warn('[ReviewTool] attachSentenceClickHandlers failed', e);
     }
 }
 
@@ -623,8 +732,8 @@ function openAnnotationDialog(pageName: string, annotationId: string | null, sec
     document.body.appendChild(overlay);
 }
 
-// Attach hover handlers to sentence spans inside the given section range
-function attachSentenceHoverHandlers(sectionStart: Element, sectionEnd: Element | null) {
+// Attach click handlers to sentence spans inside the given section range
+function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element | null) {
     if (!sectionStart) return;
     const sectionElements: Node[] = [];
     let cur: Node | null = sectionStart.nextSibling;
@@ -638,46 +747,54 @@ function attachSentenceHoverHandlers(sectionStart: Element, sectionEnd: Element 
             const el = rootNode as Element;
             el.querySelectorAll(`.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`).forEach((span) => {
                 const s = span as HTMLElement;
-                if (s.dataset.hoverAttached) return; // already attached
-                s.dataset.hoverAttached = '1';
-                s.addEventListener('mouseenter', () => {
-                    if (!activePageName || !activeSectionPath) return;
-                    // cancel pending hide when re-entering a sentence
-                    if (floatingHideTimer) { clearTimeout(floatingHideTimer); floatingHideTimer = null; }
-                    // start intent timer
-                    const timers = hoverTimers.get(s) || {};
-                    if (timers.hide) { clearTimeout(timers.hide); timers.hide = undefined; }
-                    if (timers.show) { clearTimeout(timers.show); }
-                    timers.show = window.setTimeout(() => {
-                        const idx = parseInt(s.getAttribute('data-sentence-index') || '-1', 10);
-                        const sentenceText = (s.textContent || '').trim();
-                        // place button near the sentence rect (top-center), clamped to viewport
-                        const r = s.getBoundingClientRect();
-                        const centerX = Math.max(40, Math.min(window.innerWidth - 40, r.left + r.width / 2));
-                        const topY = Math.max(8, r.top + window.scrollY - 8);
-                        showFloatingButton(centerX + window.scrollX, topY, () => {
-                            if (activePageName && activeSectionPath) {
-                                const idxx = isFinite(idx) ? idx : -1;
-                                hideFloatingButton();
-                                openAnnotationDialog(activePageName, null, activeSectionPath, idxx, sentenceText);
-                            }
-                        });
-                    }, HOVER_INTENT_DELAY_MS);
-                    hoverTimers.set(s, timers);
-                });
-                s.addEventListener('mouseleave', (ev) => {
-                    const timers = hoverTimers.get(s) || {};
-                    if (timers.show) { clearTimeout(timers.show); timers.show = undefined; }
-                    const rt = (ev as MouseEvent).relatedTarget as Node | null;
-                    if (rt && floatingButton && (rt === floatingButton || floatingButton.contains(rt))) {
-                        // pointer moved to the floating button — keep it visible
-                        hoverTimers.set(s, timers);
+                if (s.dataset.clickAttached) return; // already attached
+                s.dataset.clickAttached = '1';
+
+                // Remove any inline cursor override; CSS will control cursor state
+                if (s.style && s.style.cursor) {
+                    s.style.cursor = '';
+                }
+
+                s.addEventListener('click', (e) => {
+                    // Check if this was a drag (text selection) rather than a simple click
+                    if (wasMouseDragged(e as MouseEvent)) {
+                        // User was selecting text, don't intercept - let the selection handler deal with it
                         return;
                     }
-                    // schedule hide to avoid flicker
-                    if (timers.hide) { clearTimeout(timers.hide); }
-                    timers.hide = window.setTimeout(() => hideFloatingButton(), HIDE_DELAY_MS);
-                    hoverTimers.set(s, timers);
+                    // Check if there's already a non-collapsed selection (user just finished selecting text)
+                    const existingSelection = window.getSelection();
+                    if (existingSelection && !existingSelection.isCollapsed) {
+                        // There's already selected text, don't override it with sentence selection
+                        return;
+                    }
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (!activePageName || !activeSectionPath) return;
+                    const idx = parseInt(s.getAttribute('data-sentence-index') || '-1', 10);
+                    const sentenceText = (s.textContent || '').trim();
+                    // Create a range to select this sentence
+                    const range = document.createRange();
+                    range.selectNodeContents(s);
+                    const selection = window.getSelection();
+                    if (selection) {
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                    }
+                    // Show the popup button at the sentence center
+                    const r = s.getBoundingClientRect();
+                    const centerX = Math.max(40, Math.min(window.innerWidth - 40, r.left + r.width / 2));
+                    const topY = Math.max(8, r.top + window.scrollY - 8);
+
+                    showFloatingButton(centerX + window.scrollX, topY, () => {
+                        if (activePageName && activeSectionPath) {
+                            const idxx = isFinite(idx) ? idx : -1;
+                            hideFloatingButton();
+                            // Clear selection
+                            const sel = window.getSelection();
+                            sel && sel.removeAllRanges();
+                            openAnnotationDialog(activePageName, null, activeSectionPath, idxx, sentenceText);
+                        }
+                    });
                 });
             });
         }
