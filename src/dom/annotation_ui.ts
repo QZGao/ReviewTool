@@ -19,6 +19,55 @@ const SELECTION_SHOW_DELAY_MS = 120;
 let selectionShowTimer: number | null = null;
 let floatingHideTimer: number | null = null;
 
+// Remove common reference/decoration nodes from an element clone and return cleaned text
+function getCleanTextFromElement(el: Element | null): string {
+    if (!el) return '';
+    const clone = el.cloneNode(true) as Element;
+    try {
+        // Remove typical ref/citation decorations that shouldn't be part of the sentence
+        clone.querySelectorAll('sup.reference, sup.mw-ref, .reference, .mw-ref, .citation, .ref, .reference-text, .qeec-ref-tag-copy-btn').forEach(n => n.remove());
+        // Remove elements commonly used by extensions/widgets
+        clone.querySelectorAll('[data-reference], [data-ref], .reference-note, .qeec-ref-tag-copy-btn').forEach(n => n.remove());
+    } catch (e) {
+        // ignore
+    }
+    const txt = clone.textContent || '';
+    // fallback: remove any lingering UI text like "Copy permalink"
+    return txt.replace(/Copy permalink/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// Remove decoration nodes from an arbitrary container element
+function removeDecorationsFromContainer(container: Element) {
+    try {
+        container.querySelectorAll('sup.reference, sup.mw-ref, .reference, .mw-ref, .citation, .ref, .reference-text, .qeec-ref-tag-copy-btn, style, ipe-quick-edit').forEach(n => n.remove());
+        container.querySelectorAll('[data-reference], [data-ref], .reference-note, .qeec-ref-tag-copy-btn').forEach(n => n.remove());
+    } catch (e) { /* ignore */ }
+}
+
+// Get cleaned text from a Range by cloning its contents and removing decorations
+function getCleanTextFromRange(range: Range | null): string {
+    if (!range) return '';
+    const frag = range.cloneContents();
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(frag);
+    removeDecorationsFromContainer(wrapper);
+    let txt = wrapper.textContent || '';
+    // fallback cleanup
+    txt = txt.replace(/Copy permalink/g, '');
+    return txt.replace(/\s+/g, ' ').trim();
+}
+
+// Sanitize plain text (e.g. from Range#toString) by stripping obvious citation markers
+function sanitizePlainText(text?: string | null): string {
+    if (!text) return '';
+    // remove bracketed numeric references like [1], [23]
+    let s = text.replace(/\[\s*\d+\s*\]/g, '');
+    // remove superscript numbers commonly copied as plain digits
+    s = s.replace(/[\u00B9\u00B2\u00B3\u2070-\u2079]+/g, '');
+    // collapse whitespace
+    return s.replace(/\s+/g, ' ').trim();
+}
+
 export function installSelectionListenersForSection(pageName: string, sectionStart: Element, sectionEnd: Element, sectionPath: string) {
     uninstallSelectionListeners();
     activeSectionStart = sectionStart;
@@ -180,8 +229,9 @@ function onSelectionChange() {
         // Center on the actual selection, clamped to viewport
         const centerX = Math.max(40, Math.min(window.innerWidth - 40, rect.left + rect.width / 2));
         const topY = Math.max(8, rect.top + window.scrollY - 8);
-        showFloatingButton(centerX + window.scrollX, topY, () => {
-            const selectedText = (res.range && res.range.toString()) ? res.range.toString().trim() : '';
+            showFloatingButton(centerX + window.scrollX, topY, () => {
+            // Prefer cleaning the actual Range contents (so we can remove DOM decorations like copy buttons)
+            const selectedText = getCleanTextFromRange(res.range);
             if (!selectedText) {
                 hideFloatingButton();
                 return;
@@ -276,6 +326,9 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             'skin-',  // prefix match for skin-specific elements
             'vector-',  // prefix match for Vector skin elements
             'qeec-ref-tag-copy-btn',
+            'ipe__in-article-link',
+            'ipe-quick-edit',
+            'ipe-quick-edit--create-only',
         ];
 
         for (const cls of skipClasses) {
@@ -302,48 +355,135 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
     }
 
     // Collect all elements between sectionStart and sectionEnd (not inclusive of sectionEnd)
+    // If the provided sectionStart is a container for the whole article (e.g. '.mw-parser-output'),
+    // treat its child nodes as the section elements. Otherwise iterate siblings after sectionStart.
     const sectionElements: Node[] = [];
-    let cur: Node | null = sectionStart.nextSibling;
-    while (cur && cur !== sectionEnd) {
-        // Only collect nodes that are safe to process
-        if (!shouldSkipElement(cur)) {
-            sectionElements.push(cur);
-        } else {
-            console.log('[ReviewTool] Skipping element to preserve other scripts:', cur);
+    if (sectionStart && sectionStart.childNodes && sectionStart.childNodes.length > 0 && !sectionEnd) {
+        // treat children of the container as the section
+        sectionStart.childNodes.forEach((n) => {
+            if (!shouldSkipElement(n)) sectionElements.push(n);
+            else console.log('[ReviewTool] Skipping element to preserve other scripts:', n);
+        });
+    } else {
+        let cur: Node | null = sectionStart.nextSibling;
+        while (cur && cur !== sectionEnd) {
+            // Only collect nodes that are safe to process
+            if (!shouldSkipElement(cur)) {
+                sectionElements.push(cur);
+            } else {
+                console.log('[ReviewTool] Skipping element to preserve other scripts:', cur);
+            }
+            cur = cur.nextSibling;
         }
-        cur = cur.nextSibling;
     }
 
     let sentenceIndex = 0;
+    console.log('[ReviewTool] wrapSectionSentences: processing', sectionElements.length, 'child nodes');
 
     // Helper to split a block element's concatenated text into sentence ranges
     function splitTextIntoRanges(text: string): Array<{start:number,end:number}> {
+        // Use a regex-based splitter that recognizes both Chinese and Western sentence terminators.
+        // This is more robust for mixed-language content than single-character scanning.
         const ranges: Array<{start:number,end:number}> = [];
-        const isPunct = (ch: string) => /[。！？!?；;】\]}]/.test(ch);
-        let start = 0;
-        for (let i = 0; i < text.length; i++) {
-            const ch = text[i];
-            if (isPunct(ch)) {
-                // move j after any following whitespace
-                let j = i + 1;
-                while (j < text.length && /\s/.test(text[j])) j++;
-                const end = j;
-                const part = text.slice(start, end);
-                if (part.trim()) ranges.push({ start, end });
-                start = end;
-                i = j - 1;
+        if (!text || !text.trim()) return ranges;
+
+        // Match sentence-ending punctuation sequences including surrounding closing
+        // quotes/brackets. This will include cases like:
+        //  - "sentence."  (terminator before closing quote)
+        //  - "sentence".  (terminator after closing quote)
+        // and will recognise CJK terminators such as '。', '？', '！' and ellipsis '…'.
+        const re = /[」』】〗〕\)\]\}\"'’”〉》]*[。！？\?\.\.\.\.\.\.\.!…]+[」』】〗〕\)\]\}\"'’”〉》]*/g;
+        let lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+            const endPos = re.lastIndex;
+            const part = text.slice(lastIndex, endPos);
+            if (part.trim()) ranges.push({ start: lastIndex, end: endPos });
+            lastIndex = endPos;
+        }
+        // trailing text
+        if (lastIndex < text.length) {
+            const tail = text.slice(lastIndex);
+            if (tail.trim()) ranges.push({ start: lastIndex, end: text.length });
+        }
+
+        // If regex splitting produced only a single range but the text contains multiple segments
+        // (e.g. sentences separated by newlines or missing terminal punctuation), try a fallback
+        // splitter that also splits on newlines or multiple spaces.
+        if (ranges.length <= 1) {
+            const alt: Array<{start:number,end:number}> = [];
+            const altRe = /[」』】〗〕\)\]\}\"'’”〉》]*[。！？\?\.\.\.\.\.\.\.!…]+[」』】〗〕\)\]\}\"'’”〉》]*|(?:\r?\n)+|(?:\s{2,})/g;
+            let last = 0;
+            let mm: RegExpExecArray | null;
+            while ((mm = altRe.exec(text)) !== null) {
+                const endPos = altRe.lastIndex;
+                const part = text.slice(last, endPos);
+                if (part.trim()) alt.push({ start: last, end: endPos });
+                last = endPos;
+            }
+            if (last < text.length) {
+                const tail2 = text.slice(last);
+                if (tail2.trim()) alt.push({ start: last, end: text.length });
+            }
+            if (alt.length > 1) {
+                return alt;
             }
         }
-        // remaining tail
-        if (start < text.length) {
-            const tail = text.slice(start);
-            if (tail.trim()) ranges.push({ start, end: text.length });
-        }
+
         return ranges;
     }
 
     // Process an element root - gather its text nodes and map offsets
     function processElementRoot(root: Element) {
+        // If this root has element children that are non-inline (block/boundary),
+        // process each child separately to avoid creating ranges that span across
+        // sibling block elements (which breaks lists, tables, etc.). However,
+        // treat common inline elements (like <a>, <span>, <em>, <strong>) as
+        // transparent so their text is included in the same sentence span.
+        function isInlineElement(el: Element) {
+            if (!el || !el.tagName) return false;
+            const t = el.tagName.toLowerCase();
+            const inlineTags = new Set([
+                'a','span','em','strong','b','i','small','sup','sub','code','cite','abbr','time','mark','var','img','kbd'
+            ]);
+            return inlineTags.has(t);
+        }
+
+        const elementChildren = Array.from(root.childNodes).filter(n => n.nodeType === Node.ELEMENT_NODE) as Element[];
+        const hasNonInlineElementChildren = elementChildren.some(el => !isInlineElement(el));
+        if (hasNonInlineElementChildren) {
+            // process children individually so we don't span across block/boundary elements
+            Array.from(root.childNodes).forEach((child) => {
+                if (child.nodeType === Node.TEXT_NODE) {
+                    // simple inline text splitting for direct text nodes
+                    const textNode = child as Text;
+                    const text = textNode.nodeValue || '';
+                    if (!text.trim()) return;
+                    const parts = splitTextIntoRanges(text).map(r => text.slice(r.start, r.end)).filter(p => p.trim());
+                    if (parts.length <= 1) {
+                        const span = document.createElement('span');
+                        span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
+                        span.setAttribute('data-sentence-index', String(sentenceIndex++));
+                        span.textContent = text;
+                        textNode.parentNode && textNode.parentNode.replaceChild(span, textNode);
+                    } else {
+                        const frag = document.createDocumentFragment();
+                        parts.forEach(part => {
+                            const span = document.createElement('span');
+                            span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
+                            span.setAttribute('data-sentence-index', String(sentenceIndex++));
+                            span.textContent = part;
+                            frag.appendChild(span);
+                        });
+                        textNode.parentNode && textNode.parentNode.replaceChild(frag, textNode);
+                    }
+                } else if (child.nodeType === Node.ELEMENT_NODE) {
+                    processElementRoot(child as Element);
+                }
+            });
+            return;
+        }
+
         // Custom filter to skip text nodes inside elements we want to preserve
         const filterNode = (node: Node): number => {
             if (node.nodeType !== Node.TEXT_NODE) return NodeFilter.FILTER_SKIP;
@@ -376,8 +516,10 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             }
             tn = walker.nextNode() as Text | null;
         }
+        console.log('[ReviewTool] processElementRoot: segments count', segments.length);
         if (!segments.length) return;
         const ranges = splitTextIntoRanges(acc);
+        console.log('[ReviewTool] processElementRoot: ranges computed', ranges.length);
 
         // Map ranges to actual text node offsets first
         const mapped: Array<{
@@ -405,6 +547,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             }
         }
 
+        console.log('[ReviewTool] processElementRoot: mapped ranges', mapped.length);
         if (!mapped.length) return;
 
         // Process mappings from end to start to avoid invalidating earlier offsets
@@ -446,6 +589,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             }
         }
 
+        console.log('[ReviewTool] processElementRoot: successCount', successCount);
         if (successCount === 0) {
             // If no ranges could be safely wrapped, fall back to naive wrapping for this root
             console.warn('[ReviewTool] no mapped ranges wrapped successfully, performing fallback wrapping for this root');
@@ -484,7 +628,19 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
     // Process nodes: for element nodes, process the element; for text nodes, wrap simply
     sectionElements.forEach(rootNode => {
         if (rootNode.nodeType === Node.ELEMENT_NODE) {
-            processElementRoot(rootNode as Element);
+            const el = rootNode as Element;
+            const tag = (el.tagName || '').toLowerCase();
+            // Special-case list containers: process each list item separately to avoid
+            // creating ranges that span across <li> siblings which would break list structure.
+            if (tag === 'ul' || tag === 'ol' || tag === 'dl') {
+                const items = Array.from(el.children).filter(c => c.nodeType === Node.ELEMENT_NODE);
+                items.forEach(item => {
+                    // process each li/dt/dd as a root so ranges don't cross boundaries
+                    processElementRoot(item as Element);
+                });
+            } else {
+                processElementRoot(el);
+            }
         } else if (rootNode.nodeType === Node.TEXT_NODE) {
             const textNode = rootNode as Text;
             const text = textNode.textContent || '';
@@ -516,6 +672,60 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
     } catch (e) {
         console.warn('[ReviewTool] attachSentenceClickHandlers failed', e);
     }
+    try {
+        // Diagnostics: log how many sentence spans exist in this section/container
+        const selector = `.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`;
+        const within = sectionStart.querySelectorAll ? sectionStart.querySelectorAll(selector) : document.querySelectorAll(selector);
+        console.log('[ReviewTool] wrapSectionSentences: sentence spans found in section:', within.length);
+    } catch (e) {
+        // ignore
+    }
+}
+
+/**
+ * Ensure sentence spans exist in the section by attempting wrapping multiple times
+ * with small delays. This avoids a persistent MutationObserver while still
+ * surviving brief page rewrites.
+ */
+export function ensureWrappedSection(sectionStart: Element, sectionEnd: Element | null, attempts?: number | number[], delayMs?: number) {
+    if (!sectionStart) return;
+    const sel = `.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`;
+    function countSpans() {
+        try {
+            if (sectionEnd === null && sectionStart.querySelectorAll) {
+                return sectionStart.querySelectorAll(sel).length;
+            }
+            const all = Array.from(document.querySelectorAll(sel));
+            return all.filter(el => sectionStart.contains(el)).length;
+        } catch (e) { return 0; }
+    }
+
+    // Default retry schedule in ms: immediate, short, medium, longer, up to 5s
+    let schedule: number[];
+    if (Array.isArray(attempts)) schedule = attempts as number[];
+    else schedule = [0, 250, 750, 1500, 3000, 5000];
+    // allow attempts as count
+    if (!Array.isArray(attempts) && typeof attempts === 'number') {
+        // trim or extend schedule to that many attempts
+        schedule = schedule.slice(0, Math.max(1, attempts));
+    }
+
+    let idx = 0;
+    function runOnce() {
+        try {
+            wrapSectionSentences(sectionStart, sectionEnd);
+        } catch (e) {
+            console.warn('[ReviewTool] ensureWrappedSection wrap failed', e);
+        }
+        const found = countSpans();
+        console.log('[ReviewTool] ensureWrappedSection: attempt', idx + 1, 'found', found);
+        if (found > 0) return;
+        idx++;
+        if (idx < schedule.length) {
+            setTimeout(runOnce, schedule[idx]);
+        }
+    }
+    setTimeout(runOnce, schedule[0]);
 }
 
 export function clearWrappedSentences() {
@@ -573,7 +783,8 @@ function openAnnotationDialog(pageName: string, annotationId: string | null, sec
     const anno = isEdit ? annotations.getAnnotation(pageName, annotationId!) : null;
 
     // For new annotations, use provided sentenceText and sentenceIndex; for edits, use anno data
-    const displaySentenceText = isEdit ? (anno?.sentenceText || '') : (sentenceText || '');
+    // Ensure displayed sentence text is sanitized (strip ref decorations)
+    const displaySentenceText = isEdit ? (anno?.sentenceText || '') : sanitizePlainText(sentenceText || '');
     const displayOpinion = isEdit ? (anno?.opinion || '') : '';
 
     const overlay = document.createElement('div');
@@ -735,70 +946,109 @@ function openAnnotationDialog(pageName: string, annotationId: string | null, sec
 // Attach click handlers to sentence spans inside the given section range
 function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element | null) {
     if (!sectionStart) return;
-    const sectionElements: Node[] = [];
+    // If no explicit sectionEnd is provided (container mode), simply attach to all sentence spans inside the container.
+    if (!sectionEnd) {
+        const spans = sectionStart.querySelectorAll(`.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`);
+        spans.forEach(s => attachHandlerToSpan(s as HTMLElement));
+        // Also handle the rare case the container itself is a sentence span
+        if (sectionStart.classList && sectionStart.classList.contains(ANNOTATION_CONTAINER_CLASS) && sectionStart.classList.contains(SENTENCE_CLASS)) {
+            attachHandlerToSpan(sectionStart as HTMLElement);
+        }
+        return;
+    }
+
+    // Otherwise (heading-range mode), iterate siblings from sectionStart.nextSibling up to sectionEnd
     let cur: Node | null = sectionStart.nextSibling;
     while (cur && cur !== sectionEnd) {
-        sectionElements.push(cur);
+        if (cur.nodeType === Node.ELEMENT_NODE) {
+            const el = cur as Element;
+            // Attach to descendant sentence spans
+            el.querySelectorAll(`.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`).forEach((span) => {
+                attachHandlerToSpan(span as HTMLElement);
+            });
+            // If the element itself is a sentence span
+            if (el.classList && el.classList.contains(ANNOTATION_CONTAINER_CLASS) && el.classList.contains(SENTENCE_CLASS)) {
+                attachHandlerToSpan(el as HTMLElement);
+            }
+        }
         cur = cur.nextSibling;
     }
 
-    sectionElements.forEach(rootNode => {
-        if (rootNode.nodeType === Node.ELEMENT_NODE) {
-            const el = rootNode as Element;
-            el.querySelectorAll(`.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`).forEach((span) => {
-                const s = span as HTMLElement;
-                if (s.dataset.clickAttached) return; // already attached
-                s.dataset.clickAttached = '1';
+    function attachHandlerToSpan(s: HTMLElement) {
+        if (s.dataset.clickAttached) return; // already attached
+        s.dataset.clickAttached = '1';
 
-                // Remove any inline cursor override; CSS will control cursor state
-                if (s.style && s.style.cursor) {
-                    s.style.cursor = '';
-                }
-
-                s.addEventListener('click', (e) => {
-                    // Check if this was a drag (text selection) rather than a simple click
-                    if (wasMouseDragged(e as MouseEvent)) {
-                        // User was selecting text, don't intercept - let the selection handler deal with it
-                        return;
-                    }
-                    // Check if there's already a non-collapsed selection (user just finished selecting text)
-                    const existingSelection = window.getSelection();
-                    if (existingSelection && !existingSelection.isCollapsed) {
-                        // There's already selected text, don't override it with sentence selection
-                        return;
-                    }
-                    e.stopPropagation();
-                    e.preventDefault();
-                    if (!activePageName || !activeSectionPath) return;
-                    const idx = parseInt(s.getAttribute('data-sentence-index') || '-1', 10);
-                    const sentenceText = (s.textContent || '').trim();
-                    // Create a range to select this sentence
-                    const range = document.createRange();
-                    range.selectNodeContents(s);
-                    const selection = window.getSelection();
-                    if (selection) {
-                        selection.removeAllRanges();
-                        selection.addRange(range);
-                    }
-                    // Show the popup button at the sentence center
-                    const r = s.getBoundingClientRect();
-                    const centerX = Math.max(40, Math.min(window.innerWidth - 40, r.left + r.width / 2));
-                    const topY = Math.max(8, r.top + window.scrollY - 8);
-
-                    showFloatingButton(centerX + window.scrollX, topY, () => {
-                        if (activePageName && activeSectionPath) {
-                            const idxx = isFinite(idx) ? idx : -1;
-                            hideFloatingButton();
-                            // Clear selection
-                            const sel = window.getSelection();
-                            sel && sel.removeAllRanges();
-                            openAnnotationDialog(activePageName, null, activeSectionPath, idxx, sentenceText);
-                        }
-                    });
-                });
-            });
+        // Diagnostic hook: mark and log first-time attachments
+        try {
+            // add a data attribute to indicate handler attached for debugging
+            s.dataset._rtHandler = '1';
+        } catch (e) {
+            /* ignore */
         }
-    });
+        if ((attachHandlerToSpan as any)._attachedCount === undefined) (attachHandlerToSpan as any)._attachedCount = 0;
+        (attachHandlerToSpan as any)._attachedCount++;
+        if ((attachHandlerToSpan as any)._attachedCount <= 5) {
+            console.log('[ReviewTool] attachHandlerToSpan: attached handler to span', s.getAttribute('data-sentence-index'));
+        }
+
+        // Remove any inline cursor override; CSS will control cursor state
+        // Ensure pointer events and cursor are enabled; add inline cursor as a fail-safe
+        try { s.style.pointerEvents = 'auto'; } catch (e) {}
+        try { s.style.cursor = 'pointer'; } catch (e) {}
+
+        // Debug: add hover handlers that apply an inline background so we can see highlights
+        const origBg = s.style.background;
+        s.addEventListener('mouseenter', () => {
+            try { s.style.background = 'rgba(255,235,59,0.18)'; } catch (e) {}
+            console.log('[ReviewTool] span mouseenter', s.getAttribute('data-sentence-index'));
+        });
+        s.addEventListener('mouseleave', () => {
+            try { s.style.background = origBg || ''; } catch (e) {}
+            console.log('[ReviewTool] span mouseleave', s.getAttribute('data-sentence-index'));
+        });
+
+        s.addEventListener('click', (e) => {
+            // Check if this was a drag (text selection) rather than a simple click
+            if (wasMouseDragged(e as MouseEvent)) {
+                // User was selecting text, don't intercept - let the selection handler deal with it
+                return;
+            }
+            // Check if there's already a non-collapsed selection (user just finished selecting text)
+            const existingSelection = window.getSelection();
+            if (existingSelection && !existingSelection.isCollapsed) {
+                // There's already selected text, don't override it with sentence selection
+                return;
+            }
+            e.stopPropagation();
+            e.preventDefault();
+            if (!activePageName || !activeSectionPath) return;
+            const idx = parseInt(s.getAttribute('data-sentence-index') || '-1', 10);
+            const sentenceText = getCleanTextFromElement(s);
+            // Create a range to select this sentence
+            const range = document.createRange();
+            range.selectNodeContents(s);
+            const selection = window.getSelection();
+            if (selection) {
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            // Show the popup button at the sentence center
+            const r = s.getBoundingClientRect();
+            const centerX = Math.max(40, Math.min(window.innerWidth - 40, r.left + r.width / 2));
+            const topY = Math.max(8, r.top + window.scrollY - 8);
+
+            showFloatingButton(centerX + window.scrollX, topY, () => {
+                if (activePageName && activeSectionPath) {
+                    const idxx = isFinite(idx) ? idx : -1;
+                    hideFloatingButton();
+                    // Clear selection
+                    const sel = window.getSelection();
+                    sel && sel.removeAllRanges();
+                    openAnnotationDialog(activePageName, null, activeSectionPath, idxx, sentenceText);
+                }
+            });
+        });
+    }
 }
 
 export function showAnnotationViewer(pageName: string) {

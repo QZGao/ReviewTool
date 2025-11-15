@@ -64,3 +64,68 @@ export function appendButtonToHeading(heading: Element, button: Element): void {
     if (!mwEditSection) return;
     mwEditSection.append(button);
 }
+
+/**
+ * Add a tab button to the Vector skin's p-views menu (next to Read/Edit/History)
+ * @param id {string} Element ID for the new tab (e.g., 'ca-annotate')
+ * @param label {string} Button label text
+ * @param title {string} Button title/tooltip
+ * @param onClick {(e: Event) => void} Click handler
+ * @param options {object} Optional configuration
+ * @returns {HTMLElement | null} The created list item, or null if menu not found
+ */
+export function addVectorMenuTab(
+    id: string,
+    label: string,
+    title: string,
+    onClick: (e: Event) => void,
+    options?: { selected?: boolean }
+): HTMLElement | null {
+    const menu = document.getElementById('p-views');
+    if (!menu) {
+        console.warn('[ReviewTool] Vector menu #p-views not found');
+        return null;
+    }
+
+    const list = menu.querySelector('.vector-menu-content-list');
+    if (!list) {
+        console.warn('[ReviewTool] Vector menu content list not found');
+        return null;
+    }
+
+    // Check if already exists
+    if (document.getElementById(id)) {
+        return document.getElementById(id);
+    }
+
+    const li = document.createElement('li');
+    li.id = id;
+    li.className = 'vector-tab-noicon mw-list-item';
+    if (options?.selected) {
+        li.classList.add('selected');
+    }
+
+    const a = document.createElement('a');
+    a.href = '#';
+    a.title = title;
+    a.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick(e);
+    };
+
+    const span = document.createElement('span');
+    span.textContent = label;
+    a.appendChild(span);
+    li.appendChild(a);
+
+    // Insert before the watch button if it exists, otherwise append
+    const watchLi = list.querySelector('#ca-watch');
+    if (watchLi) {
+        list.insertBefore(li, watchLi);
+    } else {
+        list.appendChild(li);
+    }
+
+    return li;
+}

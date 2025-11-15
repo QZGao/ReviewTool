@@ -195,3 +195,20 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
 /* Ensure floating button is always clickable */
 .review-tool-annotation-ui.floating-button,
 .floating-button.review-tool-annotation-ui { cursor: pointer; }
+
+/* Stronger highlight rule to ensure visibility on pages with competing styles */
+.review-tool-annotation-ui.sentence:hover,
+.review-tool-annotation-ui .sentence:hover {
+    background: rgba(255, 235, 59, 0.22) !important;
+}
+
+/* While annotation mode is active, allow selection over known inline editor widgets
+   that set `user-select: none` (e.g. ipe quick-edit buttons). This only applies
+   while our mode is on to avoid changing page behavior permanently. */
+.rt-annotation-mode .ipe__in-article-link,
+.rt-annotation-mode .ipe-quick-edit,
+.rt-annotation-mode .ipe-quick-edit--create-only,
+.rt-annotation-mode .qeec-ref-tag-copy-btn {
+    user-select: text !important;
+    pointer-events: auto !important;
+}
