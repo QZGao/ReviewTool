@@ -114,3 +114,76 @@
     width: 16px;
     height: 16px;
 }
+
+/* Annotation UI styles */
+.review-tool-annotation-ui .sentence {
+    background: transparent;
+}
+.review-tool-annotation-ui .sentence:hover {
+    background: rgba(255, 235, 59, 0.12);
+}
+.review-tool-annotation-ui .annotation-badge {
+    display: inline-block;
+    background: #ffcc00;
+    color: #000;
+    border-radius: 10px;
+    padding: 0 6px;
+    font-size: 11px;
+    margin-left: 6px;
+}
+.review-tool-annotation-ui .floating-button {
+    background: #1976d2;
+    color: white;
+    border: none;
+    padding: 6px 8px;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    cursor: pointer;
+}
+
+/* Floating popup button: span has both classes on same element */
+.review-tool-annotation-ui.floating-button,
+.floating-button.review-tool-annotation-ui {
+    background: #1976d2;
+    color: #fff;
+    border: none;
+    padding: 6px 8px;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+.review-tool-annotation-ui.floating-button:hover {
+    background: #1e88e5;
+}
+
+/* Annotation badge actual class name fix */
+.review-tool-annotation-badge {
+    display: inline-block;
+    background: #ffcc00;
+    color: #000;
+    border-radius: 10px;
+    padding: 0 6px;
+    font-size: 11px;
+    margin-left: 4px;
+    vertical-align: baseline;
+    text-decoration: none;
+}
+.review-tool-annotation-badge:hover {
+    filter: brightness(1.1);
+}
+
+/* Sentence highlight styles adapt to current DOM: spans carry both classes */
+.review-tool-annotation-ui.sentence {
+    background: transparent;
+    transition: background 120ms ease-in;
+}
+.review-tool-annotation-ui.sentence:hover {
+    background: rgba(255, 235, 59, 0.2);
+}
+/* Keep descendant version for future container-based refactor */
+.review-tool-annotation-ui .sentence:hover {
+    background: rgba(255, 235, 59, 0.2);
+}
