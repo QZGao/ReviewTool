@@ -1,5 +1,6 @@
 import * as annotations from '../annotations';
 import state from '../state';
+import { getHeadingTitle } from './utils';
 
 let floatingButton: HTMLElement | null = null;
 const ANNOTATION_CONTAINER_CLASS = 'review-tool-annotation-ui';
@@ -236,12 +237,13 @@ function onSelectionChange() {
                 hideFloatingButton();
                 return;
             }
-            if (activePageName && activeSectionPath) {
+                if (activePageName) {
                 const idx = res.singleSentenceIndex != null ? res.singleSentenceIndex : -1;
                 hideFloatingButton();
                 const sel = document.getSelection();
                 sel && sel.removeAllRanges();
-                openAnnotationDialog(activePageName, null, activeSectionPath, idx, selectedText);
+                const computedSectionPath = computeSectionPathFromNode(res.range ? res.range.startContainer : null);
+                openAnnotationDialog(activePageName, null, computedSectionPath, idx, selectedText);
             }
         });
     }, SELECTION_SHOW_DELAY_MS);
@@ -255,6 +257,115 @@ function findAncestorSentence(node: Node | null): Element | null {
     }
     return null;
 }
+
+// --- Section path helpers -------------------------------------------------
+function previousNode(node: Node | null): Node | null {
+    if (!node) return null;
+    if (node.previousSibling) {
+        let p = node.previousSibling;
+        let pp: any = node.previousSibling;
+        while (pp && pp.lastChild) pp = pp.lastChild;
+        return pp as Node | null;
+    }
+    return node.parentNode;
+}
+
+function nextNode(node: Node | null): Node | null {
+    if (!node) return null;
+    if (node.firstChild) return node.firstChild;
+    let n: Node | null = node;
+    while (n) {
+        if (n.nextSibling) return n.nextSibling;
+        n = n.parentNode;
+    }
+    return null;
+}
+
+function findHeadingElementFromNode(node: Node | null): Element | null {
+    let cur: Node | null = node;
+    while (cur) {
+        if (cur instanceof Element) {
+            const el = cur as Element;
+            const tag = (el.tagName || '').toLowerCase();
+            if (['h1','h2','h3','h4','h5','h6'].includes(tag)) return el;
+            if (el.classList && el.classList.contains('mw-heading')) return el;
+        }
+        cur = cur.parentNode;
+    }
+    return null;
+}
+
+function getHeadingLevelAndTitle(el: Element | null): { level: number | null, title: string | null } {
+    if (!el) return { level: null, title: null };
+    const tag = (el.tagName || '').toLowerCase();
+    if (['h1','h2','h3','h4','h5','h6'].includes(tag)) {
+        const level = parseInt(tag.charAt(1), 10);
+        const title = getHeadingTitle(el) || null;
+        return { level, title };
+    }
+    const inner = el.querySelector('h1,h2,h3,h4,h5,h6');
+    if (inner) {
+        const lvl = parseInt((inner.tagName || '').charAt(1), 10);
+        const title = getHeadingTitle(el) || getHeadingTitle(inner as Element) || null;
+        return { level: lvl, title };
+    }
+    const t = getHeadingTitle(el);
+    return { level: null, title: t };
+}
+
+function findPreviousHeadingOfLevel(startNode: Node | null, targetLevel: number): Element | null {
+    let n: Node | null = startNode;
+    while (n) {
+        n = previousNode(n);
+        if (!n) break;
+        const h = findHeadingElementFromNode(n);
+        if (h) {
+            const info = getHeadingLevelAndTitle(h);
+            if (info.level === targetLevel) return h;
+        }
+    }
+    return null;
+}
+
+function computeSectionPathFromNode(startNode: Node | null): string {
+    const pageFallback = state.articleTitle || state.convByVar({hant: '導言', hans: '导言'});
+    if (!startNode) return pageFallback;
+    let anchor: Node | null = startNode;
+    if (anchor.nodeType === Node.TEXT_NODE) anchor = (anchor as Text).parentNode;
+    if (!anchor) return pageFallback;
+
+    // Walk strictly backwards from the start position and collect the nearest
+    // heading for each level. This ensures we pick the closest H3 rather than
+    // an earlier sibling H3 that appears before it.
+    const nearestByLevel = new Map<number, string>();
+    let cur: Node | null = anchor;
+    while (cur) {
+        cur = previousNode(cur);
+        if (!cur) break;
+        const hEl = findHeadingElementFromNode(cur);
+        if (!hEl) continue;
+        const info = getHeadingLevelAndTitle(hEl);
+        if (!info.title || info.level === null) continue;
+        // Skip h1: don't treat page title as a section
+        if (info.level === 1) continue;
+        // If we already found a nearer heading for this level, skip
+        if (nearestByLevel.has(info.level)) continue;
+        nearestByLevel.set(info.level, info.title);
+        // Stop early when we have found an H2 (top-level section)
+        if (info.level === 2) break;
+    }
+
+    if (nearestByLevel.size === 0) return pageFallback;
+
+    // Build ordered parts from H2 -> H6 using nearest found titles
+    const parts: string[] = [];
+    for (let lvl = 2; lvl <= 6; lvl++) {
+        if (nearestByLevel.has(lvl)) parts.push(nearestByLevel.get(lvl) as string);
+    }
+    return parts.join('—');
+}
+
+// -------------------------------------------------------------------------
 
 function showFloatingButton(x: number, y: number, onClick: () => void) {
     if (!floatingButton) {
@@ -1038,13 +1149,14 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
             const topY = Math.max(8, r.top + window.scrollY - 8);
 
             showFloatingButton(centerX + window.scrollX, topY, () => {
-                if (activePageName && activeSectionPath) {
+                if (activePageName) {
                     const idxx = isFinite(idx) ? idx : -1;
                     hideFloatingButton();
                     // Clear selection
                     const sel = window.getSelection();
                     sel && sel.removeAllRanges();
-                    openAnnotationDialog(activePageName, null, activeSectionPath, idxx, sentenceText);
+                    const computedSectionPath = computeSectionPathFromNode(s);
+                    openAnnotationDialog(activePageName, null, computedSectionPath, idxx, sentenceText);
                 }
             });
         });

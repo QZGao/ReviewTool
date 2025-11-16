@@ -39,6 +39,8 @@ function addGlobalAnnotationViewerButton(pageName: string): void {
     btn.style.fontSize = '14px';
     btn.style.fontWeight = 'bold';
     btn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+    // Hidden by default; show only when annotation mode is active
+    btn.style.display = 'none';
     btn.onclick = () => {
         try {
             const fn: any = (annotationUI as any).showAnnotationViewer;
@@ -108,6 +110,11 @@ function toggleArticleAnnotationMode(pageName: string): void {
         const tryCount = (annotationUI as any).ensureWrappedSection ? (annotationUI as any).ensureWrappedSection : annotationUI.wrapSectionSentences;
         tryCount(container, null, 4, 220);
         annotationUI.renderAnnotationBadges(state.articleTitle || pageName, sectionPath);
+        // Ensure global viewer button is visible while annotation mode is active
+        try {
+            const gv = document.querySelector('.review-tool-global-button') as HTMLElement | null;
+            if (gv) gv.style.display = 'block';
+        } catch (e) { /* ignore */ }
     } else {
         console.log(`[ReviewTool] 條目「${state.articleTitle}」整頁批註模式已停用。`);
         annotationUI.uninstallSelectionListeners();
@@ -124,5 +131,10 @@ function toggleArticleAnnotationMode(pageName: string): void {
         try { document.documentElement.classList.remove('rt-annotation-mode'); } catch (e) {}
         // Notify user
         try { mw && mw.notify && mw.notify(state.convByVar({hant: '整頁批註模式已停用。', hans: '整页批注模式已停用。'}), { tag: 'review-tool' }); } catch (e) {}
+        // Hide global viewer button when annotation mode is disabled
+        try {
+            const gv = document.querySelector('.review-tool-global-button') as HTMLElement | null;
+            if (gv) gv.style.display = 'none';
+        } catch (e) { /* ignore */ }
     }
 }
