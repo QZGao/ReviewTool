@@ -41,6 +41,10 @@ class State {
         return this._api;
     }
 
+    // When a heading's review button is clicked, store the heading element here so
+    // dialogs can determine which section to operate on.
+    pendingReviewHeading: Element | null = null;
+
     // 批註模式狀態
     private annotationModeState: { [headingTitle: string]: boolean } = {};
     isAnnotationModeActive(headingTitle: string): boolean {

@@ -8,6 +8,7 @@ declare var mw: any;
  * @param pageName {string} 條目標題
  */
 export function addMainPageReviewToolButtonsToDOM(pageName: string): void {
+    if (document.querySelector('#ca-annotate')) return;
     // Add a single Vector menu tab to toggle annotation mode for the whole article
     // This replaces per-heading mw-editsection buttons to avoid overlapping areas.
     const tab = addVectorMenuTab(

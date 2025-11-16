@@ -2,6 +2,7 @@ import state from "../state";
 import {assessments, getAssessmentLabels} from "../templates";
 
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
+import { findSectionInfoFromHeading, createHeaderMarkup, appendTextToSection, getSectionWikitext, replaceSectionText } from "../api";
 declare var mw: any;
 
 /**
@@ -94,14 +95,141 @@ function createReviewManagementDialog(): void {
 
                     console.debug('[ReviewTool] submitReview payload', payload);
 
-                    // Simulate async submission (replace with real API call as needed)
-                    setTimeout(() => {
+                    // Determine the heading/section to edit from the pendingReviewHeading set when
+                    // the user clicked the management button.
+                    const headingEl: Element | null = (state as any).pendingReviewHeading || null;
+                    const sec = findSectionInfoFromHeading(headingEl as Element | null);
+                    if (!sec || !sec.sectionId) {
+                        // Show an error prompt and abort
+                        const msg = state.convByVar({hant: '無法識別章節編號，請在討論頁的章節標題附近點擊「管理評審」。', hans: '无法识别章节编号，请在讨论页的章节标题附近点击“管理评审”。'});
+                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
+                        try { alert(msg); } catch (e) {}
                         this.isSubmitting = false;
-                        this.open = false;
-                        setTimeout(() => {
-                            removeDialogMount();
-                        }, 200);
-                    }, 500);
+                        return;
+                    }
+
+                    // Build headers for each selected criterion.
+                    // If submitUnderOpinionSubsection === false, append each as H3 to the section.
+                    // If true, we need to add H4s under a H3 titled "<userName> 的意見"; if that H3
+                    // exists inside the target section, insert H4s immediately after it; otherwise
+                    // append a new H3 and the H4s.
+                    const level = this.submitUnderOpinionSubsection ? 4 : 3;
+
+                    // Helper to create combined content for multiple criteria at a given level
+                    const buildHeadersForCriteria = (criteria: any[], lvl: number) => {
+                        // createHeaderMarkup now already includes trailing newline; join without
+                        // extra separators to avoid double blank lines.
+                        return criteria.map((c: any) => createHeaderMarkup(String(c), lvl)).join('');
+                    };
+
+                    const pageTitleToUse = sec.pageTitle || state.articleTitle || '';
+                    const sectionIdToUse = sec.sectionId as number;
+
+                    if (!this.submitUnderOpinionSubsection) {
+                        // simple case: append H3s (or H2.. as level) for each criterion
+                        const headers = Array.isArray(this.selectedCriteria) && this.selectedCriteria.length > 0
+                            ? buildHeadersForCriteria(this.selectedCriteria, level)
+                            : (this.criterion ? createHeaderMarkup(String(this.criterion), level) : createHeaderMarkup(state.convByVar({hant: '無具體評審項目', hans: '无具体评审项目'}), level));
+                        appendTextToSection(pageTitleToUse, sectionIdToUse, headers, state.convByVar({hant: '使用 ReviewTool 新增評審項目', hans: '使用 ReviewTool 新增评审项目'}))
+                            .then((resp: any) => {
+                                try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' }); } catch (e) {}
+                                this.isSubmitting = false;
+                                this.open = false;
+                                try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                                setTimeout(() => { removeDialogMount(); }, 200);
+                            })
+                            .catch((err: any) => {
+                                console.error('[ReviewTool] appendTextToSection failed', err);
+                                const msg = state.convByVar({hant: '新增評審項目失敗，請稍後再試。', hans: '新增评审项目失败，请稍后再试。'});
+                                try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
+                                try { alert(msg); } catch (e) {}
+                                this.isSubmitting = false;
+                            });
+                        return;
+                    }
+
+                    // submitUnderOpinionSubsection === true: need to insert H4s under a H3 named "<userName> 的意見"
+                    const opinionHeaderTitle = `${state.userName}${state.convByVar({hant: ' 的意見', hans: ' 的意见'})}`;
+                    const h4s = (Array.isArray(this.selectedCriteria) && this.selectedCriteria.length > 0)
+                        ? buildHeadersForCriteria(this.selectedCriteria, 4)
+                        : (this.criterion ? createHeaderMarkup(String(this.criterion), 4) : createHeaderMarkup(state.convByVar({hant: '無具體評審項目', hans: '无具体评审项目'}), 4));
+
+                    // Fetch the section wikitext to detect existing H3. Be tolerant of
+                    // spacing and simple wiki markup when matching the H3 title.
+                    getSectionWikitext(pageTitleToUse, sectionIdToUse).then((secWikitext: string) => {
+                        // Find lines that look like H3 headings (three or more equals on each side)
+                        const h3LineRe = /^\s*(={3,})\s*(.*?)\s*\1\s*$/gm;
+
+                        // Normalize heading text: remove wiki formatting like '' or ''' and decode HTML entities
+                        function normalizeHeadingText(s: string): string {
+                            if (!s) return '';
+                            // remove bold/italic wiki markup
+                            s = s.replace(/'''+/g, '').replace(/''/g, '');
+                            // decode HTML entities by using a temporary DOM element
+                            try {
+                                const txt = document.createElement('textarea');
+                                txt.innerHTML = s;
+                                s = txt.value;
+                            } catch (e) { /* ignore in non-browser environments */ }
+                            return s.replace(/\s+/g, ' ').trim();
+                        }
+
+                        const targetNorm = normalizeHeadingText(opinionHeaderTitle);
+                        let match: RegExpExecArray | null;
+                        let found = false;
+                        while ((match = h3LineRe.exec(secWikitext)) !== null) {
+                            const fullLine = match[0];
+                            const inner = match[2];
+                            if (normalizeHeadingText(inner) === targetNorm) {
+                                // Insert H4s immediately after this matched heading line
+                                const insertPos = match.index + fullLine.length;
+                                const newSectionText = secWikitext.slice(0, insertPos) + '\n' + h4s + secWikitext.slice(insertPos);
+                                replaceSectionText(pageTitleToUse, sectionIdToUse, newSectionText, state.convByVar({hant: '使用 ReviewTool 新增評審子項', hans: '使用 ReviewTool 新增评审子项'}))
+                                    .then((resp: any) => {
+                                        try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審子項。', hans: '已成功新增评审子项。'}), { tag: 'review-tool' }); } catch (e) {}
+                                        this.isSubmitting = false;
+                                        this.open = false;
+                                        try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                                        setTimeout(() => { removeDialogMount(); }, 200);
+                                    })
+                                    .catch((err: any) => {
+                                        console.error('[ReviewTool] replaceSectionText failed', err);
+                                        const msg = state.convByVar({hant: '新增評審子項失敗，請稍後再試。', hans: '新增评审子项失败，请稍后再试。'});
+                                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
+                                        try { alert(msg); } catch (e) {}
+                                        this.isSubmitting = false;
+                                    });
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!found) {
+                            // Opinion H3 not found: append an H3 with the H4s to the section
+                            const toAppend = createHeaderMarkup(opinionHeaderTitle, 3) + h4s;
+                            appendTextToSection(pageTitleToUse, sectionIdToUse, toAppend, state.convByVar({hant: '使用 ReviewTool 新增評審項', hans: '使用 ReviewTool 新增评审项目'}))
+                                .then((resp: any) => {
+                                    try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' }); } catch (e) {}
+                                    this.isSubmitting = false;
+                                    this.open = false;
+                                    try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                                    setTimeout(() => { removeDialogMount(); }, 200);
+                                })
+                                .catch((err: any) => {
+                                    console.error('[ReviewTool] appendTextToSection failed', err);
+                                    const msg = state.convByVar({hant: '新增評審項目失敗，請稍後再試。', hans: '新增评审项目失败，请稍后再试。'});
+                                    try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
+                                    try { alert(msg); } catch (e) {}
+                                    this.isSubmitting = false;
+                                });
+                        }
+                    }).catch((err: any) => {
+                        console.error('[ReviewTool] getSectionWikitext failed', err);
+                        const msg = state.convByVar({hant: '讀取章節內容失敗，無法新增子項。', hans: '读取章节内容失败，无法新增子项。'});
+                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
+                        try { alert(msg); } catch (e) {}
+                        this.isSubmitting = false;
+                    });
                 }
             }, template: `
 				<cdx-dialog

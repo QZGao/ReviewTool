@@ -40,7 +40,7 @@ function init(): void {
         1   // 討論頁
     ];
     const allowedNamePrefixes = [
-        'Wikipedia:同行评审', 'Wikipedia:優良條目評選', 'Wikipedia:典范条目评选', 'Wikipedia:特色列表評選'
+        'Wikipedia:同行评审', 'Wikipedia:優良條目評選', 'Wikipedia:典范条目评选', 'Wikipedia:特色列表評選', 'User_talk:SuperGrey/gadgets/ReviewTool/TestPage'
     ];
     if (!allowedNamespaces.includes(namespace) && !allowedNamePrefixes.some((p) => pageName.startsWith(p))) {
         console.log('[ReviewTool] 不是目標頁面，小工具終止。');
@@ -50,9 +50,13 @@ function init(): void {
     state.initHanAssist().then(() => {
         if (namespace === 0) {
             state.articleTitle = pageName;
-            addMainPageReviewToolButtonsToDOM(pageName);
+            mw.hook('wikipage.content').add(function () {
+                addMainPageReviewToolButtonsToDOM(pageName);
+            });
         } else {
-            addTalkPageReviewToolButtonsToDOM(namespace, pageName);
+            mw.hook('wikipage.content').add(function () {
+                addTalkPageReviewToolButtonsToDOM(namespace, pageName);
+            });
         }
     });
 }

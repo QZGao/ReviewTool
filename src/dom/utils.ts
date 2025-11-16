@@ -62,6 +62,29 @@ export function getHeadingTitle(heading: Element): string | null {
 export function appendButtonToHeading(heading: Element, button: Element): void {
     const mwEditSection = heading.querySelector('.mw-editsection');
     if (!mwEditSection) return;
+    // When appending the button, ensure its internal anchor will set the
+    // global `state.pendingReviewHeading` so dialogs know which heading invoked them.
+    try {
+        // import state lazily to avoid circular load order issues
+        const stateModule = require('../state');
+        const state = stateModule && stateModule.default ? stateModule.default : stateModule;
+        // find anchor inside provided button element
+        const anchor = (button.querySelector && button.querySelector('a')) || null;
+        if (anchor && typeof anchor.onclick === 'function') {
+            const orig = anchor.onclick;
+            anchor.onclick = (e: Event) => {
+                try { state.pendingReviewHeading = heading; } catch (err) { /* ignore */ }
+                // call original handler
+                try { orig.call(anchor, e); } catch (ex) { /* ignore */ }
+            };
+        } else if (anchor) {
+            anchor.addEventListener('click', (e) => {
+                try { state.pendingReviewHeading = heading; } catch (err) { /* ignore */ }
+            });
+        }
+    } catch (e) {
+        // ignore any require/import errors and just append the button
+    }
     mwEditSection.append(button);
 }
 

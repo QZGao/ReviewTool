@@ -72,6 +72,7 @@ function createCheckWritingButton(articleTitle: string, sectionTitle: string): H
  * @param pageName {string} 當前頁面名稱
  */
 export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: string): void {
+    if (document.querySelector('#review-tool-buttons-added')) return;
     const allSectionHeadings = document.querySelectorAll('.mw-heading.mw-heading2');
     if (namespace === 1) { // 討論頁
         state.inTalkPage = true;
@@ -98,6 +99,11 @@ export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: s
             findAndAppendCheckWritingButton(heading, sectionTitle, sectionTitle);
         });
     }
+    // 標記已添加按鈕
+    const marker = document.createElement('div');
+    marker.id = 'review-tool-buttons-added';
+    marker.style.display = 'none';
+    document.querySelector('#mw-content-text .mw-parser-output')?.appendChild(marker);
 }
 
 /**
