@@ -1,5 +1,6 @@
 import state from "../state";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
+import { findSectionInfoFromHeading, appendTextToSection } from "../api";
 
 declare var mw: any;
 
@@ -59,7 +60,8 @@ function createCheckWritingDialog(): void {
                     setTimeout(() => {
                         removeDialogMount();
                     }, 300);
-                }, saveCheckWriting() {
+                },
+                saveCheckWriting() {
                     this.isSaving = true;
                     const payload = {
                         chapters: this.chapters.map(ch => ({
@@ -69,13 +71,51 @@ function createCheckWritingDialog(): void {
                         }))
                     };
                     console.debug('[ReviewTool] saveCheckWriting payload', payload);
-                    setTimeout(() => {
+
+                    // Find the section ID from the heading that opened this dialog
+                    const headingEl: Element | null = (state as any).pendingReviewHeading || null;
+                    const sec = findSectionInfoFromHeading(headingEl as Element | null);
+                    if (!sec || !sec.sectionId) {
+                        const msg = state.convByVar({hant: '無法識別文筆章節編號，請在討論頁的文筆章節附近點擊「檢查文筆」。', hans: '无法识别文笔章节编号，请在讨论页的文笔章节附近点击“检查文笔”。'});
+                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
+                        try { alert(msg); } catch (e) {}
                         this.isSaving = false;
-                        this.open = false;
-                        setTimeout(() => {
-                            removeDialogMount();
-                        }, 200);
-                    }, 500);
+                        return;
+                    }
+
+                    // Build wikitext according to the requested format
+                    let wikitext = '';
+                    for (const ch of this.chapters) {
+                        const title = (ch.title || '').trim();
+                        wikitext += "'''" + title + "'''\n";
+                        for (const s of (ch.suggestions || [])) {
+                            const quote = (s.quote || '').trim();
+                            const suggestion = (s.suggestion || '').trim();
+                            // Use the rvw template with the quote in param 1
+                            wikitext += `* {{rvw|1=${quote}}} —— ${suggestion}\n`;
+                        }
+                        // signature
+                        wikitext += '--~~~~\n\n';
+                    }
+
+                    const pageTitleToUse = sec.pageTitle || state.articleTitle || '';
+                    const sectionIdToUse = sec.sectionId as number;
+
+                    appendTextToSection(pageTitleToUse, sectionIdToUse, '\n\n' + wikitext, state.convByVar({hant: '新增文筆建議', hans: '新增文笔建议'}))
+                        .then((resp: any) => {
+                            try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' }); } catch (e) {}
+                            this.isSaving = false;
+                            this.open = false;
+                            try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                            setTimeout(() => { removeDialogMount(); }, 200);
+                        })
+                        .catch((err: any) => {
+                            console.error('[ReviewTool] appendTextToSection failed', err);
+                            const msg = state.convByVar({hant: '新增文筆建議失敗，請稍後再試。', hans: '新增文笔建议失败，请稍后再试。'});
+                            try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
+                            try { alert(msg); } catch (e) {}
+                            this.isSaving = false;
+                        });
                 }, addChapter() {
                     this.chapters.push({
                         title: '', suggestions: [{quote: '', suggestion: ''}]
