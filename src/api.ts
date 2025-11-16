@@ -262,3 +262,58 @@ export function replaceSectionText(pageTitle: string, sectionId: number, newText
 		}
 	});
 }
+
+/**
+ * Parse a piece of wikitext into HTML using MediaWiki `action=parse`.
+ * Useful for rendering a preview of the wikitext the user is about to save/append.
+ */
+export function parseWikitextToHtml(wikitext: string, title?: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		try {
+			const api = state.getApi();
+			const params: any = { action: 'parse', text: wikitext || '', contentmodel: 'wikitext', format: 'json' };
+			if (title) params.title = title;
+			api.get(params).done((data: any) => {
+				try {
+					if (data && data.parse && data.parse.text) {
+						resolve(data.parse.text['*'] || '');
+						return;
+					}
+				} catch (e) { /* fallthrough */ }
+				resolve('');
+			}).fail((err: any) => reject(err));
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
+/**
+ * Produce an HTML diff between two wikitext values using `action=compare`.
+ * If the API does not return a ready-made diff HTML, the function returns an
+ * empty string so callers can fallback to a plain-text diff.
+ */
+export function compareWikitext(oldWikitext: string, newWikitext: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		try {
+			const api = state.getApi();
+			const params: any = {
+				action: 'compare',
+				format: 'json',
+				fromtext: oldWikitext || '',
+				totext: newWikitext || ''
+			};
+			api.get(params).done((data: any) => {
+				try {
+					if (data && data.compare) {
+						// The API may return HTML under different keys depending on mw version
+						if (data.compare['*']) return resolve(data.compare['*']);
+						if (data.compare.body) return resolve(data.compare.body);
+						if (data.compare.html) return resolve(data.compare.html);
+					}
+				} catch (e) { /* fallthrough */ }
+				resolve('');
+			}).fail((err: any) => reject(err));
+		} catch (e) { reject(e); }
+	});
+}

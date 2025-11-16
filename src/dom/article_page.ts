@@ -69,7 +69,7 @@ function toggleArticleAnnotationMode(pageName: string): void {
     state.toggleAnnotationModeState(key);
     if (state.isAnnotationModeActive(key)) {
         // mark document so we can override page styles while annotation mode is active
-        try { document.documentElement.classList.add('rt-annotation-mode'); } catch (e) {}
+        try { document.documentElement.classList.add('review-tool-annotation-mode'); } catch (e) {}
         // Update Vector tab appearance to bold
         try {
             const tab = document.getElementById('ca-annotate');
@@ -129,7 +129,7 @@ function toggleArticleAnnotationMode(pageName: string): void {
                 tab.classList.remove('selected');
             }
         } catch (e) { /* ignore */ }
-        try { document.documentElement.classList.remove('rt-annotation-mode'); } catch (e) {}
+        try { document.documentElement.classList.remove('review-tool-annotation-mode'); } catch (e) {}
         // Notify user
         try { mw && mw.notify && mw.notify(state.convByVar({hant: '整頁批註模式已停用。', hans: '整页批注模式已停用。'}), { tag: 'review-tool' }); } catch (e) {}
         // Hide global viewer button when annotation mode is disabled

@@ -1,6 +1,6 @@
 import state from "../state";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
-import { findSectionInfoFromHeading, appendTextToSection } from "../api";
+import { findSectionInfoFromHeading, appendTextToSection, getSectionWikitext, parseWikitextToHtml, compareWikitext } from "../api";
 
 declare var mw: any;
 
@@ -28,28 +28,210 @@ function createCheckWritingDialog(): void {
                 suggestionPlaceholder: state.convByVar({hant: '意見或建議', hans: '意见或建议'}),
             }, data() {
                 return {
-                    open: true, isSaving: false, chapters: [
-                        {
-                            title: '', suggestions: [{quote: '', suggestion: ''}]
-                        }
-                    ],
+                        open: true,
+                        isSaving: false,
+                        currentStep: 0,
+                        chapters: [
+                            { title: '', suggestions: [{ quote: '', suggestion: '' }] }
+                        ],
+                        previewText: '',
+                        previewHtml: '',
+                        existingSectionText: '',
+                        diffHtml: '',
+                        diffLines: [] as string[],
                 };
             }, computed: {
                 primaryAction() {
-                    return {
-                        label: this.isSaving ? this.$options.i18n.saving : this.$options.i18n.save,
-                        actionType: 'progressive',
-                        disabled: this.isSaving
-                    };
+                    // Next / Save depending on step
+                    if (this.currentStep < 2) {
+                        return { label: this.$options.i18n.next || 'Next', actionType: 'primary', disabled: false };
+                    }
+                    return { label: this.isSaving ? this.$options.i18n.saving : this.$options.i18n.save, actionType: 'progressive', disabled: this.isSaving };
                 }, defaultAction() {
-                    return {
-                        label: this.$options.i18n.cancel
-                    };
+                    if (this.currentStep > 0) return { label: this.$options.i18n.previous || 'Previous' };
+                    return { label: this.$options.i18n.cancel };
                 }
             }, methods: {
+                triggerContentHooks(kind: 'preview' | 'diff') {
+                    this.$nextTick(() => {
+                        const html = kind === 'preview' ? this.previewHtml : this.diffHtml;
+                        const resolution = this.resolveHostForHtml(kind, html);
+                        const host = resolution?.host || null;
+                        if (!host || !html) {
+                            this.setFallbackHostVisible(kind, false);
+                            return;
+                        }
+                        if (resolution?.usedFallback || !host.innerHTML || !host.innerHTML.trim()) {
+                            host.innerHTML = html;
+                        }
+                        if (resolution?.usedFallback) {
+                            this.setFallbackHostVisible(kind, true);
+                            this.setFallbackHostVisible(kind === 'preview' ? 'diff' : 'preview', false);
+                        } else {
+                            this.setFallbackHostVisible(kind, false);
+                        }
+                        this.afterServerHtmlInjected(host as HTMLElement, html);
+                    });
+                },
+                resolveHostForHtml(kind: 'preview' | 'diff', html: string | null): { host: HTMLElement | null, usedFallback?: boolean } | null {
+                    const refName = kind === 'preview' ? 'previewHtmlHost' : 'diffHtmlHost';
+                    const refs = this.$refs as Record<string, HTMLElement | HTMLElement[] | undefined>;
+                    let host = refs[refName];
+                    if (Array.isArray(host)) host = host[0];
+                    if (host) {
+                        return { host }; // Vue rendered element is available
+                    }
+
+                    const dialogRoot = document.querySelector('.review-tool-check-writing-dialog');
+                    const selector = kind === 'preview' ? '.review-tool-preview-pre--html' : '.review-tool-diff-pre--html';
+                    const fallbackInDialog = dialogRoot ? (dialogRoot.querySelector(selector) as HTMLElement | null) : null;
+                    if (fallbackInDialog) {
+                        return { host: fallbackInDialog };
+                    }
+
+                    // Teleport body fallback: create a container directly in the Codex dialog body
+                    const fallbackKey = kind === 'preview' ? '_previewFallbackHost' : '_diffFallbackHost';
+                    let fallbackHost = (this as any)[fallbackKey] as HTMLElement | null;
+                    if (!fallbackHost || !document.body.contains(fallbackHost)) {
+                        const allBodies = Array.from(document.querySelectorAll('.cdx-dialog__body.cdx-scrollable-container')) as HTMLElement[];
+                        const targetBody = dialogRoot ? (dialogRoot.querySelector('.cdx-dialog__body.cdx-scrollable-container') as HTMLElement | null) : null;
+                        const bodyEl = targetBody || (allBodies.length ? allBodies[allBodies.length - 1] : null);
+                        if (bodyEl) {
+                            fallbackHost = document.createElement('div');
+                            fallbackHost.className = 'review-tool-html-host review-tool-html-host--fallback review-tool-html-host--' + kind;
+                            fallbackHost.style.padding = '16px';
+                            fallbackHost.style.minHeight = '80px';
+                            fallbackHost.style.display = kind === 'preview' ? '' : 'none';
+                            bodyEl.appendChild(fallbackHost);
+                            (this as any)[fallbackKey] = fallbackHost;
+                        }
+                    }
+                    if (fallbackHost) {
+                        return { host: fallbackHost, usedFallback: true };
+                    }
+                    return { host: null };
+                },
+                setFallbackHostVisible(kind: 'preview' | 'diff', visible: boolean) {
+                    const fallbackKey = kind === 'preview' ? '_previewFallbackHost' : '_diffFallbackHost';
+                    const host = (this as any)[fallbackKey] as HTMLElement | null;
+                    if (host) {
+                        host.style.display = visible ? '' : 'none';
+                    }
+                },
+                ensureCurrentStepContentHooks() {
+                    this.$nextTick(() => {
+                        if (this.currentStep === 1 && this.previewHtml) {
+                            this.triggerContentHooks('preview');
+                        } else if (this.currentStep === 2 && this.diffHtml) {
+                            this.triggerContentHooks('diff');
+                        } else {
+                            this.setFallbackHostVisible('preview', false);
+                            this.setFallbackHostVisible('diff', false);
+                        }
+                    });
+                },
+                afterServerHtmlInjected(targetEl: HTMLElement, html: string) {
+                    if (!targetEl || !html) return;
+                    // Fire MediaWiki content hook so gadgets enhance the HTML (use jQuery if available)
+                    try {
+                        if (typeof mw !== 'undefined' && mw && mw.hook && typeof mw.hook === 'function') {
+                            const $ = (window as any).jQuery;
+                            mw.hook('wikipage.content').fire($ ? $(targetEl) : targetEl);
+                        }
+                    } catch (e) {
+                        try { mw && mw.hook && mw.hook('wikipage.content').fire(targetEl); } catch (err) { /* ignore */ }
+                    }
+
+                    // Ensure diff CSS is available when diff HTML is displayed
+                    if (html.indexOf('class="diff') !== -1) {
+                        try { mw && mw.loader && mw.loader.load && mw.loader.load('mediawiki.diff.styles'); } catch (e) { /* ignore */ }
+                    }
+                },
+                
+                getStepClass(step: number) {
+                    return { 'review-tool-multistep-dialog__stepper__step--active': step <= this.currentStep };
+                },
                 onPrimaryAction() {
+                    if (this.currentStep < 2) {
+                        // moving forward
+                        if (this.currentStep === 0) {
+                            // build preview text and render via MediaWiki parse
+                            this.previewText = this.buildWikitext();
+                            // parse to HTML for preview
+                            parseWikitextToHtml(this.previewText, mw.config.get('wgPageName') || undefined).then((html: string) => {
+                                this.previewHtml = html || '';
+                                if (this.previewHtml) {
+                                    this.triggerContentHooks('preview');
+                                }
+                            }).catch((e: any) => {
+                                console.error('[ReviewTool] parseWikitextToHtml failed', e);
+                                this.previewHtml = '';
+                            });
+                        }
+                        if (this.currentStep === 1) {
+                            // prepare diff: fetch existing section
+                            const headingEl: Element | null = (state as any).pendingReviewHeading || null;
+                            const sec = findSectionInfoFromHeading(headingEl as Element | null);
+                            const pageTitleToUse = sec && sec.pageTitle ? sec.pageTitle : state.articleTitle || '';
+                            const sectionIdToUse = sec && sec.sectionId ? sec.sectionId : null;
+                            if (sectionIdToUse != null) {
+                                getSectionWikitext(pageTitleToUse, sectionIdToUse).then((text: string) => {
+                                    this.existingSectionText = text || '';
+                                    // use API compare to produce HTML diff between old and (old + appended)
+                                    compareWikitext(this.existingSectionText, (this.existingSectionText || '') + this.previewText).then((diffHtml: string) => {
+                                        this.diffHtml = diffHtml || '';
+                                        if (this.diffHtml) {
+                                            this.triggerContentHooks('diff');
+                                        } else {
+                                            this.diffLines = this.computeDiff(this.existingSectionText, this.previewText);
+                                        }
+                                    }).catch((err: any) => {
+                                        console.error('[ReviewTool] compareWikitext failed', err);
+                                        this.diffHtml = '';
+                                        this.diffLines = this.computeDiff(this.existingSectionText, this.previewText);
+                                    });
+                                }).catch((err: any) => {
+                                    console.error('[ReviewTool] getSectionWikitext failed', err);
+                                    this.existingSectionText = '';
+                                    compareWikitext('', this.previewText).then((diffHtml: string) => {
+                                            this.diffHtml = diffHtml || '';
+                                            if (this.diffHtml) {
+                                                this.triggerContentHooks('diff');
+                                            }
+                                            if (!this.diffHtml) this.diffLines = this.computeDiff('', this.previewText);
+                                    }).catch((err2: any) => {
+                                        console.error('[ReviewTool] compareWikitext failed', err2);
+                                        this.diffHtml = '';
+                                        this.diffLines = this.computeDiff('', this.previewText);
+                                    });
+                                });
+                            } else {
+                                this.existingSectionText = '';
+                                compareWikitext('', this.previewText).then((diffHtml: string) => {
+                                    this.diffHtml = diffHtml || '';
+                                    if (this.diffHtml) {
+                                        this.triggerContentHooks('diff');
+                                    }
+                                    if (!this.diffHtml) this.diffLines = this.computeDiff('', this.previewText);
+                                }).catch((err: any) => {
+                                    console.error('[ReviewTool] compareWikitext failed', err);
+                                    this.diffHtml = '';
+                                    this.diffLines = this.computeDiff('', this.previewText);
+                                });
+                            }
+                        }
+                        this.currentStep++;
+                        this.ensureCurrentStepContentHooks();
+                        return;
+                    }
+                    // last step: perform save
                     this.saveCheckWriting();
                 }, onDefaultAction() {
+                    if (this.currentStep > 0) {
+                        this.currentStep--;
+                        this.ensureCurrentStepContentHooks();
+                        return;
+                    }
                     this.closeDialog();
                 }, onUpdateOpen(newValue: any) {
                     if (!newValue) {
@@ -61,6 +243,32 @@ function createCheckWritingDialog(): void {
                         removeDialogMount();
                     }, 300);
                 },
+                buildWikitext() {
+                    let wikitext = '';
+                    for (const ch of this.chapters) {
+                        const title = (ch.title || '').trim();
+                        wikitext += "'''" + title + "'''\n";
+                        for (const s of (ch.suggestions || [])) {
+                            const quote = (s.quote || '').trim();
+                            const suggestion = (s.suggestion || '').trim();
+                            wikitext += `* {{rvw|1=${quote}}} —— ${suggestion}\n`;
+                        }
+                        wikitext += '--~~~~\n\n';
+                    }
+                    return wikitext;
+                },
+                computeDiff(oldText: string, newText: string) {
+                    const oldLines = (oldText || '').split(/\r?\n/);
+                    const newLines = (newText || '').split(/\r?\n/);
+                    const out: string[] = [];
+                    // Show existing section then the appended lines prefixed with +
+                    out.push('--- Existing section ---');
+                    out.push(...oldLines.map(l => '  ' + l));
+                    out.push('');
+                    out.push('+++ New content to append +++');
+                    out.push(...newLines.map(l => '+ ' + l));
+                    return out;
+                },
                 saveCheckWriting() {
                     this.isSaving = true;
                     const payload = {
@@ -70,7 +278,7 @@ function createCheckWritingDialog(): void {
                             }))
                         }))
                     };
-                    console.debug('[ReviewTool] saveCheckWriting payload', payload);
+
 
                     // Find the section ID from the heading that opened this dialog
                     const headingEl: Element | null = (state as any).pendingReviewHeading || null;
@@ -83,25 +291,12 @@ function createCheckWritingDialog(): void {
                         return;
                     }
 
-                    // Build wikitext according to the requested format
-                    let wikitext = '';
-                    for (const ch of this.chapters) {
-                        const title = (ch.title || '').trim();
-                        wikitext += "'''" + title + "'''\n";
-                        for (const s of (ch.suggestions || [])) {
-                            const quote = (s.quote || '').trim();
-                            const suggestion = (s.suggestion || '').trim();
-                            // Use the rvw template with the quote in param 1
-                            wikitext += `* {{rvw|1=${quote}}} —— ${suggestion}\n`;
-                        }
-                        // signature
-                        wikitext += '--~~~~\n\n';
-                    }
+                    const wikitext = '\n\n' + this.buildWikitext();
 
                     const pageTitleToUse = sec.pageTitle || state.articleTitle || '';
                     const sectionIdToUse = sec.sectionId as number;
 
-                    appendTextToSection(pageTitleToUse, sectionIdToUse, '\n\n' + wikitext, state.convByVar({hant: '新增文筆建議', hans: '新增文笔建议'}))
+                    appendTextToSection(pageTitleToUse, sectionIdToUse, wikitext, state.convByVar({hant: '新增文筆建議', hans: '新增文笔建议'}))
                         .then((resp: any) => {
                             try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' }); } catch (e) {}
                             this.isSaving = false;
@@ -117,16 +312,14 @@ function createCheckWritingDialog(): void {
                             this.isSaving = false;
                         });
                 }, addChapter() {
-                    this.chapters.push({
-                        title: '', suggestions: [{quote: '', suggestion: ''}]
-                    });
+                    this.chapters.push({ title: '', suggestions: [{ quote: '', suggestion: '' }] });
                 }, removeChapter(idx: number) {
                     if (this.chapters.length <= 1) {
                         return;
                     }
                     this.chapters.splice(idx, 1);
                 }, addSuggestion(chIdx: number) {
-                    this.chapters[chIdx].suggestions.push({quote: '', suggestion: ''});
+                    this.chapters[chIdx].suggestions.push({ quote: '', suggestion: '' });
                 }, removeSuggestion(chIdx: number, sIdx: number) {
                     const suggestions = this.chapters[chIdx].suggestions;
                     if (suggestions.length <= 1) {
@@ -135,18 +328,33 @@ function createCheckWritingDialog(): void {
                     suggestions.splice(sIdx, 1);
                 },
             }, template: `
-				<cdx-dialog
-					v-model:open="open"
-					:title="$options.i18n.dialogTitle"
-					:use-close-button="true"
-					:primary-action="primaryAction"
-					:default-action="defaultAction"
-					@primary="onPrimaryAction"
-					@default="onDefaultAction"
-					@update:open="onUpdateOpen"
-					class="review-tool-dialog review-tool-check-writing-dialog"
-				>
+            <cdx-dialog
+				v-model:open="open"
+                :title="$options.i18n.dialogTitle"
+				:use-close-button="true"
+                :primary-action="primaryAction"
+                :default-action="defaultAction"
+				@primary="onPrimaryAction"
+				@default="onDefaultAction"
+				@update:open="onUpdateOpen"
+                class="review-tool-dialog review-tool-check-writing-dialog review-tool-multistep-dialog"
+			>
 
+				<template #header>
+                    <div class="review-tool-multistep-dialog__header-top">
+                        <h2>{{ $options.i18n.dialogTitle }}</h2>
+                    </div>
+
+                    <div class="review-tool-multistep-dialog__stepper">
+                        <div class="review-tool-multistep-dialog__stepper__label">{{ ( currentStep + 1 ) + ' of 3' }}</div>
+                        <div class="review-tool-multistep-dialog__stepper__steps" aria-hidden>
+                            <span v-for="step of [0,1,2]" :key="step" class="review-tool-multistep-dialog__stepper__step" :class="getStepClass(step)"></span>
+                        </div>
+                    </div>
+				</template>
+
+				<!-- Step 0: Form -->
+				<div v-if="currentStep === 0">
 					<div v-for="(ch, chIdx) in chapters" :key="chIdx" class="review-tool-form-section chapter-block">
 						<cdx-text-input v-model="ch.title" :placeholder="$options.i18n.chapterTitleLabel" class="chapter-title-input"></cdx-text-input>
 
@@ -161,20 +369,13 @@ function createCheckWritingDialog(): void {
 										<cdx-text-area class="suggestion-area" v-model="s.suggestion" :placeholder="$options.i18n.suggestionPlaceholder" rows="1"></cdx-text-area>
 									</div>
 									<div class="suggestion-controls">
-										<cdx-button
-											size="small"
-											class="cdx-button--icon-only"
-											:aria-label="$options.i18n.removeSuggestion"
-											:disabled="ch.suggestions.length <= 1"
-											@click.prevent="removeSuggestion(chIdx, sIdx)"
-										>
+										<cdx-button size="small" class="cdx-button--icon-only" :aria-label="$options.i18n.removeSuggestion" :disabled="ch.suggestions.length <= 1" @click.prevent="removeSuggestion(chIdx, sIdx)">
 											<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="16" height="16"><path d="M3 6h18v2H3V6zm2 3h14l-1 11H6L5 9zm3-6h6l1 2H7l1-2z"/></svg>
 										</cdx-button>
 									</div>
 								</div>
 							</div>
 
-						<!-- Row containing add-suggestion and chapter controls side-by-side -->
 						<div class="row-controls">
 							<div class="suggestion-add">
 								<cdx-button size="small" @click.prevent="addSuggestion(chIdx)">
@@ -184,12 +385,10 @@ function createCheckWritingDialog(): void {
 							</div>
 
 							<div class="chapter-controls">
-								<!-- Add chapter only on the last chapter block -->
 								<cdx-button v-if="chIdx === chapters.length - 1" size="small" @click.prevent="addChapter">
 									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="16" height="16" style="margin-right:6px"><path d="M11 11V6h2v5h5v2h-5v5h-2v-5H6v-2z"/></svg>
 									{{ $options.i18n.addChapter }}
 								</cdx-button>
-								<!-- Delete chapter button with icon + text so it's distinguishable from entry delete -->
 								<cdx-button size="small" :disabled="chapters.length <= 1" @click.prevent="removeChapter(chIdx)">
 									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="16" height="16" style="margin-right:6px"><path d="M3 6h18v2H3V6zm2 3h14l-1 11H6L5 9zm3-6h6l1 2H7l1-2z"/></svg>
 									{{ $options.i18n.removeChapter }}
@@ -197,7 +396,33 @@ function createCheckWritingDialog(): void {
 							</div>
 						</div>
 					</div>
-				</cdx-dialog>
+				</div>
+
+                <!-- Step 1: Preview -->
+                <div v-if="currentStep === 1" class="review-tool-preview">
+                    <h3>Preview</h3>
+                    <div
+                        v-if="previewHtml"
+                        class="review-tool-preview-pre review-tool-preview-pre--html"
+                        ref="previewHtmlHost"
+                        v-html="previewHtml"
+                    ></div>
+                    <pre class="review-tool-preview-pre" v-else>{{ previewText }}</pre>
+                </div>
+
+                <!-- Step 2: Diff & Save -->
+                <div v-if="currentStep === 2" class="review-tool-diff">
+                    <h3>Diff</h3>
+                    <div
+                        v-if="diffHtml"
+                        class="review-tool-diff-pre review-tool-diff-pre--html"
+                        ref="diffHtmlHost"
+                        v-html="diffHtml"
+                    ></div>
+                    <pre class="review-tool-diff-pre" v-else>{{ diffLines.join('\\n') }}</pre>
+                </div>
+
+			</cdx-dialog>
 			`,
         });
 

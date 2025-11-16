@@ -205,10 +205,78 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
 /* While annotation mode is active, allow selection over known inline editor widgets
    that set `user-select: none` (e.g. ipe quick-edit buttons). This only applies
    while our mode is on to avoid changing page behavior permanently. */
-.rt-annotation-mode .ipe__in-article-link,
-.rt-annotation-mode .ipe-quick-edit,
-.rt-annotation-mode .ipe-quick-edit--create-only,
-.rt-annotation-mode .qeec-ref-tag-copy-btn {
+.review-tool-annotation-mode .ipe__in-article-link,
+.review-tool-annotation-mode .ipe-quick-edit,
+.review-tool-annotation-mode .ipe-quick-edit--create-only,
+.review-tool-annotation-mode .qeec-ref-tag-copy-btn {
     user-select: text !important;
     pointer-events: auto !important;
 }
+
+.review-tool-multistep-dialog {
+    /* keep roughly the same min-height as the example */
+    min-height: 530px;
+    max-width: 900px;
+}
+.review-tool-multistep-dialog header {
+    padding: 16px 24px;
+}
+.review-tool-multistep-dialog header h2 {
+    margin: 0;
+    padding: 0;
+    font-size: 20px;
+}
+.review-tool-multistep-dialog__header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.review-tool-multistep-dialog__stepper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 24px 0 24px;
+}
+.review-tool-multistep-dialog__stepper__label {
+    color: #6b7280; /* subtle gray */
+    font-size: 13px;
+}
+.review-tool-multistep-dialog__stepper__steps {
+    display: flex;
+    gap: 8px;
+}
+.review-tool-multistep-dialog__stepper__step {
+    background-color: #c8ccd1;
+    display: block;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+}
+.review-tool-multistep-dialog__stepper__step--active {
+    background-color: #0b5fff; /* accent */
+}
+.review-tool-multistep-dialog .cdx-dialog__body {
+    padding: 0 0 16px 0;
+}
+.review-tool-multistep-dialog__image {
+    background-color: #f1f5f9;
+    display: flex;
+    justify-content: center;
+    padding: 12px 0;
+}
+.review-tool-multistep-dialog__image img { display: block; max-width: 100%; }
+.review-tool-multistep-dialog__text {
+    padding: 16px 24px;
+}
+.review-tool-multistep-dialog__text p { margin: 8px 0 0 0; font-size: 13px; }
+.review-tool-multistep-dialog__text ul { margin: 0; padding-left: 24px; }
+.review-tool-multistep-dialog__text li { font-size: 13px; }
+.review-tool-multistep-dialog footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid rgba(0,0,0,0.06);
+    padding: 12px 24px;
+}
+.review-tool-multistep-dialog__actions { display: flex; gap: 12px; }
+
