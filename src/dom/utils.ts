@@ -73,17 +73,18 @@ export function appendButtonToHeading(heading: Element, button: Element): void {
         if (anchor && typeof anchor.onclick === 'function') {
             const orig = anchor.onclick;
             anchor.onclick = (e: Event) => {
-                try { state.pendingReviewHeading = heading; } catch (err) { /* ignore */ }
+                try { state.pendingReviewHeading = heading; } catch (err) { console.error('[ReviewTool][appendButtonToHeading] failed to set pendingReviewHeading', err); throw err; }
                 // call original handler
-                try { orig.call(anchor, e); } catch (ex) { /* ignore */ }
+                try { orig.call(anchor, e); } catch (ex) { console.error('[ReviewTool][appendButtonToHeading] original click handler failed', ex); throw ex; }
             };
         } else if (anchor) {
             anchor.addEventListener('click', (e) => {
-                try { state.pendingReviewHeading = heading; } catch (err) { /* ignore */ }
+                try { state.pendingReviewHeading = heading; } catch (err) { console.error('[ReviewTool][appendButtonToHeading] failed to set pendingReviewHeading', err); throw err; }
             });
         }
     } catch (e) {
-        // ignore any require/import errors and just append the button
+        console.error('[ReviewTool][appendButtonToHeading] failed to append button or import state', e);
+        throw e;
     }
     mwEditSection.append(button);
 }

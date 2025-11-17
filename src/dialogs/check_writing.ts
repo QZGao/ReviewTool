@@ -26,6 +26,10 @@ function createCheckWritingDialog(): void {
                 quoteLabel: state.convByVar({hant: '引用原文', hans: '引用原文'}),
                 quotePlaceholder: state.convByVar({hant: '原文句子', hans: '原文句子'}),
                 suggestionPlaceholder: state.convByVar({hant: '意見或建議', hans: '意见或建议'}),
+                next: state.convByVar({hant: '下一步', hans: '下一步'}),
+                previous: state.convByVar({hant: '上一步', hans: '上一步'}),
+                previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
+                diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
             }, data() {
                 return {
                         open: true,
@@ -285,8 +289,8 @@ function createCheckWritingDialog(): void {
                     const sec = findSectionInfoFromHeading(headingEl as Element | null);
                     if (!sec || !sec.sectionId) {
                         const msg = state.convByVar({hant: '無法識別文筆章節編號，請在討論頁的文筆章節附近點擊「檢查文筆」。', hans: '无法识别文笔章节编号，请在讨论页的文笔章节附近点击“检查文笔”。'});
-                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
-                        try { alert(msg); } catch (e) {}
+                        mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        alert(msg);
                         this.isSaving = false;
                         return;
                     }
@@ -298,17 +302,17 @@ function createCheckWritingDialog(): void {
 
                     appendTextToSection(pageTitleToUse, sectionIdToUse, wikitext, state.convByVar({hant: '新增文筆建議', hans: '新增文笔建议'}))
                         .then((resp: any) => {
-                            try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' }); } catch (e) {}
+                            mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' });
                             this.isSaving = false;
                             this.open = false;
-                            try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                            (state as any).pendingReviewHeading = null;
                             setTimeout(() => { removeDialogMount(); }, 200);
                         })
                         .catch((err: any) => {
                             console.error('[ReviewTool] appendTextToSection failed', err);
                             const msg = state.convByVar({hant: '新增文筆建議失敗，請稍後再試。', hans: '新增文笔建议失败，请稍后再试。'});
-                            try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
-                            try { alert(msg); } catch (e) {}
+                            mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                            alert(msg);
                             this.isSaving = false;
                         });
                 }, addChapter() {
@@ -400,7 +404,7 @@ function createCheckWritingDialog(): void {
 
                 <!-- Step 1: Preview -->
                 <div v-if="currentStep === 1" class="review-tool-preview">
-                    <h3>Preview</h3>
+                    <h3>{{ $options.i18n.previewHeading }}</h3>
                     <div
                         v-if="previewHtml"
                         class="review-tool-preview-pre review-tool-preview-pre--html"
@@ -412,7 +416,7 @@ function createCheckWritingDialog(): void {
 
                 <!-- Step 2: Diff & Save -->
                 <div v-if="currentStep === 2" class="review-tool-diff">
-                    <h3>Diff</h3>
+                    <h3>{{ $options.i18n.diffHeading }}</h3>
                     <div
                         v-if="diffHtml"
                         class="review-tool-diff-pre review-tool-diff-pre--html"

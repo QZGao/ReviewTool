@@ -9,7 +9,7 @@
     "watch": "node build.mjs --watch"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "esbuild": "^0.21.5"
   }
 }
-

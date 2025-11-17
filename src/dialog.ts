@@ -130,7 +130,7 @@ export function showPreviewOverlay(html: string, title?: string) {
                 }
                 // If diff HTML is present, ensure diff CSS is loaded
                 if (html && html.indexOf('class="diff') !== -1) {
-                    try { mw && mw.loader && mw.loader.load && mw.loader.load('mediawiki.diff.styles'); } catch (e) {}
+                    mw && mw.loader && mw.loader.load && mw.loader.load('mediawiki.diff.styles');
                 }
             } catch (e) {
                 /* best-effort only */

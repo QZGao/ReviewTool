@@ -26,6 +26,10 @@ function createReviewManagementDialog(): void {
                 selectCriterion: state.convByVar({hant: '評審標準：', hans: '评审标准：'}),
                 criterionPlaceholder: state.convByVar({hant: '選擇評審標準', hans: '选择评审标准'}),
                 addCriteriaToReview: state.convByVar({hant: '將以下標準加入評審', hans: '将以下标准加入评审'}),
+                next: state.convByVar({hant: '下一步', hans: '下一步'}),
+                previous: state.convByVar({hant: '上一步', hans: '上一步'}),
+                previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
+                diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
             }, data() {
                 return {
                         open: true,
@@ -373,8 +377,8 @@ function createReviewManagementDialog(): void {
                     if (!sec || !sec.sectionId) {
                         // Show an error prompt and abort
                         const msg = state.convByVar({hant: '無法識別章節編號，請在討論頁的章節標題附近點擊「管理評審」。', hans: '无法识别章节编号，请在讨论页的章节标题附近点击“管理评审”。'});
-                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
-                        try { alert(msg); } catch (e) {}
+                        mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        alert(msg);
                         this.isSubmitting = false;
                         return;
                     }
@@ -403,17 +407,17 @@ function createReviewManagementDialog(): void {
                             : (this.criterion ? createHeaderMarkup(String(this.criterion), level) : createHeaderMarkup(state.convByVar({hant: '無具體評審項目', hans: '无具体评审项目'}), level));
                         appendTextToSection(pageTitleToUse, sectionIdToUse, headers, state.convByVar({hant: '使用 ReviewTool 新增評審項目', hans: '使用 ReviewTool 新增评审项目'}))
                             .then((resp: any) => {
-                                try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' }); } catch (e) {}
+                                mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' });
                                 this.isSubmitting = false;
                                 this.open = false;
-                                try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                                (state as any).pendingReviewHeading = null;
                                 setTimeout(() => { removeDialogMount(); }, 200);
                             })
                             .catch((err: any) => {
                                 console.error('[ReviewTool] appendTextToSection failed', err);
                                 const msg = state.convByVar({hant: '新增評審項目失敗，請稍後再試。', hans: '新增评审项目失败，请稍后再试。'});
-                                try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
-                                try { alert(msg); } catch (e) {}
+                                mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                                alert(msg);
                                 this.isSubmitting = false;
                             });
                         return;
@@ -457,17 +461,17 @@ function createReviewManagementDialog(): void {
                                 const newSectionText = secWikitext.slice(0, insertPos) + '\n' + h4s + secWikitext.slice(insertPos);
                                 replaceSectionText(pageTitleToUse, sectionIdToUse, newSectionText, state.convByVar({hant: '使用 ReviewTool 新增評審子項', hans: '使用 ReviewTool 新增评审子项'}))
                                     .then((resp: any) => {
-                                        try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審子項。', hans: '已成功新增评审子项。'}), { tag: 'review-tool' }); } catch (e) {}
+                                        mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審子項。', hans: '已成功新增评审子项。'}), { tag: 'review-tool' });
                                         this.isSubmitting = false;
                                         this.open = false;
-                                        try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                                        (state as any).pendingReviewHeading = null;
                                         setTimeout(() => { removeDialogMount(); }, 200);
                                     })
                                     .catch((err: any) => {
                                         console.error('[ReviewTool] replaceSectionText failed', err);
                                         const msg = state.convByVar({hant: '新增評審子項失敗，請稍後再試。', hans: '新增评审子项失败，请稍后再试。'});
-                                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
-                                        try { alert(msg); } catch (e) {}
+                                        mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                                        alert(msg);
                                         this.isSubmitting = false;
                                     });
                                 found = true;
@@ -480,25 +484,25 @@ function createReviewManagementDialog(): void {
                             const toAppend = createHeaderMarkup(opinionHeaderTitle, 3) + h4s;
                             appendTextToSection(pageTitleToUse, sectionIdToUse, toAppend, state.convByVar({hant: '使用 ReviewTool 新增評審項', hans: '使用 ReviewTool 新增评审项目'}))
                                 .then((resp: any) => {
-                                    try { mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' }); } catch (e) {}
+                                    mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' });
                                     this.isSubmitting = false;
                                     this.open = false;
-                                    try { (state as any).pendingReviewHeading = null; } catch (e) {}
+                                    (state as any).pendingReviewHeading = null;
                                     setTimeout(() => { removeDialogMount(); }, 200);
                                 })
                                 .catch((err: any) => {
                                     console.error('[ReviewTool] appendTextToSection failed', err);
                                     const msg = state.convByVar({hant: '新增評審項目失敗，請稍後再試。', hans: '新增评审项目失败，请稍后再试。'});
-                                    try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
-                                    try { alert(msg); } catch (e) {}
+                                    mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                                    alert(msg);
                                     this.isSubmitting = false;
                                 });
                         }
                     }).catch((err: any) => {
                         console.error('[ReviewTool] getSectionWikitext failed', err);
                         const msg = state.convByVar({hant: '讀取章節內容失敗，無法新增子項。', hans: '读取章节内容失败，无法新增子项。'});
-                        try { mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' }); } catch (e) {}
-                        try { alert(msg); } catch (e) {}
+                        mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        alert(msg);
                         this.isSubmitting = false;
                     });
                 }
@@ -558,9 +562,9 @@ function createReviewManagementDialog(): void {
                     </div>
                 </div>
 
-                <!-- Step 1: Preview (simple) -->
+                <!-- Step 1: Preview -->
                 <div v-if="currentStep === 1" class="review-tool-preview">
-                    <h3>Preview</h3>
+                    <h3>{{ $options.i18n.previewHeading }}</h3>
                     <div
                         v-if="previewHtml"
                         class="review-tool-preview-pre review-tool-preview-pre--html"
@@ -570,9 +574,9 @@ function createReviewManagementDialog(): void {
                     <pre class="review-tool-preview-pre" v-else>{{ selectedCriteria.length ? selectedCriteria.join('\\n') : (criterion || 'No specific criteria') }}</pre>
                 </div>
 
-                <!-- Step 2: Diff & Save (final) -->
+                <!-- Step 2: Diff & Save -->
                 <div v-if="currentStep === 2" class="review-tool-diff">
-                    <h3>Ready to submit</h3>
+                    <h3>{{ $options.i18n.diffHeading }}</h3>
                     <div
                         v-if="diffHtml"
                         class="review-tool-diff-pre review-tool-diff-pre--html"

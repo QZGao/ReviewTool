@@ -213,11 +213,6 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
     pointer-events: auto !important;
 }
 
-.review-tool-multistep-dialog {
-    /* keep roughly the same min-height as the example */
-    min-height: 530px;
-    max-width: 900px;
-}
 .review-tool-multistep-dialog header {
     padding: 16px 24px;
 }
@@ -255,9 +250,6 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
 .review-tool-multistep-dialog__stepper__step--active {
     background-color: #0b5fff; /* accent */
 }
-.review-tool-multistep-dialog .cdx-dialog__body {
-    padding: 0 0 16px 0;
-}
 .review-tool-multistep-dialog__image {
     background-color: #f1f5f9;
     display: flex;
@@ -280,3 +272,9 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
 }
 .review-tool-multistep-dialog__actions { display: flex; gap: 12px; }
 
+.review-tool-preview-pre--html,
+.review-tool-html-host--preview {
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    background: #fafafa;
+}
