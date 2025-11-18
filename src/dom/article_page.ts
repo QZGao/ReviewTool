@@ -1,7 +1,7 @@
 import {addVectorMenuTab, getHeadingTitle} from "./utils";
 import state from "../state";
 import {
-    createAnnotation, deleteAnnotation, getAnnotation, getAnnotationsForSection, loadAnnotations, updateAnnotation
+    createAnnotation, deleteAnnotation, getAnnotation, loadAnnotations, updateAnnotation
 } from "../annotations";
 
 declare var mw: any;
@@ -23,6 +23,7 @@ const SELECTION_SHOW_DELAY_MS = 120;
 
 let selectionShowTimer: number | null = null;
 let floatingHideTimer: number | null = null;
+const inlineAnnotationBubbles = new Map<string, HTMLElement>();
 
 // Remove common reference/decoration nodes from an element clone and return cleaned text
 function getCleanTextFromElement(el: Element | null): string {
@@ -136,24 +137,17 @@ function isNodeWithinSection(node: Node | null): boolean {
     return startBeforeEl && elBeforeEnd;
 }
 
-function selectionInsideActiveSection(): { range: Range | null, singleSentenceIndex: number | null } {
+function selectionInsideActiveSection(): Range | null {
     const sel = document.getSelection();
-    if (!sel || sel.isCollapsed) return {range: null, singleSentenceIndex: null};
+    if (!sel || sel.isCollapsed) return null;
     const range = sel.getRangeAt(0);
-    if (!activeSectionStart) return {range: null, singleSentenceIndex: null};
+    if (!activeSectionStart) return null;
     // ensure both startContainer and endContainer are within the section
     const startIn = isNodeWithinSection(range.startContainer as Node);
     const endIn = isNodeWithinSection(range.endContainer as Node);
     // If either endpoint is outside the section, ignore
-    if (!startIn || !endIn) return {range: null, singleSentenceIndex: null};
-    // Try to find sentence span ancestor for startContainer
-    const startSentence = findAncestorSentence(range.startContainer as Node);
-    const endSentence = findAncestorSentence(range.endContainer as Node);
-    if (startSentence && endSentence && startSentence === endSentence) {
-        const idx = parseInt((startSentence as HTMLElement).getAttribute('data-sentence-index') || '-1', 10);
-        return {range, singleSentenceIndex: isFinite(idx) ? idx : null};
-    }
-    return {range: range, singleSentenceIndex: null};
+    if (!startIn || !endIn) return null;
+    return range;
 }
 
 function onMouseDown(e?: MouseEvent) {
@@ -237,29 +231,32 @@ function onSelectionChange() {
         selectionShowTimer = null;
     }
     selectionShowTimer = window.setTimeout(() => {
-        const res = selectionInsideActiveSection();
-        if (!res.range) {
+        const selectionRange = selectionInsideActiveSection();
+        if (!selectionRange) {
             hideFloatingButton();
             return;
         }
-        const rect = res.range.getBoundingClientRect();
+        const rect = selectionRange.getBoundingClientRect();
         // Center on the actual selection, clamped to viewport
         const centerX = Math.max(40, Math.min(window.innerWidth - 40, rect.left + rect.width / 2));
         const topY = Math.max(8, rect.top + window.scrollY - 8);
+        const rangeClone = selectionRange.cloneRange();
         showFloatingButton(centerX + window.scrollX, topY, () => {
             // Prefer cleaning the actual Range contents (so we can remove DOM decorations like copy buttons)
-            const selectedText = getCleanTextFromRange(res.range);
+            const selectedText = getCleanTextFromRange(selectionRange);
             if (!selectedText) {
                 hideFloatingButton();
                 return;
             }
             if (activePageName) {
-                const idx = res.singleSentenceIndex != null ? res.singleSentenceIndex : -1;
                 hideFloatingButton();
                 const sel = document.getSelection();
                 sel && sel.removeAllRanges();
-                const computedSectionPath = computeSectionPathFromNode(res.range ? res.range.startContainer : null);
-                openAnnotationDialog(activePageName, null, computedSectionPath, idx, selectedText);
+                const computedSectionPath = computeSectionPathFromNode(selectionRange ? selectionRange.startContainer : null);
+                openAnnotationDialog(activePageName, null, computedSectionPath, {
+                    sentenceText: selectedText,
+                    selectionRange: rangeClone
+                });
             }
         });
     }, SELECTION_SHOW_DELAY_MS);
@@ -868,45 +865,86 @@ export function clearWrappedSentences() {
     document.querySelectorAll('.review-tool-annotation-badge').forEach(badge => badge.remove());
 }
 
-/**
- * Render visual badges on sentences that have annotations
- */
-export function renderAnnotationBadges(pageName: string, sectionPath: string) {
-    // Clear existing badges in this section first
-    document.querySelectorAll('.review-tool-annotation-badge').forEach(badge => badge.remove());
+function createInlineAnnotationBubbleElement(pageName: string, sectionPath: string, annotationId: string, opinion: string): HTMLElement {
+    const bubble = document.createElement('span');
+    bubble.className = 'review-tool-inline-annotation';
+    bubble.dataset.annoId = annotationId;
+    bubble.dataset.sectionPath = sectionPath;
+    bubble.title = opinion;
 
-    const sectionAnnotations = getAnnotationsForSection(pageName, sectionPath);
-    sectionAnnotations.forEach(anno => {
-        const sentenceEl = document.querySelector(`.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}[data-sentence-index="${anno.sentenceIndex}"]`);
-        if (sentenceEl) {
-            const badge = document.createElement('sup');
-            badge.className = 'review-tool-annotation-badge';
-            badge.textContent = '💬';
-            badge.title = anno.opinion;
-            badge.style.cursor = 'pointer';
-            badge.style.marginLeft = '2px';
-            badge.style.color = '#36c';
-            badge.dataset.annoId = anno.id;
-            badge.onclick = (e) => {
-                e.stopPropagation();
-                openAnnotationDialog(pageName, anno.id, sectionPath);
-            };
-            sentenceEl.appendChild(badge);
+    const icon = document.createElement('span');
+    icon.className = 'review-tool-inline-annotation__icon';
+    icon.textContent = '💬';
+    icon.title = opinion;
+    icon.setAttribute('role', 'button');
+    icon.tabIndex = 0;
+    icon.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openAnnotationDialog(pageName, annotationId, sectionPath);
+    };
+    icon.onkeydown = (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            icon.click();
         }
-    });
+    };
+
+    bubble.appendChild(icon);
+    return bubble;
 }
 
-function openAnnotationDialog(pageName: string, annotationId: string | null, sectionPath: string, sentenceIndex?: number, sentenceText?: string) {
+function insertInlineAnnotationBubble(range: Range | null, pageName: string, sectionPath: string, annotationId: string, opinion: string) {
+    if (!range) {
+        console.warn('[ReviewTool] Cannot insert inline annotation bubble without a selection range.');
+        return;
+    }
+
+    removeInlineAnnotationBubble(annotationId);
+
+    const bubble = createInlineAnnotationBubbleElement(pageName, sectionPath, annotationId, opinion);
+    inlineAnnotationBubbles.set(annotationId, bubble);
+
+    const insertionRange = range.cloneRange();
+    insertionRange.collapse(false);
+    insertionRange.insertNode(bubble);
+}
+
+function updateInlineAnnotationBubble(annotationId: string, opinion: string) {
+    const bubble = inlineAnnotationBubbles.get(annotationId);
+    if (!bubble) return;
+    bubble.setAttribute('data-opinion', opinion);
+    bubble.title = opinion;
+    if (bubble.firstElementChild) {
+        (bubble.firstElementChild as HTMLElement).title = opinion;
+    }
+}
+
+function removeInlineAnnotationBubble(annotationId: string) {
+    const bubble = inlineAnnotationBubbles.get(annotationId);
+    if (!bubble) return;
+    bubble.remove();
+    inlineAnnotationBubbles.delete(annotationId);
+}
+
+interface AnnotationDialogOptions {
+    sentenceText?: string;
+    selectionRange?: Range | null;
+}
+
+function openAnnotationDialog(pageName: string, annotationId: string | null, sectionPath: string, options: AnnotationDialogOptions = {}) {
     // Remove existing dialog if any
     const existing = document.getElementById('review-tool-annotation-dialog');
     if (existing) existing.remove();
 
     const isEdit = annotationId !== null;
     const anno = isEdit ? getAnnotation(pageName, annotationId!) : null;
+    const selectionRange = options.selectionRange ? options.selectionRange.cloneRange() : null;
 
-    // For new annotations, use provided sentenceText and sentenceIndex; for edits, use anno data
+
+    // For new annotations, use provided sentence text; for edits, use anno data
     // Ensure displayed sentence text is sanitized (strip ref decorations)
-    const displaySentenceText = isEdit ? (anno?.sentenceText || '') : sanitizePlainText(sentenceText || '');
+    const displaySentenceText = isEdit ? (anno?.sentenceText || '') : sanitizePlainText(options.sentenceText || '');
     const displayOpinion = isEdit ? (anno?.opinion || '') : '';
 
     const overlay = document.createElement('div');
@@ -1008,7 +1046,7 @@ function openAnnotationDialog(pageName: string, annotationId: string | null, sec
             const removed = deleteAnnotation(pageName, annotationId!);
             if (removed) {
                 overlay.remove();
-                renderAnnotationBadges(pageName, sectionPath);
+                removeInlineAnnotationBubble(annotationId!);
             }
         };
         footer.appendChild(deleteBtn);
@@ -1033,15 +1071,14 @@ function openAnnotationDialog(pageName: string, annotationId: string | null, sec
             const updated = updateAnnotation(pageName, annotationId!, {opinion: opinionValue});
             if (updated) {
                 overlay.remove();
-                renderAnnotationBadges(pageName, sectionPath);
+                updateInlineAnnotationBubble(annotationId!, opinionValue);
             }
         } else {
             // Create new annotation
-            const idx = sentenceIndex !== undefined ? sentenceIndex : -1;
-            createAnnotation(pageName, sectionPath, idx, displaySentenceText, opinionValue);
-            renderAnnotationBadges(pageName, sectionPath);
+            const created = createAnnotation(pageName, sectionPath, displaySentenceText, opinionValue);
+            insertInlineAnnotationBubble(selectionRange, pageName, sectionPath, created.id, opinionValue);
             console.log('[ReviewTool] annotation saved', {
-                page: pageName, section: sectionPath, idx, opinion: opinionValue, text: displaySentenceText
+                page: pageName, section: sectionPath, opinion: opinionValue, text: displaySentenceText
             });
             overlay.remove();
         }
@@ -1168,11 +1205,11 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
             e.stopPropagation();
             e.preventDefault();
             if (!activePageName || !activeSectionPath) return;
-            const idx = parseInt(s.getAttribute('data-sentence-index') || '-1', 10);
             const sentenceText = getCleanTextFromElement(s);
             // Create a range to select this sentence
             const range = document.createRange();
             range.selectNodeContents(s);
+            const rangeClone = range.cloneRange();
             const selection = window.getSelection();
             if (selection) {
                 selection.removeAllRanges();
@@ -1185,13 +1222,15 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
 
             showFloatingButton(centerX + window.scrollX, topY, () => {
                 if (activePageName) {
-                    const idxx = isFinite(idx) ? idx : -1;
                     hideFloatingButton();
                     // Clear selection
                     const sel = window.getSelection();
                     sel && sel.removeAllRanges();
                     const computedSectionPath = computeSectionPathFromNode(s);
-                    openAnnotationDialog(activePageName, null, computedSectionPath, idxx, sentenceText);
+                    openAnnotationDialog(activePageName, null, computedSectionPath, {
+                        sentenceText,
+                        selectionRange: rangeClone
+                    });
                 }
             });
         });
@@ -1313,7 +1352,7 @@ export function showAnnotationViewer(pageName: string) {
                     const ok = confirm(state.convByVar({hant: '確定刪除？', hans: '确定删除？'}));
                     if (ok) {
                         if (deleteAnnotation(pageName, anno.id)) {
-                            renderAnnotationBadges(pageName, sectionPath);
+                            removeInlineAnnotationBubble(anno.id);
                             viewer.remove();
                             showAnnotationViewer(pageName);
                         }
@@ -1344,7 +1383,7 @@ export function addMainPageReviewToolButtonsToDOM(pageName: string): void {
     const tab = addVectorMenuTab('ca-annotate', state.convByVar({
         hant: '批註模式', hans: '批注模式'
     }), state.convByVar({
-        hant: '切換整頁批註模式', hans: '切换整页批注模式'
+        hant: '切換批註模式', hans: '切换批注模式'
     }), (e) => toggleArticleAnnotationMode(pageName));
     // add global viewer button (guard against duplicate)
     addGlobalAnnotationViewerButton(pageName);
@@ -1413,9 +1452,9 @@ function toggleArticleAnnotationMode(pageName: string): void {
             }
         // Notify user
         mw && mw.notify && mw.notify(state.convByVar({
-            hant: '整頁批註模式已啟用。', hans: '整页批注模式已启用。'
+            hant: '批註模式已啟用。', hans: '批注模式已启用。'
         }), {tag: 'review-tool'});
-        console.log(`[ReviewTool] 條目「${state.articleTitle}」整頁批註模式已啟用。`);
+        console.log(`[ReviewTool] 條目「${state.articleTitle}」批註模式已啟用。`);
         // find main content container - prefer the parser output inside mw-content-text
         const selectors = [
             '#mw-content-text .mw-parser-output', '#mw-content-text', '.mw-parser-output', '#content', '#bodyContent'
@@ -1434,7 +1473,7 @@ function toggleArticleAnnotationMode(pageName: string): void {
             console.warn('[ReviewTool] could not find a content container with selectors', selectors);
         }
         if (!container) {
-            console.warn('[ReviewTool] 未找到主要內容容器，無法啟用整頁批註模式。');
+            console.warn('[ReviewTool] 未找到主要內容容器，無法啟用批註模式。');
             return;
         }
         const sectionPath = state.articleTitle || pageName;
@@ -1443,12 +1482,11 @@ function toggleArticleAnnotationMode(pageName: string): void {
         // Try wrapping the section and retry a few times in case the page rewrites content shortly after.
         const tryCount = ensureWrappedSection ? ensureWrappedSection : wrapSectionSentences;
         tryCount(container, null, 4, 220);
-        renderAnnotationBadges(state.articleTitle || pageName, sectionPath);
         // Ensure global viewer button is visible while annotation mode is active
         const gv = document.querySelector('.review-tool-global-button') as HTMLElement | null;
         if (gv) gv.style.display = 'block';
     } else {
-        console.log(`[ReviewTool] 條目「${state.articleTitle}」整頁批註模式已停用。`);
+        console.log(`[ReviewTool] 條目「${state.articleTitle}」批註模式已停用。`);
         uninstallSelectionListeners();
         clearWrappedSentences();
         // Update Vector tab appearance to normal
@@ -1471,7 +1509,7 @@ function toggleArticleAnnotationMode(pageName: string): void {
         }
         try {
             mw && mw.notify && mw.notify(state.convByVar({
-                hant: '整頁批註模式已停用。', hans: '整页批注模式已停用。'
+                hant: '批註模式已停用。', hans: '批注模式已停用。'
             }), {tag: 'review-tool'});
         } catch (e) {
             console.error('[ReviewTool] mw.notify failed', e);

@@ -3,7 +3,6 @@ import state from './state';
 export interface Annotation {
     id: string;
     sectionPath: string;
-    sentenceIndex: number;
     sentenceText: string;
     opinion: string;
     createdBy: string;
@@ -68,13 +67,12 @@ export function saveAnnotations(store: AnnotationStore): void {
     }
 }
 
-export function createAnnotation(pageName: string, sectionPath: string, sentenceIndex: number, sentenceText: string, opinion: string): Annotation {
+export function createAnnotation(pageName: string, sectionPath: string, sentenceText: string, opinion: string): Annotation {
     const store = loadAnnotations(pageName);
     const normalizedSectionPath = sectionPath === '目次' ? '序言' : sectionPath;
     const anno: Annotation = {
         id: uuidv4(),
         sectionPath: normalizedSectionPath,
-        sentenceIndex,
         sentenceText,
         opinion,
         createdBy: state.userName || 'unknown',
@@ -117,15 +115,8 @@ export function deleteAnnotation(pageName: string, id: string): boolean {
     return false;
 }
 
-function sortAnnotationsBySentenceIndex(list: Annotation[]): Annotation[] {
-    return [...list].sort((a, b) => {
-        const aIdx = typeof a.sentenceIndex === 'number' ? a.sentenceIndex : Number.MAX_SAFE_INTEGER;
-        const bIdx = typeof b.sentenceIndex === 'number' ? b.sentenceIndex : Number.MAX_SAFE_INTEGER;
-        if (aIdx === bIdx) {
-            return 0;
-        }
-        return aIdx - bIdx;
-    });
+function sortAnnotationsByTimestamp(list: Annotation[]): Annotation[] {
+    return [...list].sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export function groupAnnotationsBySection(pageName: string): AnnotationGroup[] {
@@ -151,17 +142,17 @@ export function groupAnnotationsBySection(pageName: string): AnnotationGroup[] {
     for (const [sectionPath, annotations] of buckets.entries()) {
         groups.push({
             sectionPath,
-            annotations: sortAnnotationsBySentenceIndex(annotations)
+            annotations: sortAnnotationsByTimestamp(annotations)
         });
     }
 
     groups.sort((a, b) => {
-        const aIdx = a.annotations[0]?.sentenceIndex ?? Number.MAX_SAFE_INTEGER;
-        const bIdx = b.annotations[0]?.sentenceIndex ?? Number.MAX_SAFE_INTEGER;
-        if (aIdx === bIdx) {
+        const aTs = a.annotations[0]?.createdAt ?? Number.MAX_SAFE_INTEGER;
+        const bTs = b.annotations[0]?.createdAt ?? Number.MAX_SAFE_INTEGER;
+        if (aTs === bTs) {
             return a.sectionPath.localeCompare(b.sectionPath);
         }
-        return aIdx - bIdx;
+        return aTs - bTs;
     });
 
     return groups;
