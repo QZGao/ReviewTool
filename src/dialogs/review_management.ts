@@ -497,7 +497,7 @@ function createReviewManagementDialog(): void {
                     </div>
 
                     <div class="review-tool-multistep-dialog__stepper">
-                        <div class="review-tool-multistep-dialog__stepper__label">{{ ( currentStep + 1 ) + ' of 3' }}</div>
+                        <div class="review-tool-multistep-dialog__stepper__label">{{ ( currentStep + 1 ) + ' / 3' }}</div>
                         <div class="review-tool-multistep-dialog__stepper__steps" aria-hidden>
                             <span v-for="step of [0,1,2]" :key="step" class="review-tool-multistep-dialog__stepper__step" :class="getStepClass(step)"></span>
                         </div>
