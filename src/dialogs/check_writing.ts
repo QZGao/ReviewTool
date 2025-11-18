@@ -1,6 +1,6 @@
 import state from "../state";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
-import { findSectionInfoFromHeading, appendTextToSection, getSectionWikitext, parseWikitextToHtml, compareWikitext } from "../api";
+import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../api";
 import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
 
 declare var mw: any;
@@ -105,10 +105,10 @@ function createCheckWritingDialog(): void {
                     };
 
                     if (sectionIdToUse != null) {
-                        getSectionWikitext(pageTitleToUse, sectionIdToUse).then((text: string) => {
+                        retrieveFullText(pageTitleToUse, sectionIdToUse).then(({ text }) => {
                             renderPreview(text || '');
                         }).catch((err: any) => {
-                            console.error('[ReviewTool] getSectionWikitext failed', err);
+                            console.error('[ReviewTool] retrieveFullText failed', err);
                             renderPreview('');
                         });
                     } else {
@@ -156,10 +156,10 @@ function createCheckWritingDialog(): void {
                     }
 
                     if (sectionIdToUse != null) {
-                        getSectionWikitext(pageTitleToUse, sectionIdToUse).then((text: string) => {
+                        retrieveFullText(pageTitleToUse, sectionIdToUse).then(({ text }) => {
                             runDiff(text || '');
                         }).catch((err: any) => {
-                            console.error('[ReviewTool] getSectionWikitext failed', err);
+                            console.error('[ReviewTool] retrieveFullText failed', err);
                             runDiff('');
                         });
                     } else {

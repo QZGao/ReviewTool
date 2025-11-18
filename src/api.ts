@@ -3,11 +3,11 @@ import state from "./state";
 declare var mw: any;
 
 // Helper: parse query parameters from a URL-like string
-function parseQueryParams(url: string): Record<string,string> {
+function parseQueryParams(url: string): Record<string, string> {
 	const qIdx = url.indexOf('?');
 	const query = qIdx >= 0 ? url.slice(qIdx + 1) : url;
 	const pairs = query.split('&').filter(Boolean);
-	const out: Record<string,string> = {};
+	const out: Record<string, string> = {};
 	for (const p of pairs) {
 		const [k, v] = p.split('=');
 		if (!k) continue;
@@ -64,76 +64,100 @@ export function appendTextToSection(pageTitle: string, sectionId: number, append
 			return;
 		}
 		const api = state.getApi();
-		// Prefer mw.user.tokens if available
-		let token = null;
-		try {
-			token = mw && mw.user && typeof mw.user.tokens.get === 'function' ? mw.user.tokens.get('csrf') : null;
-		} catch (e) {
-			token = null;
-		}
 		const params: any = {
 			action: 'edit',
 			title: pageTitle,
 			section: sectionId,
 			appendtext: appendText,
-			format: 'json'
+			format: 'json',
+			formatversion: 2,
 		};
 		if (summary) params.summary = summary;
-		if (token) params.token = token;
-
-		// Ensure we have a csrf token; if not available via mw.user.tokens, request one from the API
-		function doPostWithToken(tkn: string | null) {
-			if (tkn) params.token = tkn;
-			try {
-				api.post(params).done((data: any) => resolve(data)).fail((err: any) => reject(err));
-			} catch (e) {
-				reject(e);
+		api.postWithToken('csrf', params).done((res: any) => {
+			if (res.edit && res.edit.result === 'Success') {
+				console.log('[ReviewTool][appendTextToSection] Append successful');
+				mw.notify(state.convByVar({
+					hant: '已成功將內容附加到指定段落。',
+					hans: '已成功将内容附加到指定段落。'
+				}));
+				refreshPage();
+			} else if (res.error && res.error.code === 'editconflict') {
+				console.error('[ReviewTool][appendTextToSection] Edit conflict occurred');
+				mw.notify(state.convByVar({
+					hant: '附加內容時發生編輯衝突。請重新嘗試。',
+					hans: '附加内容时发生编辑冲突。请重新尝试。'
+				}));
+			} else {
+				console.error('[ReviewTool][appendTextToSection] Append failed', res);
+				mw.notify(state.convByVar({
+					hant: '附加內容失敗。請稍後再試。',
+					hans: '附加内容失败。请稍后再试。'
+				}));
 			}
-		}
-
-		if (token) {
-			doPostWithToken(token);
-		} else {
-			// ask the API for a csrf token
-			api.get({ action: 'query', meta: 'tokens', type: 'csrf', format: 'json' })
-				.done((d: any) => {
-					const t = d && d.query && d.query.tokens && (d.query.tokens.csrftoken || d.query.tokens['csrf']);
-					doPostWithToken(t || null);
-				})
-				.fail((err: any) => {
-					// If token fetch fails, still attempt post without token (mw.Api may handle it),
-					// but report the original failure instead of hanging.
-					doPostWithToken(null);
-				});
-		}
+		}).fail((err: any) => reject(err));
 	});
 }
 
 /**
- * 檢索指定頁面的完整文本內容。
- * @param pageTitle {string} 頁面標題
- * @returns {Promise<string>} 頁面完整文本內容。
+ * Refresh the current page after a short delay.
  */
-function retrieveFullText(pageTitle: string): Promise<string> {
+function refreshPage() {
+	setTimeout(() => {
+		location.reload();
+	}, 2000);  // 2 seconds delay
+}
+
+export interface RetrieveFullTextResult {
+	text: string;
+	starttimestamp: string;
+	basetimestamp: string;
+}
+
+/**
+ * 檢索指定頁面（或段落）的文本與相關時間戳。
+ */
+export function retrieveFullText(pageTitle: string, sectionId?: number): Promise<RetrieveFullTextResult> {
 	return new Promise((resolve, reject) => {
-		state.getApi().get({
+		if (!pageTitle) {
+			reject(new Error('Invalid pageTitle'));
+			return;
+		}
+		const api = state.getApi();
+		const params: any = {
 			action: 'query',
 			prop: 'revisions',
 			titles: pageTitle,
-			rvprop: 'content',
-			rvslots: '*',
-			format: 'json'
-		}).done((data) => {
-			const pages = data.query.pages;
-			const page = pages[Object.keys(pages)[0]];
-			if (page && page.revisions) {
-				resolve(page.revisions[0].slots.main['*']);
-			} else {
-				reject('No content found');
+			rvslots: 'main',
+			rvprop: ['timestamp', 'content'],
+			curtimestamp: 1,
+			format: 'json',
+			formatversion: 2,
+		};
+		if (typeof sectionId === 'number' && !isNaN(sectionId)) {
+			params.rvsection = sectionId;
+		}
+		api.postWithToken('csrf', params).done((res: any) => {
+			try {
+				const page = res?.query?.pages?.[0];
+				const revision = page?.revisions?.[0];
+				if (revision) {
+					const mainSlot = revision.slots?.main || {};
+					const text = typeof mainSlot.content === 'string'
+						? mainSlot.content
+						: (mainSlot['*'] || '');
+					resolve({
+						text,
+						starttimestamp: res?.curtimestamp || '',
+						basetimestamp: revision.timestamp || '',
+					});
+					return;
+				}
+			} catch (err) {
+				reject(err);
+				return;
 			}
-		}).fail((error) => {
-			reject(error);
-		});
+			reject(new Error('No content found'));
+		}).fail((error: any) => reject(error));
 	});
 }
 
@@ -194,71 +218,49 @@ export async function getXToolsInfo(pageName: string): Promise<string> {
 }
 
 /**
- * Retrieve the raw wikitext for a specific section of a page.
- * Uses `rvsection` to fetch only the section content.
- */
-export function getSectionWikitext(pageTitle: string, sectionId: number): Promise<string> {
-	return new Promise((resolve, reject) => {
-		if (!pageTitle || typeof sectionId !== 'number' || isNaN(sectionId)) {
-			reject(new Error('Invalid pageTitle or sectionId'));
-			return;
-		}
-		const api = state.getApi();
-		api.get({ action: 'query', prop: 'revisions', titles: pageTitle, rvprop: 'content', rvslots: '*', rvsection: sectionId, format: 'json' })
-			.done((data: any) => {
-				try {
-					const pages = data.query && data.query.pages;
-					const page = pages && pages[Object.keys(pages)[0]];
-					if (page && page.revisions && page.revisions[0] && page.revisions[0].slots && page.revisions[0].slots.main) {
-						resolve(page.revisions[0].slots.main['*'] || '');
-						return;
-					}
-				} catch (e) { /* fallthrough */ }
-				resolve('');
-			})
-			.fail((err: any) => reject(err));
-	});
-}
-
-/**
  * Replace the full wikitext of a given section. Uses action=edit with `section` and `text`.
  */
-export function replaceSectionText(pageTitle: string, sectionId: number, newText: string, summary?: string): Promise<any> {
-	return new Promise((resolve, reject) => {
-		if (!pageTitle || typeof sectionId !== 'number' || isNaN(sectionId)) {
-			reject(new Error('Invalid pageTitle or sectionId'));
-			return;
-		}
-		const api = state.getApi();
-		// try to fetch token similarly as appendTextToSection
-		let token = null;
-		try { token = mw && mw.user && typeof mw.user.tokens.get === 'function' ? mw.user.tokens.get('csrf') : null; } catch (e) { token = null; }
+export interface SectionTimestamps {
+	starttimestamp: string;
+	basetimestamp: string;
+}
 
-		const params: any = {
-			action: 'edit',
-			title: pageTitle,
-			section: sectionId,
-			text: newText,
-			format: 'json'
-		};
-		if (summary) params.summary = summary;
-		if (token) params.token = token;
-
-		function doPost(tkn: string | null) {
-			if (tkn) params.token = tkn;
-			try {
-				api.post(params).done((data: any) => resolve(data)).fail((err: any) => reject(err));
-			} catch (e) { reject(e); }
-		}
-
-		if (token) doPost(token);
-		else {
-			api.get({ action: 'query', meta: 'tokens', type: 'csrf', format: 'json' })
-				.done((d: any) => {
-					const t = d && d.query && d.query.tokens && (d.query.tokens.csrftoken || d.query.tokens['csrf']);
-					doPost(t || null);
+export function replaceSectionText(pageTitle: string, sectionId: number, newText: string, summary?: string, timestamps?: SectionTimestamps): Promise<any> {
+	return new Promise(async (resolve, reject) => {
+		try {
+			if (!pageTitle || typeof sectionId !== 'number' || isNaN(sectionId)) {
+				reject(new Error('Invalid pageTitle or sectionId'));
+				return;
+			}
+			const api = state.getApi();
+			let starttimestamp = timestamps?.starttimestamp;
+			let basetimestamp = timestamps?.basetimestamp;
+			if (!starttimestamp || !basetimestamp) {
+				const fetched = await retrieveFullText(pageTitle, sectionId);
+				starttimestamp = fetched.starttimestamp;
+				basetimestamp = fetched.basetimestamp;
+			}
+			const params: any = {
+				action: 'edit',
+				title: pageTitle,
+				section: sectionId,
+				text: newText,
+				starttimestamp,
+				basetimestamp,
+				format: 'json',
+				formatversion: 2,
+			};
+			if (summary) params.summary = summary;
+			api.postWithToken('csrf', params)
+				.done((data: any) => {
+					if (data?.edit?.result === 'Success') {
+						refreshPage();
+					}
+					resolve(data);
 				})
-				.fail((err: any) => { doPost(null); });
+				.fail((err: any) => reject(err));
+		} catch (error) {
+			reject(error);
 		}
 	});
 }
@@ -299,20 +301,24 @@ export function compareWikitext(oldWikitext: string, newWikitext: string): Promi
 			const api = state.getApi();
 			const params: any = {
 				action: 'compare',
-				format: 'json',
-				fromtext: oldWikitext || '',
-				totext: newWikitext || ''
+				fromslots: 'main',
+				'fromtext-main': oldWikitext || '',
+				fromtitle: mw.config.get('wgPageName'),
+				frompst: 'true',
+				toslots: 'main',
+				'totext-main': newWikitext || '',
+				totitle: mw.config.get('wgPageName'),
+				topst: 'true',
 			};
-			api.get(params).done((data: any) => {
+			api.postWithToken('csrf', params).done((res: any) => {
 				try {
-					if (data && data.compare) {
-						// The API may return HTML under different keys depending on mw version
-						if (data.compare['*']) return resolve(data.compare['*']);
-						if (data.compare.body) return resolve(data.compare.body);
-						if (data.compare.html) return resolve(data.compare.html);
+					if (res && res.compare && res.compare['*']) {
+						resolve('<table class="diff"><colgroup><col class="diff-marker"/><col class="diff-content"/><col class="diff-marker"/><col class="diff-content"/></colgroup>' + res.compare['*'] + '</table>');
 					}
-				} catch (e) { /* fallthrough */ }
-				resolve('');
+					resolve(state.convByVar({ hant: '無差異。', hans: '无差异。' }));
+				} catch (e) {
+					reject(e);
+				}
 			}).fail((err: any) => reject(err));
 		} catch (e) { reject(e); }
 	});

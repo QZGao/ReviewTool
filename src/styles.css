@@ -272,9 +272,9 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
 }
 .review-tool-multistep-dialog__actions { display: flex; gap: 12px; }
 
-.review-tool-preview-pre--html,
-.review-tool-html-host--preview {
+.review-tool-preview-pre--html {
     border: 1px solid rgba(0, 0, 0, 0.1);
     border-radius: 6px;
     background: #fafafa;
+    padding: 12px;
 }
