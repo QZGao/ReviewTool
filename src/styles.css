@@ -270,6 +270,11 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
     border-top: 1px solid rgba(0,0,0,0.06);
     padding: 12px 24px;
 }
+.review-tool-multistep-dialog__footer-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 .review-tool-multistep-dialog__actions { display: flex; gap: 12px; }
 
 .review-tool-preview-pre--html {

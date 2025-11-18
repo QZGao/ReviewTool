@@ -17,6 +17,11 @@ export interface AnnotationStore {
     annotations: Annotation[];
 }
 
+export interface AnnotationGroup {
+    sectionPath: string;
+    annotations: Annotation[];
+}
+
 const KEY_PREFIX = 'reviewtool:annotations:';
 
 function storageKeyForPage(pageName: string): string {
@@ -65,9 +70,10 @@ export function saveAnnotations(store: AnnotationStore): void {
 
 export function createAnnotation(pageName: string, sectionPath: string, sentenceIndex: number, sentenceText: string, opinion: string): Annotation {
     const store = loadAnnotations(pageName);
+    const normalizedSectionPath = sectionPath === '目次' ? '序言' : sectionPath;
     const anno: Annotation = {
         id: uuidv4(),
-        sectionPath,
+        sectionPath: normalizedSectionPath,
         sentenceIndex,
         sentenceText,
         opinion,
@@ -109,4 +115,54 @@ export function deleteAnnotation(pageName: string, id: string): boolean {
         return true;
     }
     return false;
+}
+
+function sortAnnotationsBySentenceIndex(list: Annotation[]): Annotation[] {
+    return [...list].sort((a, b) => {
+        const aIdx = typeof a.sentenceIndex === 'number' ? a.sentenceIndex : Number.MAX_SAFE_INTEGER;
+        const bIdx = typeof b.sentenceIndex === 'number' ? b.sentenceIndex : Number.MAX_SAFE_INTEGER;
+        if (aIdx === bIdx) {
+            return 0;
+        }
+        return aIdx - bIdx;
+    });
+}
+
+export function groupAnnotationsBySection(pageName: string): AnnotationGroup[] {
+    const store = loadAnnotations(pageName);
+    if (!store.annotations.length) {
+        return [];
+    }
+
+    const buckets = new Map<string, Annotation[]>();
+    for (const anno of store.annotations) {
+        const key = typeof anno.sectionPath === 'string' && anno.sectionPath.trim()
+            ? anno.sectionPath.trim()
+            : '';
+        const existing = buckets.get(key);
+        if (existing) {
+            existing.push(anno);
+        } else {
+            buckets.set(key, [anno]);
+        }
+    }
+
+    const groups: AnnotationGroup[] = [];
+    for (const [sectionPath, annotations] of buckets.entries()) {
+        groups.push({
+            sectionPath,
+            annotations: sortAnnotationsBySentenceIndex(annotations)
+        });
+    }
+
+    groups.sort((a, b) => {
+        const aIdx = a.annotations[0]?.sentenceIndex ?? Number.MAX_SAFE_INTEGER;
+        const bIdx = b.annotations[0]?.sentenceIndex ?? Number.MAX_SAFE_INTEGER;
+        if (aIdx === bIdx) {
+            return a.sectionPath.localeCompare(b.sectionPath);
+        }
+        return aIdx - bIdx;
+    });
+
+    return groups;
 }

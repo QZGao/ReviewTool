@@ -1,4 +1,5 @@
 import state from "../state";
+import { groupAnnotationsBySection, AnnotationGroup } from "../annotations";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../api";
 import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
@@ -32,10 +33,13 @@ function createCheckWritingDialog(): void {
                 previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
                 diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
                 diffLoading: state.convByVar({hant: '差異載入中…', hans: '差异载入中…'}),
+                loadAnnotations: state.convByVar({hant: '載入批註', hans: '载入批注'}),
+                annotationFallbackChapter: state.convByVar({hant: '（未指定章節）', hans: '（未指定章节）'}),
             }, data() {
                 return {
                         open: true,
                         isSaving: false,
+                        isLoadingAnnotations: false,
                         currentStep: 0,
                         chapters: [
                             { title: '', suggestions: [{ quote: '', suggestion: '' }] }
@@ -51,12 +55,14 @@ function createCheckWritingDialog(): void {
                 primaryAction() {
                     // Next / Save depending on step
                     if (this.currentStep < 2) {
-                        return { label: this.$options.i18n.next || 'Next', actionType: 'primary', disabled: false };
+                        return { label: this.$options.i18n.next || 'Next', actionType: 'progressive', disabled: false };
                     }
                     return { label: this.isSaving ? this.$options.i18n.saving : this.$options.i18n.save, actionType: 'progressive', disabled: this.isSaving };
                 }, defaultAction() {
-                    if (this.currentStep > 0) return { label: this.$options.i18n.previous || 'Previous' };
-                    return { label: this.$options.i18n.cancel };
+                    if (this.currentStep > 0) return { label: this.$options.i18n.previous || 'Previous', disabled: false };
+                    return { label: this.$options.i18n.cancel, disabled: false };
+                }, showAnnotationLoaderButton() {
+                    return this.currentStep === 0;
                 }
             }, methods: {
                 triggerContentHooks(kind: 'preview' | 'diff') {
@@ -225,6 +231,70 @@ function createCheckWritingDialog(): void {
                     out.push(...newLines.map(l => '+ ' + l));
                     return out;
                 },
+                loadAnnotationsIntoForm() {
+                    if (this.isLoadingAnnotations) {
+                        return;
+                    }
+                    this.isLoadingAnnotations = true;
+                    try {
+                        const pageName = state.articleTitle || '';
+                        if (!pageName) {
+                            this.reportAnnotationLoadFailure(state.convByVar({hant: '無法識別條目名稱，無法載入批註。', hans: '无法识别条目名称，无法载入批注。'}));
+                            return;
+                        }
+
+                        const groups = groupAnnotationsBySection(pageName);
+                        if (!groups.length) {
+                            this.reportAnnotationLoadFailure(state.convByVar({hant: '目前沒有可載入的批註。', hans: '目前没有可载入的批注。'}));
+                            return;
+                        }
+
+                        const nextChapters = this.buildChaptersFromAnnotationGroups(groups);
+                        if (!nextChapters.length) {
+                            this.reportAnnotationLoadFailure(state.convByVar({hant: '批註內容為空，請稍後再試。', hans: '批注内容为空，请稍后再试。'}));
+                            return;
+                        }
+
+                        this.applyAnnotationChapters(nextChapters);
+                        const successMsg = state.convByVar({hant: '已將批註載入表單，請檢查後繼續。', hans: '已将批注载入表单，请检查后继续。'});
+                        mw && mw.notify && mw.notify(successMsg, { tag: 'review-tool' });
+                    } finally {
+                        this.isLoadingAnnotations = false;
+                    }
+                },
+                buildChaptersFromAnnotationGroups(groups: AnnotationGroup[]) {
+                    if (!groups.length) {
+                        return [];
+                    }
+                    const fallbackTitle = this.$options.i18n.annotationFallbackChapter || '';
+                    const mapped = groups.map(group => {
+                        const suggestions = (group.annotations || []).map(anno => ({
+                            quote: anno.sentenceText || '',
+                            suggestion: anno.opinion || ''
+                        }));
+                        const usableSuggestions = suggestions.length ? suggestions : [{ quote: '', suggestion: '' }];
+                        return {
+                            title: group.sectionPath || fallbackTitle,
+                            suggestions: usableSuggestions
+                        };
+                    }).filter(group => Array.isArray(group.suggestions) && group.suggestions.length);
+                    return mapped;
+                },
+                applyAnnotationChapters(nextChapters: Array<{ title: string; suggestions: { quote: string; suggestion: string }[] }>) {
+                    if (!nextChapters.length) {
+                        return;
+                    }
+                    this.chapters = nextChapters;
+                    if (this.currentStep === 1) {
+                        this.preparePreviewContent();
+                    } else if (this.currentStep === 2) {
+                        this.prepareDiffContent();
+                    }
+                },
+                reportAnnotationLoadFailure(message: string) {
+                    mw && mw.notify && mw.notify(message, { type: 'warn', title: '[ReviewTool]' });
+                    alert(message);
+                },
                 saveCheckWriting() {
                     this.isSaving = true;
                     const { sec, pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
@@ -286,10 +356,6 @@ function createCheckWritingDialog(): void {
 				v-model:open="open"
                 :title="$options.i18n.dialogTitle"
 				:use-close-button="true"
-                :primary-action="primaryAction"
-                :default-action="defaultAction"
-				@primary="onPrimaryAction"
-				@default="onDefaultAction"
 				@update:open="onUpdateOpen"
                 class="review-tool-dialog review-tool-check-writing-dialog review-tool-multistep-dialog"
 			>
@@ -380,6 +446,37 @@ function createCheckWritingDialog(): void {
                         <pre class="review-tool-diff-pre">{{ diffLines.join('\\n') }}</pre>
                     </div>
                 </div>
+
+            <template #footer>
+                <div class="review-tool-multistep-dialog__footer-left">
+                    <cdx-button
+                        v-if="showAnnotationLoaderButton"
+                        weight="quiet"
+                        :disabled="isLoadingAnnotations"
+                        @click.prevent="loadAnnotationsIntoForm"
+                    >
+                        {{ $options.i18n.loadAnnotations }}
+                    </cdx-button>
+                </div>
+                <div class="review-tool-multistep-dialog__actions">
+                    <cdx-button
+                        v-if="defaultAction"
+                        action="normal"
+                        :disabled="defaultAction.disabled"
+                        @click.prevent="onDefaultAction"
+                    >
+                        {{ defaultAction.label }}
+                    </cdx-button>
+                    <cdx-button
+                        v-if="primaryAction"
+                        :action="primaryAction.actionType"
+                        :disabled="primaryAction.disabled"
+                        @click.prevent="onPrimaryAction"
+                    >
+                        {{ primaryAction.label }}
+                    </cdx-button>
+                </div>
+            </template>
 
 			</cdx-dialog>
 			`,

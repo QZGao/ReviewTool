@@ -4,6 +4,48 @@ import {openReviewManagementDialog} from "../dialogs/review_management";
 import {openCheckWritingDialog} from "../dialogs/check_writing";
 import {appendButtonToHeading, createMwEditSectionButton, getHeadingTitle} from "./utils";
 
+declare const mw: any;
+
+function deriveSubjectArticleTitle(pageName: string): string {
+    if (!pageName) {
+        return '';
+    }
+
+    if (typeof mw !== 'undefined' && mw?.Title?.newFromText) {
+        try {
+            const talkTitle = mw.Title.newFromText(pageName);
+            const subject = talkTitle?.getSubjectPage?.();
+            if (subject?.getPrefixedText) {
+                return subject.getPrefixedText();
+            }
+        } catch (err) {
+            console.warn('[ReviewTool] deriveSubjectArticleTitle failed to parse Title', err);
+        }
+    }
+
+    // Fallback heuristics for common talk namespaces when mw.Title is unavailable
+    const replacements: Array<{ regex: RegExp; replacement: string }> = [
+        { regex: /^User_talk:/i, replacement: 'User:' },
+        { regex: /^Wikipedia_talk:/i, replacement: 'Wikipedia:' },
+        { regex: /^Project_talk:/i, replacement: 'Project:' },
+        { regex: /^Template_talk:/i, replacement: 'Template:' },
+        { regex: /^Help_talk:/i, replacement: 'Help:' },
+        { regex: /^Category_talk:/i, replacement: 'Category:' },
+        { regex: /^Portal_talk:/i, replacement: 'Portal:' },
+        { regex: /^Draft_talk:/i, replacement: 'Draft:' },
+        { regex: /^Module_talk:/i, replacement: 'Module:' },
+        { regex: /^Talk:/i, replacement: '' }
+    ];
+
+    for (const { regex, replacement } of replacements) {
+        if (regex.test(pageName)) {
+            return pageName.replace(regex, replacement);
+        }
+    }
+
+    return pageName;
+}
+
 /**
  * 根據條目標題與小節標題推斷可能的評級類型。
  * @param articleTitle {string} 評審條目標題
@@ -74,8 +116,14 @@ function createCheckWritingButton(articleTitle: string, sectionTitle: string): H
 export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: string): void {
     if (document.querySelector('#review-tool-buttons-added')) return;
     const allSectionHeadings = document.querySelectorAll('.mw-heading.mw-heading2');
-    if (namespace === 1) { // 討論頁
+    const titleObj = typeof mw !== 'undefined' && mw?.Title?.newFromText ? mw.Title.newFromText(pageName) : null;
+    const isTalkPage = (titleObj && typeof titleObj.isTalkPage === 'function' && titleObj.isTalkPage())
+        || (typeof namespace === 'number' ? namespace % 2 === 1 : false);
+
+    if (isTalkPage) {
         state.inTalkPage = true;
+        const articleTitle = deriveSubjectArticleTitle(pageName);
+        state.articleTitle = articleTitle;
         // 篩選評級相關的標題
         const relevantHeadings = Array.from(allSectionHeadings).filter(heading => {
             const sectionTitle = getHeadingTitle(heading);
@@ -86,8 +134,8 @@ export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: s
         relevantHeadings.forEach(heading => {
             const sectionTitle = getHeadingTitle(heading);
             if (!sectionTitle) return;
-            appendButtonToHeading(heading, createReviewManagementButton(pageName.replace('Talk:', ''), sectionTitle));
-            findAndAppendCheckWritingButton(heading, pageName.replace('Talk:', ''), sectionTitle);
+            appendButtonToHeading(heading, createReviewManagementButton(articleTitle, sectionTitle));
+            findAndAppendCheckWritingButton(heading, articleTitle, sectionTitle);
         });
     } else { // 評選頁面
         state.inTalkPage = false;
