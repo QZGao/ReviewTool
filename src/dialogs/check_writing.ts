@@ -31,6 +31,7 @@ function createCheckWritingDialog(): void {
                 previous: state.convByVar({hant: '上一步', hans: '上一步'}),
                 previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
                 diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
+                diffLoading: state.convByVar({hant: '差異載入中…', hans: '差异载入中…'}),
             }, data() {
                 return {
                         open: true,
@@ -375,7 +376,7 @@ function createCheckWritingDialog(): void {
                         v-html="diffHtml"
                     ></div>
                     <div v-else>
-                        <p>Click "{{ $options.i18n.save }}" to append these suggestions.</p>
+                        <p>{{ $options.i18n.diffLoading }}</p>
                         <pre class="review-tool-diff-pre">{{ diffLines.join('\\n') }}</pre>
                     </div>
                 </div>

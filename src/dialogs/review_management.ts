@@ -31,6 +31,8 @@ function createReviewManagementDialog(): void {
                 previous: state.convByVar({hant: '上一步', hans: '上一步'}),
                 previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
                 diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
+                noSpecificCriteria: state.convByVar({hant: '未選擇評審標準。', hans: '未选择评审标准。'}),
+                noDiff: state.convByVar({hant: '無差異。', hans: '无差异。'}),
             }, data() {
                 return {
                         open: true,
@@ -91,6 +93,18 @@ function createReviewManagementDialog(): void {
                     }
                     return '';
                 },
+                buildOpinionContent(level: number): string {
+                    const criteriaContent = this.buildHeadersForCriteria(level);
+                    return criteriaContent && criteriaContent.trim() ? criteriaContent : '';
+                },
+                reportMissingOpinionEntries(showAlert = false) {
+                    const msg = state.convByVar({hant: '請先選擇或輸入評審子項，再提交。', hans: '请先选择或输入评审子项，再提交。'});
+                    mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                    if (showAlert) {
+                        try { alert(msg); } catch (e) { /* ignore */ }
+                    }
+                    return msg;
+                },
                 preparePreviewContent() {
                     const { pageTitleToUse, sectionIdToUse } = this.getPendingReviewSectionInfo();
                     const level = this.submitUnderOpinionSubsection ? 4 : 3;
@@ -102,6 +116,10 @@ function createReviewManagementDialog(): void {
 
                     if (!this.submitUnderOpinionSubsection) {
                         const headers = this.buildHeadersForCriteria(level);
+                        if (!headers || !headers.trim()) {
+                            this.reportMissingOpinionEntries();
+                            return;
+                        }
                         this.previewWikitext = headers;
                         parseWikitextToHtml(headers, pageTitleToUse).then((html: string) => {
                             this.previewHtml = html || '';
@@ -116,8 +134,21 @@ function createReviewManagementDialog(): void {
                     }
 
                     const opinionHeaderTitle = `${state.userName}${state.convByVar({hant: ' 的意見', hans: ' 的意见'})}`;
-                    const h4s = this.buildHeadersForCriteria(4);
-                    const fallbackFragment = createHeaderMarkup(opinionHeaderTitle, 3) + h4s;
+                    const h4s = this.buildOpinionContent(4);
+                    if (!h4s || !h4s.trim()) {
+                        this.reportMissingOpinionEntries(true);
+                        this.isSubmitting = false;
+                        return;
+                    }
+                    if (!h4s || !h4s.trim()) {
+                        this.reportMissingOpinionEntries();
+                        return;
+                    }
+                    if (!h4s || !h4s.trim()) {
+                        this.reportMissingOpinionEntries();
+                        return;
+                    }
+                    const fallbackFragment = h4s ? (createHeaderMarkup(opinionHeaderTitle, 3) + h4s) : '';
                     const renderPreview = (fragment: string, existingText: string, newText: string) => {
                         this.previewWikitext = fragment;
                         this.existingSectionText = existingText;
@@ -154,6 +185,10 @@ function createReviewManagementDialog(): void {
 
                     if (!this.submitUnderOpinionSubsection) {
                         const headers = this.previewWikitext || this.buildHeadersForCriteria(3);
+                        if (!headers || !headers.trim()) {
+                            this.reportMissingOpinionEntries();
+                            return;
+                        }
                         const runDiff = (oldText: string, newText: string) => {
                             compareWikitext(oldText || '', newText).then((dhtml: string) => {
                                 this.diffHtml = dhtml || '';
@@ -184,7 +219,7 @@ function createReviewManagementDialog(): void {
                     }
 
                     const opinionHeaderTitle = `${state.userName}${state.convByVar({hant: ' 的意見', hans: ' 的意见'})}`;
-                    const h4s = this.buildHeadersForCriteria(4);
+                    const h4s = this.buildOpinionContent(4);
                     const runOpinionDiff = (oldText: string, newText: string) => {
                         this.existingSectionText = oldText;
                         this.pendingNewSectionText = newText;
@@ -204,7 +239,7 @@ function createReviewManagementDialog(): void {
                         return;
                     }
 
-                    const fallbackFragment = createHeaderMarkup(opinionHeaderTitle, 3) + h4s;
+                    const fallbackFragment = h4s ? (createHeaderMarkup(opinionHeaderTitle, 3) + h4s) : '';
 
                     if (sectionIdToUse != null) {
                         retrieveFullText(pageTitleToUse, sectionIdToUse).then(({ text, starttimestamp, basetimestamp }) => {
@@ -222,6 +257,9 @@ function createReviewManagementDialog(): void {
                     }
                 },
                 computeOpinionInsertion(secText: string, h4s: string, opinionHeaderTitle: string) {
+                    if (!h4s || !h4s.trim()) {
+                        return { previewFragment: '', newSectionText: secText, insertedIntoExisting: false };
+                    }
                     const h3LineRe = /^\s*(={3,})\s*(.*?)\s*\1\s*$/gm;
                     const normalizeHeadingText = (s: string): string => {
                         if (!s) return '';
@@ -239,14 +277,42 @@ function createReviewManagementDialog(): void {
                         const fullLine = match[0];
                         const inner = match[2];
                         if (normalizeHeadingText(inner) === targetNorm) {
-                            const insertPos = match.index + fullLine.length;
-                            const newSectionText = secText.slice(0, insertPos) + '\n' + h4s + secText.slice(insertPos);
-                            return { previewFragment: h4s, newSectionText };
+                            const headingLevel = match[1].length;
+                            const headingEnd = match.index + fullLine.length;
+                            const rest = secText.slice(headingEnd);
+                            const genericHeadingRe = /^\s*(={1,6})\s*([^\r\n]*?)\s*\1\s*$/gm;
+                            let insertPos = secText.length;
+                            let nextMatch: RegExpExecArray | null;
+                            while ((nextMatch = genericHeadingRe.exec(rest)) !== null) {
+                                const nextLevel = nextMatch[1].length;
+                                if (nextLevel <= headingLevel) {
+                                    insertPos = headingEnd + nextMatch.index;
+                                    break;
+                                }
+                            }
+                            const prefix = secText.slice(0, insertPos);
+                            const suffix = secText.slice(insertPos);
+                            const prefixEndsWithNewline = !prefix.length || /\r?\n$/.test(prefix);
+                            let normalized = h4s;
+                            if (prefixEndsWithNewline) {
+                                normalized = normalized.replace(/^(?:\r?\n)+/, '');
+                            } else if (!/^\r?\n/.test(normalized)) {
+                                normalized = '\n' + normalized;
+                            }
+                            if (!/\r?\n$/.test(normalized)) {
+                                normalized += '\n';
+                            }
+                            if (suffix.length && !/^\r?\n/.test(suffix)) {
+                                normalized += '\n';
+                            }
+                            const insertion = normalized;
+                            const newSectionText = prefix + insertion + secText.slice(insertPos);
+                            return { previewFragment: h4s, newSectionText, insertedIntoExisting: true };
                         }
                     }
                     const previewFragment = createHeaderMarkup(opinionHeaderTitle, 3) + h4s;
                     const newSectionText = secText + previewFragment;
-                    return { previewFragment, newSectionText };
+                    return { previewFragment, newSectionText, insertedIntoExisting: false };
                 },
                 getStepClass(step: number) {
                     return { 'review-tool-multistep-dialog__stepper__step--active': step <= this.currentStep };
@@ -325,9 +391,14 @@ function createReviewManagementDialog(): void {
 
                     if (!this.submitUnderOpinionSubsection) {
                         // simple case: append H3s (or H2.. as level) for each criterion
-                        const headers = Array.isArray(this.selectedCriteria) && this.selectedCriteria.length > 0
+                        const headers = (Array.isArray(this.selectedCriteria) && this.selectedCriteria.length > 0)
                             ? buildHeadersForCriteria(this.selectedCriteria, level)
-                            : (this.criterion ? createHeaderMarkup(String(this.criterion), level) : createHeaderMarkup(state.convByVar({hant: '無具體評審項目', hans: '无具体评审项目'}), level));
+                            : (this.criterion ? createHeaderMarkup(String(this.criterion), level) : '');
+                        if (!headers || !headers.trim()) {
+                            this.reportMissingOpinionEntries(true);
+                            this.isSubmitting = false;
+                            return;
+                        }
                         appendTextToSection(pageTitleToUse, sectionIdToUse, headers, state.convByVar({hant: '使用 ReviewTool 新增評審項目', hans: '使用 ReviewTool 新增评审项目'}))
                             .then((resp: any) => {
                                 mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' });
@@ -348,9 +419,7 @@ function createReviewManagementDialog(): void {
 
                     // submitUnderOpinionSubsection === true: need to insert H4s under a H3 named "<userName> 的意見"
                     const opinionHeaderTitle = `${state.userName}${state.convByVar({hant: ' 的意見', hans: ' 的意见'})}`;
-                    const h4s = (Array.isArray(this.selectedCriteria) && this.selectedCriteria.length > 0)
-                        ? buildHeadersForCriteria(this.selectedCriteria, 4)
-                        : (this.criterion ? createHeaderMarkup(String(this.criterion), 4) : createHeaderMarkup(state.convByVar({hant: '無具體評審項目', hans: '无具体评审项目'}), 4));
+                    const h4s = this.buildOpinionContent(4);
 
                     const revisionInfo = this.sectionRevisionInfo;
                     if (!revisionInfo) {
@@ -362,51 +431,37 @@ function createReviewManagementDialog(): void {
                     }
 
                     const secWikitext = typeof this.existingSectionText === 'string' ? this.existingSectionText : '';
-                    const h3LineRe = /^\s*(={3,})\s*(.*?)\s*\1\s*$/gm;
+                    const insertion = this.computeOpinionInsertion(secWikitext, h4s, opinionHeaderTitle);
 
-                    function normalizeHeadingText(s: string): string {
-                        if (!s) return '';
-                        s = s.replace(/'''+/g, '').replace(/''/g, '');
-                        try {
-                            const txt = document.createElement('textarea');
-                            txt.innerHTML = s;
-                            s = txt.value;
-                        } catch (e) { /* ignore */ }
-                        return s.replace(/\s+/g, ' ').trim();
-                    }
-
-                    const targetNorm = normalizeHeadingText(opinionHeaderTitle);
-                    let match: RegExpExecArray | null;
-                    let found = false;
-                    while ((match = h3LineRe.exec(secWikitext)) !== null) {
-                        const fullLine = match[0];
-                        const inner = match[2];
-                        if (normalizeHeadingText(inner) === targetNorm) {
-                            const insertPos = match.index + fullLine.length;
-                            const newSectionText = secWikitext.slice(0, insertPos) + '\n' + h4s + secWikitext.slice(insertPos);
-                            replaceSectionText(pageTitleToUse, sectionIdToUse, newSectionText, state.convByVar({hant: '使用 ReviewTool 新增評審子項', hans: '使用 ReviewTool 新增评审子项'}), revisionInfo)
-                                .then((resp: any) => {
-                                    mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審子項。', hans: '已成功新增评审子项。'}), { tag: 'review-tool' });
-                                    this.isSubmitting = false;
-                                    this.open = false;
-                                    (state as any).pendingReviewHeading = null;
-                                    setTimeout(() => { removeDialogMount(); }, 200);
-                                })
-                                .catch((err: any) => {
-                                    console.error('[ReviewTool] replaceSectionText failed', err);
-                                    const msg = state.convByVar({hant: '新增評審子項失敗，請稍後再試。', hans: '新增评审子项失败，请稍后再试。'});
-                                    mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
-                                    alert(msg);
-                                    this.isSubmitting = false;
-                                });
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (!found) {
-                        const toAppend = createHeaderMarkup(opinionHeaderTitle, 3) + h4s;
-                        appendTextToSection(pageTitleToUse, sectionIdToUse, toAppend, state.convByVar({hant: '使用 ReviewTool 新增評審項', hans: '使用 ReviewTool 新增评审项目'}))
+                    if (insertion.insertedIntoExisting) {
+                        replaceSectionText(
+                            pageTitleToUse,
+                            sectionIdToUse,
+                            insertion.newSectionText,
+                            state.convByVar({hant: '使用 ReviewTool 新增評審子項', hans: '使用 ReviewTool 新增评审子项'}),
+                            revisionInfo
+                        )
+                            .then((resp: any) => {
+                                mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審子項。', hans: '已成功新增评审子项。'}), { tag: 'review-tool' });
+                                this.isSubmitting = false;
+                                this.open = false;
+                                (state as any).pendingReviewHeading = null;
+                                setTimeout(() => { removeDialogMount(); }, 200);
+                            })
+                            .catch((err: any) => {
+                                console.error('[ReviewTool] replaceSectionText failed', err);
+                                const msg = state.convByVar({hant: '新增評審子項失敗，請稍後再試。', hans: '新增评审子项失败，请稍后再试。'});
+                                mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                                alert(msg);
+                                this.isSubmitting = false;
+                            });
+                    } else {
+                        appendTextToSection(
+                            pageTitleToUse,
+                            sectionIdToUse,
+                            insertion.previewFragment,
+                            state.convByVar({hant: '使用 ReviewTool 新增評審項', hans: '使用 ReviewTool 新增评审项目'})
+                        )
                             .then((resp: any) => {
                                 mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' });
                                 this.isSubmitting = false;
@@ -488,7 +543,7 @@ function createReviewManagementDialog(): void {
                         ref="previewHtmlHost"
                         v-html="previewHtml"
                     ></div>
-                    <pre class="review-tool-preview-pre" v-else>{{ selectedCriteria.length ? selectedCriteria.join('\\n') : (criterion || 'No specific criteria') }}</pre>
+                    <pre class="review-tool-preview-pre" v-else>{{ selectedCriteria.length ? selectedCriteria.join('\\n') : (criterion || $options.i18n.noSpecificCriteria) }}</pre>
                 </div>
 
                 <!-- Step 2: Diff & Save -->
@@ -501,7 +556,7 @@ function createReviewManagementDialog(): void {
                         v-html="diffHtml"
                     ></div>
                     <div v-else>
-                        <p>Click "{{ $options.i18n.submit }}" to add the items to the discussion page.</p>
+                        <p>{{ $options.i18n.noDiff }}</p>
                     </div>
                 </div>
 
