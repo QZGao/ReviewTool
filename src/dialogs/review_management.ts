@@ -3,6 +3,7 @@ import {assessments, getAssessmentLabels} from "../templates";
 
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 import { findSectionInfoFromHeading, createHeaderMarkup, appendTextToSection, getSectionWikitext, replaceSectionText, parseWikitextToHtml, compareWikitext } from "../api";
+import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
 declare var mw: any;
 
 /**
@@ -71,60 +72,7 @@ function createReviewManagementDialog(): void {
                 }
             }, methods: {
                 triggerContentHooks(kind: 'preview' | 'diff') {
-                    this.$nextTick(() => {
-                        const html = kind === 'preview' ? this.previewHtml : this.diffHtml;
-                        const resolution = this.resolveHostForHtml(kind, html);
-                        const host = resolution?.host || null;
-                        if (!host || !html) {
-                            this.setFallbackHostVisible(kind, false);
-                            return;
-                        }
-                        if (resolution?.usedFallback || !host.innerHTML || !host.innerHTML.trim()) {
-                            host.innerHTML = html;
-                        }
-                        if (resolution?.usedFallback) {
-                            this.setFallbackHostVisible(kind, true);
-                            this.setFallbackHostVisible(kind === 'preview' ? 'diff' : 'preview', false);
-                        } else {
-                            this.setFallbackHostVisible(kind, false);
-                        }
-                        this.afterServerHtmlInjected(host as HTMLElement, html);
-                    });
-                },
-                resolveHostForHtml(kind: 'preview' | 'diff', html: string | null): { host: HTMLElement | null, usedFallback?: boolean } | null {
-                    const refName = kind === 'preview' ? 'previewHtmlHost' : 'diffHtmlHost';
-                    const refs = this.$refs as Record<string, HTMLElement | HTMLElement[] | undefined>;
-                    let host = refs[refName];
-                    if (Array.isArray(host)) host = host[0];
-                    if (host) return { host };
-
-                    const dialogRoot = document.querySelector('.review-tool-review-management-dialog');
-                    const selector = kind === 'preview' ? '.review-tool-preview-pre--html' : '.review-tool-diff-pre--html';
-                    const fallbackInDialog = dialogRoot ? (dialogRoot.querySelector(selector) as HTMLElement | null) : null;
-                    if (fallbackInDialog) return { host: fallbackInDialog };
-
-                    const fallbackKey = kind === 'preview' ? '_previewFallbackHost' : '_diffFallbackHost';
-                    let fallbackHost = (this as any)[fallbackKey] as HTMLElement | null;
-                    if (!fallbackHost || !document.body.contains(fallbackHost)) {
-                        const allBodies = Array.from(document.querySelectorAll('.cdx-dialog__body.cdx-scrollable-container')) as HTMLElement[];
-                        const targetBody = dialogRoot ? (dialogRoot.querySelector('.cdx-dialog__body.cdx-scrollable-container') as HTMLElement | null) : null;
-                        const bodyEl = targetBody || (allBodies.length ? allBodies[allBodies.length - 1] : null);
-                        if (bodyEl) {
-                            fallbackHost = document.createElement('div');
-                            fallbackHost.className = 'review-tool-html-host review-tool-html-host--fallback review-tool-html-host--' + kind;
-                            fallbackHost.style.padding = '16px';
-                            fallbackHost.style.minHeight = '80px';
-                            fallbackHost.style.display = kind === 'preview' ? '' : 'none';
-                            bodyEl.appendChild(fallbackHost);
-                            (this as any)[fallbackKey] = fallbackHost;
-                        }
-                    }
-                    return { host: fallbackHost || null, usedFallback: !!fallbackHost };
-                },
-                setFallbackHostVisible(kind: 'preview' | 'diff', visible: boolean) {
-                    const fallbackKey = kind === 'preview' ? '_previewFallbackHost' : '_diffFallbackHost';
-                    const host = (this as any)[fallbackKey] as HTMLElement | null;
-                    if (host) host.style.display = visible ? '' : 'none';
+                    triggerDialogContentHooks(this, kind);
                 },
                 getPendingReviewSectionInfo() {
                     const headingEl: Element | null = (state as any).pendingReviewHeading || null;
@@ -292,52 +240,19 @@ function createReviewManagementDialog(): void {
                     const newSectionText = secText + previewFragment;
                     return { previewFragment, newSectionText };
                 },
-                ensureCurrentStepContentHooks() {
-                    this.$nextTick(() => {
-                        if (this.currentStep === 1 && this.previewHtml) {
-                            this.triggerContentHooks('preview');
-                        } else if (this.currentStep === 2 && this.diffHtml) {
-                            this.triggerContentHooks('diff');
-                        } else {
-                            this.setFallbackHostVisible('preview', false);
-                            this.setFallbackHostVisible('diff', false);
-                        }
-                    });
-                },
-                afterServerHtmlInjected(targetEl: HTMLElement, html: string) {
-                    if (!targetEl || !html) return;
-                    try {
-                        if (typeof mw !== 'undefined' && mw && mw.hook && typeof mw.hook === 'function') {
-                            const $ = (window as any).jQuery;
-                            mw.hook('wikipage.content').fire($ ? $(targetEl) : targetEl);
-                        }
-                    } catch (e) {
-                        try { mw && mw.hook && mw.hook('wikipage.content').fire(targetEl); } catch (err) { /* ignore */ }
-                    }
-                    if (html.indexOf('class="diff') !== -1) {
-                        try { mw && mw.loader && mw.loader.load && mw.loader.load('mediawiki.diff.styles'); } catch (e) { /* ignore */ }
-                    }
-                },
                 getStepClass(step: number) {
                     return { 'review-tool-multistep-dialog__stepper__step--active': step <= this.currentStep };
                 },
                 onPrimaryAction() {
-                    if (this.currentStep < 2) {
-                        const nextStep = this.currentStep + 1;
-                        if (nextStep === 1) {
-                            this.preparePreviewContent();
-                        } else if (nextStep === 2) {
-                            this.prepareDiffContent();
-                        }
-                        this.currentStep = nextStep;
-                        this.ensureCurrentStepContentHooks();
+                    if (advanceDialogStep(this, {
+                        onEnterPreviewStep: this.preparePreviewContent,
+                        onEnterDiffStep: this.prepareDiffContent,
+                    })) {
                         return;
                     }
                     this.submitReview();
                 }, onDefaultAction() {
-                    if (this.currentStep > 0) {
-                        this.currentStep--;
-                        this.ensureCurrentStepContentHooks();
+                    if (regressDialogStep(this)) {
                         return;
                     }
                     this.closeDialog();

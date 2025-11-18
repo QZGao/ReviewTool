@@ -1,6 +1,7 @@
 import state from "../state";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 import { findSectionInfoFromHeading, appendTextToSection, getSectionWikitext, parseWikitextToHtml, compareWikitext } from "../api";
+import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
 
 declare var mw: any;
 
@@ -38,9 +39,10 @@ function createCheckWritingDialog(): void {
                         chapters: [
                             { title: '', suggestions: [{ quote: '', suggestion: '' }] }
                         ],
-                        previewText: '',
+                        previewWikitext: '',
                         previewHtml: '',
                         existingSectionText: '',
+                        pendingNewSectionText: '',
                         diffHtml: '',
                         diffLines: [] as string[],
                 };
@@ -57,183 +59,123 @@ function createCheckWritingDialog(): void {
                 }
             }, methods: {
                 triggerContentHooks(kind: 'preview' | 'diff') {
-                    this.$nextTick(() => {
-                        const html = kind === 'preview' ? this.previewHtml : this.diffHtml;
-                        const resolution = this.resolveHostForHtml(kind, html);
-                        const host = resolution?.host || null;
-                        if (!host || !html) {
-                            this.setFallbackHostVisible(kind, false);
-                            return;
-                        }
-                        if (resolution?.usedFallback || !host.innerHTML || !host.innerHTML.trim()) {
-                            host.innerHTML = html;
-                        }
-                        if (resolution?.usedFallback) {
-                            this.setFallbackHostVisible(kind, true);
-                            this.setFallbackHostVisible(kind === 'preview' ? 'diff' : 'preview', false);
-                        } else {
-                            this.setFallbackHostVisible(kind, false);
-                        }
-                        this.afterServerHtmlInjected(host as HTMLElement, html);
-                    });
+                    triggerDialogContentHooks(this, kind);
                 },
-                resolveHostForHtml(kind: 'preview' | 'diff', html: string | null): { host: HTMLElement | null, usedFallback?: boolean } | null {
-                    const refName = kind === 'preview' ? 'previewHtmlHost' : 'diffHtmlHost';
-                    const refs = this.$refs as Record<string, HTMLElement | HTMLElement[] | undefined>;
-                    let host = refs[refName];
-                    if (Array.isArray(host)) host = host[0];
-                    if (host) {
-                        return { host }; // Vue rendered element is available
-                    }
-
-                    const dialogRoot = document.querySelector('.review-tool-check-writing-dialog');
-                    const selector = kind === 'preview' ? '.review-tool-preview-pre--html' : '.review-tool-diff-pre--html';
-                    const fallbackInDialog = dialogRoot ? (dialogRoot.querySelector(selector) as HTMLElement | null) : null;
-                    if (fallbackInDialog) {
-                        return { host: fallbackInDialog };
-                    }
-
-                    // Teleport body fallback: create a container directly in the Codex dialog body
-                    const fallbackKey = kind === 'preview' ? '_previewFallbackHost' : '_diffFallbackHost';
-                    let fallbackHost = (this as any)[fallbackKey] as HTMLElement | null;
-                    if (!fallbackHost || !document.body.contains(fallbackHost)) {
-                        const allBodies = Array.from(document.querySelectorAll('.cdx-dialog__body.cdx-scrollable-container')) as HTMLElement[];
-                        const targetBody = dialogRoot ? (dialogRoot.querySelector('.cdx-dialog__body.cdx-scrollable-container') as HTMLElement | null) : null;
-                        const bodyEl = targetBody || (allBodies.length ? allBodies[allBodies.length - 1] : null);
-                        if (bodyEl) {
-                            fallbackHost = document.createElement('div');
-                            fallbackHost.className = 'review-tool-html-host review-tool-html-host--fallback review-tool-html-host--' + kind;
-                            fallbackHost.style.padding = '16px';
-                            fallbackHost.style.minHeight = '80px';
-                            fallbackHost.style.display = kind === 'preview' ? '' : 'none';
-                            bodyEl.appendChild(fallbackHost);
-                            (this as any)[fallbackKey] = fallbackHost;
-                        }
-                    }
-                    if (fallbackHost) {
-                        return { host: fallbackHost, usedFallback: true };
-                    }
-                    return { host: null };
+                getPendingCheckWritingSectionInfo() {
+                    const headingEl: Element | null = (state as any).pendingReviewHeading || null;
+                    const sec = findSectionInfoFromHeading(headingEl as Element | null);
+                    const pageTitleToUse = sec && sec.pageTitle ? sec.pageTitle : (state.articleTitle || '');
+                    const sectionIdToUse = typeof (sec && (sec as any).sectionId) === 'number'
+                        ? (sec as any).sectionId
+                        : (sec && sec.sectionId != null ? sec.sectionId : null);
+                    return { headingEl, sec, pageTitleToUse, sectionIdToUse };
                 },
-                setFallbackHostVisible(kind: 'preview' | 'diff', visible: boolean) {
-                    const fallbackKey = kind === 'preview' ? '_previewFallbackHost' : '_diffFallbackHost';
-                    const host = (this as any)[fallbackKey] as HTMLElement | null;
-                    if (host) {
-                        host.style.display = visible ? '' : 'none';
-                    }
-                },
-                ensureCurrentStepContentHooks() {
-                    this.$nextTick(() => {
-                        if (this.currentStep === 1 && this.previewHtml) {
-                            this.triggerContentHooks('preview');
-                        } else if (this.currentStep === 2 && this.diffHtml) {
-                            this.triggerContentHooks('diff');
-                        } else {
-                            this.setFallbackHostVisible('preview', false);
-                            this.setFallbackHostVisible('diff', false);
-                        }
-                    });
-                },
-                afterServerHtmlInjected(targetEl: HTMLElement, html: string) {
-                    if (!targetEl || !html) return;
-                    // Fire MediaWiki content hook so gadgets enhance the HTML (use jQuery if available)
-                    try {
-                        if (typeof mw !== 'undefined' && mw && mw.hook && typeof mw.hook === 'function') {
-                            const $ = (window as any).jQuery;
-                            mw.hook('wikipage.content').fire($ ? $(targetEl) : targetEl);
-                        }
-                    } catch (e) {
-                        try { mw && mw.hook && mw.hook('wikipage.content').fire(targetEl); } catch (err) { /* ignore */ }
-                    }
-
-                    // Ensure diff CSS is available when diff HTML is displayed
-                    if (html.indexOf('class="diff') !== -1) {
-                        try { mw && mw.loader && mw.loader.load && mw.loader.load('mediawiki.diff.styles'); } catch (e) { /* ignore */ }
-                    }
-                },
-                
                 getStepClass(step: number) {
                     return { 'review-tool-multistep-dialog__stepper__step--active': step <= this.currentStep };
                 },
-                onPrimaryAction() {
-                    if (this.currentStep < 2) {
-                        // moving forward
-                        if (this.currentStep === 0) {
-                            // build preview text and render via MediaWiki parse
-                            this.previewText = this.buildWikitext();
-                            // parse to HTML for preview
-                            parseWikitextToHtml(this.previewText, mw.config.get('wgPageName') || undefined).then((html: string) => {
-                                this.previewHtml = html || '';
-                                if (this.previewHtml) {
-                                    this.triggerContentHooks('preview');
-                                }
-                            }).catch((e: any) => {
-                                console.error('[ReviewTool] parseWikitextToHtml failed', e);
-                                this.previewHtml = '';
-                            });
-                        }
-                        if (this.currentStep === 1) {
-                            // prepare diff: fetch existing section
-                            const headingEl: Element | null = (state as any).pendingReviewHeading || null;
-                            const sec = findSectionInfoFromHeading(headingEl as Element | null);
-                            const pageTitleToUse = sec && sec.pageTitle ? sec.pageTitle : state.articleTitle || '';
-                            const sectionIdToUse = sec && sec.sectionId ? sec.sectionId : null;
-                            if (sectionIdToUse != null) {
-                                getSectionWikitext(pageTitleToUse, sectionIdToUse).then((text: string) => {
-                                    this.existingSectionText = text || '';
-                                    // use API compare to produce HTML diff between old and (old + appended)
-                                    compareWikitext(this.existingSectionText, (this.existingSectionText || '') + this.previewText).then((diffHtml: string) => {
-                                        this.diffHtml = diffHtml || '';
-                                        if (this.diffHtml) {
-                                            this.triggerContentHooks('diff');
-                                        } else {
-                                            this.diffLines = this.computeDiff(this.existingSectionText, this.previewText);
-                                        }
-                                    }).catch((err: any) => {
-                                        console.error('[ReviewTool] compareWikitext failed', err);
-                                        this.diffHtml = '';
-                                        this.diffLines = this.computeDiff(this.existingSectionText, this.previewText);
-                                    });
-                                }).catch((err: any) => {
-                                    console.error('[ReviewTool] getSectionWikitext failed', err);
-                                    this.existingSectionText = '';
-                                    compareWikitext('', this.previewText).then((diffHtml: string) => {
-                                            this.diffHtml = diffHtml || '';
-                                            if (this.diffHtml) {
-                                                this.triggerContentHooks('diff');
-                                            }
-                                            if (!this.diffHtml) this.diffLines = this.computeDiff('', this.previewText);
-                                    }).catch((err2: any) => {
-                                        console.error('[ReviewTool] compareWikitext failed', err2);
-                                        this.diffHtml = '';
-                                        this.diffLines = this.computeDiff('', this.previewText);
-                                    });
-                                });
-                            } else {
-                                this.existingSectionText = '';
-                                compareWikitext('', this.previewText).then((diffHtml: string) => {
-                                    this.diffHtml = diffHtml || '';
-                                    if (this.diffHtml) {
-                                        this.triggerContentHooks('diff');
-                                    }
-                                    if (!this.diffHtml) this.diffLines = this.computeDiff('', this.previewText);
-                                }).catch((err: any) => {
-                                    console.error('[ReviewTool] compareWikitext failed', err);
-                                    this.diffHtml = '';
-                                    this.diffLines = this.computeDiff('', this.previewText);
-                                });
-                            }
-                        }
-                        this.currentStep++;
-                        this.ensureCurrentStepContentHooks();
+                preparePreviewContent() {
+                    const { pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
+                    this.previewHtml = '';
+                    this.previewWikitext = '';
+                    this.pendingNewSectionText = '';
+                    this.existingSectionText = '';
+                    this.diffHtml = '';
+                    this.diffLines = [];
+
+                    const bundle = this.buildPreviewBundle();
+                    if (!bundle) {
                         return;
                     }
-                    // last step: perform save
+                    const { previewFragment, appendSuffix } = bundle;
+                    this.previewWikitext = previewFragment;
+
+                    const renderPreview = (existingText: string) => {
+                        const baseline = existingText || '';
+                        this.existingSectionText = baseline;
+                        this.pendingNewSectionText = baseline + appendSuffix;
+                        parseWikitextToHtml(previewFragment, pageTitleToUse).then((html: string) => {
+                            this.previewHtml = html || '';
+                            if (this.previewHtml && this.currentStep === 1) {
+                                this.triggerContentHooks('preview');
+                            }
+                        }).catch((e: any) => {
+                            console.error('[ReviewTool] parseWikitextToHtml failed', e);
+                            this.previewHtml = '';
+                        });
+                    };
+
+                    if (sectionIdToUse != null) {
+                        getSectionWikitext(pageTitleToUse, sectionIdToUse).then((text: string) => {
+                            renderPreview(text || '');
+                        }).catch((err: any) => {
+                            console.error('[ReviewTool] getSectionWikitext failed', err);
+                            renderPreview('');
+                        });
+                    } else {
+                        renderPreview('');
+                    }
+                },
+                prepareDiffContent() {
+                    const { pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
+                    this.diffHtml = '';
+                    this.diffLines = [];
+
+                    const bundle = this.buildPreviewBundle();
+                    if (!bundle) {
+                        return;
+                    }
+                    const { previewFragment, appendSuffix } = bundle;
+                    this.previewWikitext = previewFragment;
+
+                    const runDiff = (existingText: string) => {
+                        const baseline = existingText || '';
+                        const newSectionText = baseline + appendSuffix;
+                        this.existingSectionText = baseline;
+                        this.pendingNewSectionText = newSectionText;
+                        compareWikitext(baseline, newSectionText).then((diffHtml: string) => {
+                            this.diffHtml = diffHtml || '';
+                            if (this.diffHtml && this.currentStep === 2) {
+                                this.triggerContentHooks('diff');
+                            } else {
+                                this.diffLines = this.buildDiffLines(baseline, appendSuffix);
+                            }
+                        }).catch((err: any) => {
+                            console.error('[ReviewTool] compareWikitext failed', err);
+                            this.diffHtml = '';
+                            this.diffLines = this.buildDiffLines(baseline, appendSuffix);
+                        });
+                    };
+
+                    if (
+                        this.pendingNewSectionText &&
+                        typeof this.existingSectionText === 'string' &&
+                        this.pendingNewSectionText === this.existingSectionText + appendSuffix
+                    ) {
+                        runDiff(this.existingSectionText);
+                        return;
+                    }
+
+                    if (sectionIdToUse != null) {
+                        getSectionWikitext(pageTitleToUse, sectionIdToUse).then((text: string) => {
+                            runDiff(text || '');
+                        }).catch((err: any) => {
+                            console.error('[ReviewTool] getSectionWikitext failed', err);
+                            runDiff('');
+                        });
+                    } else {
+                        runDiff('');
+                    }
+                },
+                onPrimaryAction() {
+                    if (advanceDialogStep(this, {
+                        onEnterPreviewStep: this.preparePreviewContent,
+                        onEnterDiffStep: this.prepareDiffContent,
+                    })) {
+                        return;
+                    }
                     this.saveCheckWriting();
                 }, onDefaultAction() {
-                    if (this.currentStep > 0) {
-                        this.currentStep--;
-                        this.ensureCurrentStepContentHooks();
+                    if (regressDialogStep(this)) {
                         return;
                     }
                     this.closeDialog();
@@ -246,6 +188,14 @@ function createCheckWritingDialog(): void {
                     setTimeout(() => {
                         removeDialogMount();
                     }, 300);
+                },
+                buildPreviewBundle(): { previewFragment: string; appendSuffix: string } | null {
+                    const fragment = this.buildWikitext().trim();
+                    if (!fragment) {
+                        return null;
+                    }
+                    const appendSuffix = `\n\n${fragment}`;
+                    return { previewFragment: fragment, appendSuffix };
                 },
                 buildWikitext() {
                     let wikitext = '';
@@ -261,9 +211,10 @@ function createCheckWritingDialog(): void {
                     }
                     return wikitext;
                 },
-                computeDiff(oldText: string, newText: string) {
+                buildDiffLines(oldText: string, appendedFragment: string) {
                     const oldLines = (oldText || '').split(/\r?\n/);
-                    const newLines = (newText || '').split(/\r?\n/);
+                    const appendedOnly = (appendedFragment || '').replace(/^\s*\n+/, '');
+                    const newLines = appendedOnly.split(/\r?\n/);
                     const out: string[] = [];
                     // Show existing section then the appended lines prefixed with +
                     out.push('--- Existing section ---');
@@ -275,19 +226,8 @@ function createCheckWritingDialog(): void {
                 },
                 saveCheckWriting() {
                     this.isSaving = true;
-                    const payload = {
-                        chapters: this.chapters.map(ch => ({
-                            title: ch.title, suggestions: ch.suggestions.map(s => ({
-                                quote: s.quote, suggestion: s.suggestion
-                            }))
-                        }))
-                    };
-
-
-                    // Find the section ID from the heading that opened this dialog
-                    const headingEl: Element | null = (state as any).pendingReviewHeading || null;
-                    const sec = findSectionInfoFromHeading(headingEl as Element | null);
-                    if (!sec || !sec.sectionId) {
+                    const { sec, pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
+                    if (!sec || sectionIdToUse == null) {
                         const msg = state.convByVar({hant: '無法識別文筆章節編號，請在討論頁的文筆章節附近點擊「檢查文筆」。', hans: '无法识别文笔章节编号，请在讨论页的文笔章节附近点击“检查文笔”。'});
                         mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
                         alert(msg);
@@ -295,12 +235,21 @@ function createCheckWritingDialog(): void {
                         return;
                     }
 
-                    const wikitext = '\n\n' + this.buildWikitext();
+                    const bundle = this.buildPreviewBundle();
+                    if (!bundle) {
+                        const msg = state.convByVar({hant: '請先輸入文筆建議內容，再嘗試儲存。', hans: '请先输入文笔建议内容，再尝试保存。'});
+                        mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        alert(msg);
+                        this.isSaving = false;
+                        return;
+                    }
 
-                    const pageTitleToUse = sec.pageTitle || state.articleTitle || '';
-                    const sectionIdToUse = sec.sectionId as number;
-
-                    appendTextToSection(pageTitleToUse, sectionIdToUse, wikitext, state.convByVar({hant: '新增文筆建議', hans: '新增文笔建议'}))
+                    appendTextToSection(
+                        pageTitleToUse,
+                        sectionIdToUse as number,
+                        bundle.appendSuffix,
+                        state.convByVar({hant: '新增文筆建議', hans: '新增文笔建议'})
+                    )
                         .then((resp: any) => {
                             mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' });
                             this.isSaving = false;
@@ -358,29 +307,31 @@ function createCheckWritingDialog(): void {
 				</template>
 
 				<!-- Step 0: Form -->
-				<div v-if="currentStep === 0">
+                <div v-if="currentStep === 0">
 					<div v-for="(ch, chIdx) in chapters" :key="chIdx" class="review-tool-form-section chapter-block">
 						<cdx-text-input v-model="ch.title" :placeholder="$options.i18n.chapterTitleLabel" class="chapter-title-input"></cdx-text-input>
 
-						<div class="chapter-suggestions">
-							<div v-for="(s, sIdx) in ch.suggestions" :key="sIdx" class="suggestion-row">
-								<div class="suggestion-bullet" aria-hidden="true"></div>
-								<div class="suggestion-columns">
-									<div class="quote-col">
-										<cdx-text-area class="quote-area" v-model="s.quote" :placeholder="$options.i18n.quotePlaceholder" rows="1"></cdx-text-area>
-									</div>
-									<div class="suggestion-col">
-										<cdx-text-area class="suggestion-area" v-model="s.suggestion" :placeholder="$options.i18n.suggestionPlaceholder" rows="1"></cdx-text-area>
-									</div>
-									<div class="suggestion-controls">
-										<cdx-button size="small" class="cdx-button--icon-only" :aria-label="$options.i18n.removeSuggestion" :disabled="ch.suggestions.length <= 1" @click.prevent="removeSuggestion(chIdx, sIdx)">
-											<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="16" height="16"><path d="M3 6h18v2H3V6zm2 3h14l-1 11H6L5 9zm3-6h6l1 2H7l1-2z"/></svg>
-										</cdx-button>
-									</div>
-								</div>
-							</div>
+                        <div class="chapter-suggestions">
+                            <div v-for="(s, sIdx) in ch.suggestions" :key="sIdx" class="suggestion-row">
+                                <div class="suggestion-bullet" aria-hidden="true"></div>
+                                <div class="suggestion-columns">
+                                    <div class="quote-col">
+                                        <cdx-text-area class="quote-area" v-model="s.quote" :placeholder="$options.i18n.quotePlaceholder" rows="1"></cdx-text-area>
+                                    </div>
+                                    <div class="suggestion-col">
+                                        <cdx-text-area class="suggestion-area" v-model="s.suggestion" :placeholder="$options.i18n.suggestionPlaceholder" rows="1"></cdx-text-area>
+                                    </div>
+                                    <div class="suggestion-controls">
+                                        <cdx-button size="small" class="cdx-button--icon-only" :aria-label="$options.i18n.removeSuggestion" :disabled="ch.suggestions.length <= 1" @click.prevent="removeSuggestion(chIdx, sIdx)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="16" height="16"><path d="M3 6h18v2H3V6zm2 3h14l-1 11H6L5 9zm3-6h6l1 2H7l1-2z"/></svg>
+                                        </cdx-button>
+                                    </div>
+                                </div>
+                            </div>
 
-						<div class="row-controls">
+                        </div>
+
+                        <div class="row-controls">
 							<div class="suggestion-add">
 								<cdx-button size="small" @click.prevent="addSuggestion(chIdx)">
 									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="16" height="16" style="margin-right:6px"><path d="M11 11V6h2v5h5v2h-5v5h-2v-5H6v-2z"/></svg>
@@ -398,12 +349,12 @@ function createCheckWritingDialog(): void {
 									{{ $options.i18n.removeChapter }}
 								</cdx-button>
 							</div>
-						</div>
-					</div>
-				</div>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Step 1: Preview -->
-                <div v-if="currentStep === 1" class="review-tool-preview">
+                <div v-else-if="currentStep === 1" class="review-tool-preview">
                     <h3>{{ $options.i18n.previewHeading }}</h3>
                     <div
                         v-if="previewHtml"
@@ -411,11 +362,11 @@ function createCheckWritingDialog(): void {
                         ref="previewHtmlHost"
                         v-html="previewHtml"
                     ></div>
-                    <pre class="review-tool-preview-pre" v-else>{{ previewText }}</pre>
+                    <pre class="review-tool-preview-pre" v-else>{{ previewWikitext }}</pre>
                 </div>
 
                 <!-- Step 2: Diff & Save -->
-                <div v-if="currentStep === 2" class="review-tool-diff">
+                <div v-else-if="currentStep === 2" class="review-tool-diff">
                     <h3>{{ $options.i18n.diffHeading }}</h3>
                     <div
                         v-if="diffHtml"
@@ -423,7 +374,10 @@ function createCheckWritingDialog(): void {
                         ref="diffHtmlHost"
                         v-html="diffHtml"
                     ></div>
-                    <pre class="review-tool-diff-pre" v-else>{{ diffLines.join('\\n') }}</pre>
+                    <div v-else>
+                        <p>Click "{{ $options.i18n.save }}" to append these suggestions.</p>
+                        <pre class="review-tool-diff-pre">{{ diffLines.join('\\n') }}</pre>
+                    </div>
                 </div>
 
 			</cdx-dialog>
