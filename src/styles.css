@@ -210,6 +210,104 @@ html:not(.review-tool-annotation-mode) .review-tool-inline-annotation {
     display: none;
 }
 
+.review-tool-annotation-editor__label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #54595d;
+    margin-bottom: 4px;
+}
+
+.review-tool-annotation-editor__section {
+    font-size: 13px;
+    color: #202122;
+}
+
+.review-tool-annotation-editor__quote {
+    background: #f8f9fa;
+    border: 1px solid #eaecf0;
+    border-radius: 4px;
+    padding: 8px;
+    white-space: pre-wrap;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.review-tool-annotation-editor__error {
+    color: #d73333;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.review-tool-annotation-editor__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding-top: 12px;
+}
+
+.review-tool-annotation-editor__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.review-tool-annotation-viewer__empty {
+    text-align: center;
+    color: #54595d;
+    padding: 32px 0;
+}
+
+.review-tool-annotation-viewer__toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.review-tool-annotation-viewer__section {
+    margin-bottom: 16px;
+}
+
+.review-tool-annotation-viewer__section-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 6px;
+}
+
+.review-tool-annotation-viewer__items {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.review-tool-annotation-viewer__item {
+    border: 1px solid #eaecf0;
+    border-radius: 6px;
+    padding: 8px;
+    margin-bottom: 8px;
+    background: #fff;
+}
+
+.review-tool-annotation-viewer__quote {
+    font-style: italic;
+    color: #54595d;
+}
+
+.review-tool-annotation-viewer__opinion {
+    margin-top: 4px;
+}
+
+.review-tool-annotation-viewer__meta {
+    font-size: 12px;
+    color: #72777d;
+    margin-top: 4px;
+}
+
+.review-tool-annotation-viewer__actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
 /* Sentence highlight styles adapt to current DOM: spans carry both classes */
 .review-tool-annotation-ui.sentence {
     background: transparent;

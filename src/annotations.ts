@@ -115,6 +115,18 @@ export function deleteAnnotation(pageName: string, id: string): boolean {
     return false;
 }
 
+export function clearAnnotations(pageName: string): boolean {
+    const key = storageKeyForPage(pageName);
+    const existed = sessionStorage.getItem(key) !== null;
+    try {
+        sessionStorage.removeItem(key);
+    } catch (e) {
+        console.error('[ReviewTool] failed to clear annotations from sessionStorage', e);
+        return false;
+    }
+    return existed;
+}
+
 function sortAnnotationsByTimestamp(list: Annotation[]): Annotation[] {
     return [...list].sort((a, b) => a.createdAt - b.createdAt);
 }

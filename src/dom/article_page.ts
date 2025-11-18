@@ -1,8 +1,20 @@
 import {addVectorMenuTab, getHeadingTitle} from "./utils";
 import state from "../state";
 import {
-    createAnnotation, deleteAnnotation, getAnnotation, loadAnnotations, updateAnnotation
+    createAnnotation,
+    deleteAnnotation,
+    getAnnotation,
+    updateAnnotation,
+    groupAnnotationsBySection,
+    clearAnnotations
 } from "../annotations";
+import {openAnnotationEditorDialog} from "../dialogs/annotation_editor";
+import {
+    closeAnnotationViewerDialog,
+    isAnnotationViewerDialogOpen,
+    openAnnotationViewerDialog,
+    updateAnnotationViewerDialogGroups
+} from "../dialogs/annotation_viewer";
 
 declare var mw: any;
 
@@ -863,6 +875,22 @@ export function clearWrappedSentences() {
     });
     // also clear any annotation badges
     document.querySelectorAll('.review-tool-annotation-badge').forEach(badge => badge.remove());
+    clearAllInlineAnnotationBubbles();
+}
+
+function clearAllInlineAnnotationBubbles() {
+    inlineAnnotationBubbles.forEach((bubble) => {
+        try {
+            bubble.remove();
+        } catch (e) {
+            console.error('[ReviewTool] failed to remove inline annotation bubble', e, bubble);
+        }
+    });
+    inlineAnnotationBubbles.clear();
+    // Remove stray nodes that might not be tracked in the map
+    document.querySelectorAll('.review-tool-inline-annotation').forEach((bubble) => {
+        bubble.remove();
+    });
 }
 
 function createInlineAnnotationBubbleElement(pageName: string, sectionPath: string, annotationId: string, opinion: string): HTMLElement {
@@ -932,178 +960,59 @@ interface AnnotationDialogOptions {
     selectionRange?: Range | null;
 }
 
-function openAnnotationDialog(pageName: string, annotationId: string | null, sectionPath: string, options: AnnotationDialogOptions = {}) {
-    // Remove existing dialog if any
-    const existing = document.getElementById('review-tool-annotation-dialog');
-    if (existing) existing.remove();
-
-    const isEdit = annotationId !== null;
-    const anno = isEdit ? getAnnotation(pageName, annotationId!) : null;
+async function openAnnotationDialog(pageName: string, annotationId: string | null, sectionPath: string, options: AnnotationDialogOptions = {}) {
     const selectionRange = options.selectionRange ? options.selectionRange.cloneRange() : null;
+    const isEdit = annotationId !== null;
+    const existingAnnotation = isEdit ? getAnnotation(pageName, annotationId!) : null;
+    const displaySentenceText = isEdit
+        ? (existingAnnotation?.sentenceText || '')
+        : sanitizePlainText(options.sentenceText || '');
+    const initialOpinion = isEdit ? (existingAnnotation?.opinion || '') : '';
+    const shouldReopenViewer = isAnnotationViewerDialogOpen();
 
+    try {
+        if (shouldReopenViewer) {
+            closeAnnotationViewerDialog();
+        }
 
-    // For new annotations, use provided sentence text; for edits, use anno data
-    // Ensure displayed sentence text is sanitized (strip ref decorations)
-    const displaySentenceText = isEdit ? (anno?.sentenceText || '') : sanitizePlainText(options.sentenceText || '');
-    const displayOpinion = isEdit ? (anno?.opinion || '') : '';
+        const result = await openAnnotationEditorDialog({
+            sectionPath,
+            sentenceText: displaySentenceText,
+            initialOpinion,
+            mode: isEdit ? 'edit' : 'create',
+            allowDelete: isEdit
+        });
 
-    const overlay = document.createElement('div');
-    overlay.id = 'review-tool-annotation-dialog';
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.right = '0';
-    overlay.style.bottom = '0';
-    overlay.style.background = 'rgba(0,0,0,0.2)';
-    overlay.style.zIndex = '10001';
-
-    const dialog = document.createElement('div');
-    dialog.style.position = 'absolute';
-    dialog.style.top = '50%';
-    dialog.style.left = '50%';
-    dialog.style.transform = 'translate(-50%, -50%)';
-    dialog.style.width = '520px';
-    dialog.style.maxWidth = '90vw';
-    dialog.style.background = '#fff';
-    dialog.style.border = '1px solid #a2a9b1';
-    dialog.style.borderRadius = '6px';
-    dialog.style.boxShadow = '0 8px 30px rgba(0,0,0,0.2)';
-    dialog.style.padding = '16px';
-    dialog.style.fontFamily = 'sans-serif';
-
-    const title = document.createElement('h3');
-    title.textContent = state.convByVar(isEdit ? {hant: '編輯批註', hans: '编辑批注'} : {
-        hant: '新增批註', hans: '新增批注'
-    });
-    title.style.marginTop = '0';
-    title.style.marginBottom = '12px';
-    dialog.appendChild(title);
-
-    const sectionInfo = document.createElement('div');
-    sectionInfo.textContent = state.convByVar({hant: '章節：', hans: '章节：'}) + sectionPath;
-    sectionInfo.style.fontSize = '12px';
-    sectionInfo.style.color = '#666';
-    sectionInfo.style.marginBottom = '8px';
-    dialog.appendChild(sectionInfo);
-
-    const sentenceLabel = document.createElement('div');
-    sentenceLabel.textContent = state.convByVar({hant: '句子：', hans: '句子：'});
-    sentenceLabel.style.marginBottom = '4px';
-    dialog.appendChild(sentenceLabel);
-
-    const sentenceBox = document.createElement('div');
-    sentenceBox.textContent = displaySentenceText;
-    sentenceBox.style.whiteSpace = 'pre-wrap';
-    sentenceBox.style.background = '#f8f9fa';
-    sentenceBox.style.border = '1px solid #eaecf0';
-    sentenceBox.style.padding = '8px';
-    sentenceBox.style.borderRadius = '4px';
-    sentenceBox.style.maxHeight = '120px';
-    sentenceBox.style.overflowY = 'auto';
-    sentenceBox.style.marginBottom = '10px';
-    dialog.appendChild(sentenceBox);
-
-    const opinionLabel = document.createElement('label');
-    opinionLabel.textContent = state.convByVar({hant: '批註內容', hans: '批注内容'});
-    opinionLabel.style.display = 'block';
-    opinionLabel.style.marginBottom = '4px';
-    dialog.appendChild(opinionLabel);
-
-    const textarea = document.createElement('textarea');
-    textarea.value = displayOpinion;
-    textarea.style.width = '100%';
-    textarea.style.height = '120px';
-    textarea.style.resize = 'vertical';
-    textarea.style.boxSizing = 'border-box';
-    textarea.style.padding = '8px';
-    textarea.style.border = '1px solid #a2a9b1';
-    textarea.style.borderRadius = '4px';
-    textarea.placeholder = state.convByVar({hant: '請輸入批註內容...', hans: '请输入批注内容...'});
-    dialog.appendChild(textarea);
-
-    // Auto-focus the textarea
-    setTimeout(() => textarea.focus(), 50);
-
-    const footer = document.createElement('div');
-    footer.style.marginTop = '12px';
-    footer.style.display = 'flex';
-    footer.style.gap = '8px';
-    footer.style.justifyContent = 'flex-end';
-
-    // Only show delete button when editing
-    if (isEdit) {
-        const deleteBtn = document.createElement('button');
-        deleteBtn.textContent = state.convByVar({hant: '刪除', hans: '删除'});
-        deleteBtn.style.background = '#d33';
-        deleteBtn.style.color = '#fff';
-        deleteBtn.style.border = 'none';
-        deleteBtn.style.padding = '6px 12px';
-        deleteBtn.style.borderRadius = '4px';
-        deleteBtn.style.cursor = 'pointer';
-        deleteBtn.onclick = () => {
-            const ok = confirm(state.convByVar({hant: '確定要刪除這條批註？', hans: '确定要删除这条批注？'}));
-            if (!ok) return;
-            const removed = deleteAnnotation(pageName, annotationId!);
-            if (removed) {
-                overlay.remove();
-                removeInlineAnnotationBubble(annotationId!);
-            }
-        };
-        footer.appendChild(deleteBtn);
-    }
-
-    const saveBtn = document.createElement('button');
-    saveBtn.textContent = state.convByVar(isEdit ? {hant: '儲存', hans: '保存'} : {hant: '新增', hans: '新增'});
-    saveBtn.style.background = '#36c';
-    saveBtn.style.color = '#fff';
-    saveBtn.style.border = 'none';
-    saveBtn.style.padding = '6px 12px';
-    saveBtn.style.borderRadius = '4px';
-    saveBtn.style.cursor = 'pointer';
-    saveBtn.onclick = () => {
-        const opinionValue = textarea.value.trim();
-        if (!opinionValue) {
-            alert(state.convByVar({hant: '批註內容不能為空', hans: '批注内容不能为空'}));
+        if (!result || result.action === 'cancel') {
             return;
         }
 
-        if (isEdit) {
-            const updated = updateAnnotation(pageName, annotationId!, {opinion: opinionValue});
-            if (updated) {
-                overlay.remove();
-                updateInlineAnnotationBubble(annotationId!, opinionValue);
+        if (result.action === 'delete' && isEdit && annotationId) {
+            const removed = deleteAnnotation(pageName, annotationId);
+            if (removed) {
+                removeInlineAnnotationBubble(annotationId);
             }
-        } else {
-            // Create new annotation
-            const created = createAnnotation(pageName, sectionPath, displaySentenceText, opinionValue);
-            insertInlineAnnotationBubble(selectionRange, pageName, sectionPath, created.id, opinionValue);
-            console.log('[ReviewTool] annotation saved', {
-                page: pageName, section: sectionPath, opinion: opinionValue, text: displaySentenceText
-            });
-            overlay.remove();
+            return;
         }
-    };
 
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = state.convByVar({hant: '取消', hans: '取消'});
-    cancelBtn.style.background = '#fff';
-    cancelBtn.style.color = '#202122';
-    cancelBtn.style.border = '1px solid #a2a9b1';
-    cancelBtn.style.padding = '6px 12px';
-    cancelBtn.style.borderRadius = '4px';
-    cancelBtn.style.cursor = 'pointer';
-    cancelBtn.onclick = () => overlay.remove();
-
-    footer.appendChild(saveBtn);
-    footer.appendChild(cancelBtn);
-
-    dialog.appendChild(footer);
-    overlay.appendChild(dialog);
-    overlay.onclick = (e) => {
-        if (e.target === overlay) overlay.remove();
-    };
-
-    document.body.appendChild(overlay);
+        if (result.action === 'save') {
+            if (isEdit && annotationId) {
+                const updated = updateAnnotation(pageName, annotationId, { opinion: result.opinion });
+                if (updated) {
+                    updateInlineAnnotationBubble(annotationId, result.opinion);
+                }
+            } else {
+                const created = createAnnotation(pageName, sectionPath, displaySentenceText, result.opinion);
+                insertInlineAnnotationBubble(selectionRange, pageName, sectionPath, created.id, result.opinion);
+            }
+        }
+    } catch (error) {
+        console.error('[ReviewTool] Failed to open annotation editor dialog', error);
+    } finally {
+        if (shouldReopenViewer) {
+            showAnnotationViewer(pageName);
+        }
+    }
 }
 
 // Attach click handlers to sentence spans inside the given section range
@@ -1238,138 +1147,31 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
 }
 
 export function showAnnotationViewer(pageName: string) {
-    const existing = document.getElementById('review-tool-annotation-viewer');
-    if (existing) {
-        existing.remove();
+    if (isAnnotationViewerDialogOpen()) {
+        closeAnnotationViewerDialog();
         return;
     }
-    const store = loadAnnotations(pageName);
-    const grouped: Record<string, typeof store.annotations> = {};
-    store.annotations.forEach(anno => {
-        if (!grouped[anno.sectionPath]) grouped[anno.sectionPath] = [];
-        grouped[anno.sectionPath].push(anno);
+
+    const groups = groupAnnotationsBySection(pageName);
+    openAnnotationViewerDialog({
+        groups,
+        onEditAnnotation: (annotationId, sectionPath) => {
+            openAnnotationDialog(pageName, annotationId, sectionPath);
+        },
+        onDeleteAnnotation: async (annotationId, sectionPath) => {
+            const removed = deleteAnnotation(pageName, annotationId);
+            if (removed) {
+                removeInlineAnnotationBubble(annotationId);
+                updateAnnotationViewerDialogGroups(groupAnnotationsBySection(pageName));
+            }
+        },
+        onClearAllAnnotations: async () => {
+            const cleared = clearAnnotations(pageName);
+            clearAllInlineAnnotationBubbles();
+            updateAnnotationViewerDialogGroups(groupAnnotationsBySection(pageName));
+            return cleared;
+        }
     });
-    const viewer = document.createElement('div');
-    viewer.id = 'review-tool-annotation-viewer';
-    viewer.style.position = 'fixed';
-    viewer.style.top = '80px';
-    viewer.style.right = '20px';
-    viewer.style.width = '360px';
-    viewer.style.maxHeight = '600px';
-    viewer.style.overflowY = 'auto';
-    viewer.style.background = '#fff';
-    viewer.style.border = '1px solid #a2a9b1';
-    viewer.style.borderRadius = '4px';
-    viewer.style.boxShadow = '0 4px 16px rgba(0,0,0,0.2)';
-    viewer.style.zIndex = '10000';
-    viewer.style.padding = '14px';
-    viewer.style.fontFamily = 'sans-serif';
-    viewer.style.fontSize = '14px';
-
-    const header = document.createElement('div');
-    header.style.display = 'flex';
-    header.style.justifyContent = 'space-between';
-    header.style.alignItems = 'center';
-
-    const title = document.createElement('h3');
-    title.textContent = state.convByVar({hant: '批註列表', hans: '批注列表'});
-    title.style.margin = '0';
-    title.style.fontSize = '16px';
-    title.style.fontWeight = 'bold';
-    header.appendChild(title);
-
-    const close = document.createElement('button');
-    close.textContent = '×';
-    close.style.border = 'none';
-    close.style.background = 'transparent';
-    close.style.fontSize = '20px';
-    close.style.cursor = 'pointer';
-    close.onclick = () => viewer.remove();
-    header.appendChild(close);
-
-    viewer.appendChild(header);
-
-    if (store.annotations.length === 0) {
-        const empty = document.createElement('p');
-        empty.textContent = state.convByVar({hant: '尚無批註', hans: '尚无批注'});
-        empty.style.color = '#666';
-        empty.style.marginTop = '12px';
-        viewer.appendChild(empty);
-    } else {
-        Object.keys(grouped).sort().forEach(sectionPath => {
-            const secHeader = document.createElement('h4');
-            secHeader.textContent = sectionPath;
-            secHeader.style.margin = '12px 0 6px';
-            secHeader.style.fontSize = '13px';
-            secHeader.style.fontWeight = 'bold';
-            secHeader.style.color = '#202122';
-            viewer.appendChild(secHeader);
-
-            const list = document.createElement('ul');
-            list.style.listStyle = 'disc';
-            list.style.margin = '0 0 4px 18px';
-            list.style.padding = '0';
-
-            grouped[sectionPath].forEach(anno => {
-                const li = document.createElement('li');
-                li.style.marginBottom = '8px';
-                const spanText = document.createElement('span');
-                spanText.textContent = `"${anno.sentenceText.slice(0, 50)}${anno.sentenceText.length > 50 ? '…' : ''}"`;
-                spanText.style.fontStyle = 'italic';
-                spanText.style.color = '#555';
-                li.appendChild(spanText);
-                const opDiv = document.createElement('div');
-                opDiv.textContent = anno.opinion;
-                opDiv.style.marginTop = '4px';
-                li.appendChild(opDiv);
-                const meta = document.createElement('div');
-                meta.textContent = `${state.convByVar({
-                    hant: '由', hans: '由'
-                })} ${anno.createdBy} ${state.convByVar({
-                    hant: '於', hans: '于'
-                })} ${new Date(anno.createdAt).toLocaleString()}`;
-                meta.style.fontSize = '11px';
-                meta.style.color = '#888';
-                meta.style.marginTop = '2px';
-                li.appendChild(meta);
-                // quick edit shortcut
-                const editLink = document.createElement('a');
-                editLink.href = 'javascript:void(0)';
-                editLink.textContent = state.convByVar({hant: '編輯', hans: '编辑'});
-                editLink.style.fontSize = '11px';
-                editLink.style.marginRight = '8px';
-                editLink.onclick = (e) => {
-                    e.preventDefault();
-                    openAnnotationDialog(pageName, anno.id, sectionPath);
-                };
-                const delLink = document.createElement('a');
-                delLink.href = 'javascript:void(0)';
-                delLink.textContent = state.convByVar({hant: '刪除', hans: '删除'});
-                delLink.style.fontSize = '11px';
-                delLink.style.color = '#d33';
-                delLink.onclick = (e) => {
-                    e.preventDefault();
-                    const ok = confirm(state.convByVar({hant: '確定刪除？', hans: '确定删除？'}));
-                    if (ok) {
-                        if (deleteAnnotation(pageName, anno.id)) {
-                            removeInlineAnnotationBubble(anno.id);
-                            viewer.remove();
-                            showAnnotationViewer(pageName);
-                        }
-                    }
-                };
-                const actions = document.createElement('div');
-                actions.style.marginTop = '4px';
-                actions.appendChild(editLink);
-                actions.appendChild(delLink);
-                li.appendChild(actions);
-                list.appendChild(li);
-            });
-            viewer.appendChild(list);
-        });
-    }
-
-    document.body.appendChild(viewer);
 }
 
 /**
