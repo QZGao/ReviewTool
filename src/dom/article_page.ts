@@ -27,6 +27,7 @@ let activeSectionStart: Element | null = null;
 let activeSectionEnd: Element | null = null;
 let activeSectionPath: string | null = null;
 let activePageName: string | null = null;
+let restrictSelectionToDescendants = false;
 let isMouseDown = false; // new flag to ignore selectionchange during drag
 let mouseDownPos: { x: number, y: number } | null = null; // track mouse position to detect drag vs click
 
@@ -90,12 +91,19 @@ function sanitizePlainText(text?: string | null): string {
     return s.replace(/\s+/g, ' ').trim();
 }
 
-export function installSelectionListenersForSection(pageName: string, sectionStart: Element, sectionEnd: Element, sectionPath: string) {
+export function installSelectionListenersForSection(
+    pageName: string,
+    sectionStart: Element,
+    sectionEnd: Element,
+    sectionPath: string,
+    restrictToDescendants = false
+) {
     uninstallSelectionListeners();
     activeSectionStart = sectionStart;
     activeSectionEnd = sectionEnd;
     activeSectionPath = sectionPath;
     activePageName = pageName;
+    restrictSelectionToDescendants = restrictToDescendants;
 
     document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('mouseup', onMouseUp as any);
@@ -126,6 +134,7 @@ export function uninstallSelectionListeners() {
     activeSectionEnd = null;
     activeSectionPath = null;
     activePageName = null;
+    restrictSelectionToDescendants = false;
 }
 
 function isNodeWithinSection(node: Node | null): boolean {
@@ -140,6 +149,9 @@ function isNodeWithinSection(node: Node | null): boolean {
 
     // If there's no explicit section end, any node after start is considered inside
     if (!activeSectionEnd) {
+        if (restrictSelectionToDescendants) {
+            return false;
+        }
         return (activeSectionStart.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     }
 
@@ -1280,7 +1292,7 @@ function toggleArticleAnnotationMode(pageName: string): void {
         }
         const sectionPath = state.articleTitle || pageName;
         // install listeners using the container as the active section start (annotation_ui will treat container as parent)
-        installSelectionListenersForSection(state.articleTitle || pageName, container, null, sectionPath);
+        installSelectionListenersForSection(state.articleTitle || pageName, container, null, sectionPath, true);
         // Try wrapping the section and retry a few times in case the page rewrites content shortly after.
         const tryCount = ensureWrappedSection ? ensureWrappedSection : wrapSectionSentences;
         tryCount(container, null, 4, 220);

@@ -399,7 +399,7 @@ function createReviewManagementDialog(): void {
                             this.isSubmitting = false;
                             return;
                         }
-                        appendTextToSection(pageTitleToUse, sectionIdToUse, headers, state.convByVar({hant: '使用 ReviewTool 新增評審項目', hans: '使用 ReviewTool 新增评审项目'}))
+                        appendTextToSection(pageTitleToUse, sectionIdToUse, headers, state.convByVar({hant: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審項目', hans: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审项目'}))
                             .then((resp: any) => {
                                 mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' });
                                 this.isSubmitting = false;
@@ -438,7 +438,7 @@ function createReviewManagementDialog(): void {
                             pageTitleToUse,
                             sectionIdToUse,
                             insertion.newSectionText,
-                            state.convByVar({hant: '使用 ReviewTool 新增評審子項', hans: '使用 ReviewTool 新增评审子项'}),
+                            state.convByVar({hant: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審子項', hans: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审子项'}),
                             revisionInfo
                         )
                             .then((resp: any) => {
@@ -460,7 +460,7 @@ function createReviewManagementDialog(): void {
                             pageTitleToUse,
                             sectionIdToUse,
                             insertion.previewFragment,
-                            state.convByVar({hant: '使用 ReviewTool 新增評審項', hans: '使用 ReviewTool 新增评审项目'})
+                            state.convByVar({hant: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審項', hans: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审项目'})
                         )
                             .then((resp: any) => {
                                 mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增評審項目。', hans: '已成功新增评审项目。'}), { tag: 'review-tool' });

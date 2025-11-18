@@ -319,7 +319,7 @@ function createCheckWritingDialog(): void {
                         pageTitleToUse,
                         sectionIdToUse as number,
                         bundle.appendSuffix,
-                        state.convByVar({hant: '新增文筆建議', hans: '新增文笔建议'})
+                        state.convByVar({hant: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文筆建議', hans: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文笔建议'})
                     )
                         .then((resp: any) => {
                             mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' });

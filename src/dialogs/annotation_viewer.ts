@@ -166,19 +166,6 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         @update:open="onUpdateOpen"
                         class="review-tool-dialog review-tool-annotation-viewer-dialog"
                     >
-                        <div
-                            v-if="canClearAll && !isEmpty"
-                            class="review-tool-annotation-viewer__toolbar"
-                        >
-                            <cdx-button
-                                action="destructive"
-                                weight="quiet"
-                                :disabled="clearingAll"
-                                @click.prevent="handleClearAll"
-                            >
-                                {{ $options.i18n.clearAll }}
-                            </cdx-button>
-                        </div>
                         <div v-if="isEmpty" class="review-tool-annotation-viewer__empty">
                             {{ $options.i18n.empty }}
                         </div>
@@ -224,6 +211,19 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                                 </ul>
                             </div>
                         </div>
+                        <template #footer>
+                            <div class="review-tool-annotation-viewer__footer">
+                                <cdx-button
+                                    v-if="canClearAll && !isEmpty"
+                                    action="destructive"
+                                    weight="quiet"
+                                    :disabled="clearingAll"
+                                    @click.prevent="handleClearAll"
+                                >
+                                    {{ $options.i18n.clearAll }}
+                                </cdx-button>
+                            </div>
+                        </template>
                     </cdx-dialog>
                 `
             });

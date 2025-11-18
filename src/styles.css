@@ -257,10 +257,10 @@ html:not(.review-tool-annotation-mode) .review-tool-inline-annotation {
     padding: 32px 0;
 }
 
-.review-tool-annotation-viewer__toolbar {
+.review-tool-annotation-viewer__footer {
     display: flex;
-    justify-content: flex-end;
-    margin-bottom: 12px;
+    justify-content: flex-start;
+    padding-top: 12px;
 }
 
 .review-tool-annotation-viewer__section {
