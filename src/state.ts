@@ -6,8 +6,8 @@ declare var mw: any;
 class State {
     // 簡繁轉換
     convByVar = function (langDict: any) {
-        if (langDict && langDict['hant']) {
-            return langDict['hant']; // 預設返回繁體中文
+        if (langDict && langDict.hant) {
+            return langDict.hant; // 預設返回繁體中文
         }
         return "繁簡轉換未初始化，且 langDict 無效！";
     };
