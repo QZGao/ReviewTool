@@ -69,7 +69,7 @@ export function saveAnnotations(store: AnnotationStore): void {
 
 export function createAnnotation(pageName: string, sectionPath: string, sentenceText: string, opinion: string): Annotation {
     const store = loadAnnotations(pageName);
-    const normalizedSectionPath = sectionPath === '目次' ? '序言' : sectionPath;
+    const normalizedSectionPath = sectionPath;
     const anno: Annotation = {
         id: uuidv4(),
         sectionPath: normalizedSectionPath,

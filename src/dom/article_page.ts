@@ -656,10 +656,10 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             }
             tn = walker.nextNode() as Text | null;
         }
-        console.log('[ReviewTool] processElementRoot: segments count', segments.length);
+        // console.log('[ReviewTool] processElementRoot: segments count', segments.length);
         if (!segments.length) return;
         const ranges = splitTextIntoRanges(acc);
-        console.log('[ReviewTool] processElementRoot: ranges computed', ranges.length);
+        // console.log('[ReviewTool] processElementRoot: ranges computed', ranges.length);
 
         // Map ranges to actual text node offsets first
         const mapped: Array<{
@@ -687,7 +687,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             }
         }
 
-        console.log('[ReviewTool] processElementRoot: mapped ranges', mapped.length);
+        // console.log('[ReviewTool] processElementRoot: mapped ranges', mapped.length);
         if (!mapped.length) return;
 
         // Process mappings from end to start to avoid invalidating earlier offsets
@@ -729,7 +729,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             }
         }
 
-        console.log('[ReviewTool] processElementRoot: successCount', successCount);
+        // console.log('[ReviewTool] processElementRoot: successCount', successCount);
         if (successCount === 0) {
             // If no ranges could be safely wrapped, fall back to naive wrapping for this root
             console.warn('[ReviewTool] no mapped ranges wrapped successfully, performing fallback wrapping for this root');
@@ -981,6 +981,7 @@ async function openAnnotationDialog(pageName: string, annotationId: string | nul
         : sanitizePlainText(options.sentenceText || '');
     const initialOpinion = isEdit ? (existingAnnotation?.opinion || '') : '';
     const shouldReopenViewer = isAnnotationViewerDialogOpen();
+    sectionPath = sectionPath === '目次' ? '序言' : sectionPath;
 
     try {
         if (shouldReopenViewer) {
@@ -1071,9 +1072,9 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
         }
         if ((attachHandlerToSpan as any)._attachedCount === undefined) (attachHandlerToSpan as any)._attachedCount = 0;
         (attachHandlerToSpan as any)._attachedCount++;
-        if ((attachHandlerToSpan as any)._attachedCount <= 5) {
-            console.log('[ReviewTool] attachHandlerToSpan: attached handler to span', s.getAttribute('data-sentence-index'));
-        }
+        // if ((attachHandlerToSpan as any)._attachedCount <= 5) {
+        //     console.log('[ReviewTool] attachHandlerToSpan: attached handler to span', s.getAttribute('data-sentence-index'));
+        // }
 
         // Remove any inline cursor override; CSS will control cursor state
         // Ensure pointer events and cursor are enabled; add inline cursor as a fail-safe
@@ -1099,7 +1100,7 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
                 console.error('[ReviewTool] span mouseenter styling failed', e, s);
                 throw e;
             }
-            console.log('[ReviewTool] span mouseenter', s.getAttribute('data-sentence-index'));
+            // console.log('[ReviewTool] span mouseenter', s.getAttribute('data-sentence-index'));
         });
         s.addEventListener('mouseleave', () => {
             try {
@@ -1108,7 +1109,7 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
                 console.error('[ReviewTool] span mouseleave styling failed', e, s);
                 throw e;
             }
-            console.log('[ReviewTool] span mouseleave', s.getAttribute('data-sentence-index'));
+            // console.log('[ReviewTool] span mouseleave', s.getAttribute('data-sentence-index'));
         });
 
         s.addEventListener('click', (e) => {

@@ -64,7 +64,11 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                     clearAllNothing: state.convByVar({ hant: "沒有可清除的批註。", hans: "没有可清除的批注。" }),
                     clearAllError: state.convByVar({ hant: "清除批註時發生錯誤。", hans: "清除批注时发生错误。" }),
                     sectionFallback: state.convByVar({ hant: "（未指定章節）", hans: "（未指定章节）" }),
-                    close: state.convByVar({ hant: "關閉", hans: "关闭" })
+                    close: state.convByVar({ hant: "關閉", hans: "关闭" }),
+                    // export-related strings
+                    export: state.convByVar({ hant: "匯出", hans: "导出" }),
+                    exportDone: state.convByVar({ hant: "已匯出批註。", hans: "已导出批注。" }),
+                    exportError: state.convByVar({ hant: "匯出批註時發生錯誤。", hans: "导出批注时发生错误。" })
                 },
                 data() {
                     return {
@@ -142,6 +146,35 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                                 this.clearingAll = false;
                             });
                     },
+                    handleExport() {
+                        if (this.isEmpty) return;
+                        try {
+                            const payload = {
+                                exportedAt: Date.now(),
+                                groups: this.groups
+                            };
+                            const json = JSON.stringify(payload, null, 2);
+                            const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+                            const filename = `review-tool-annotations-${new Date().toISOString().replace(/[:.]/g, '')}.json`;
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                            if (mw && mw.notify) {
+                                mw.notify(this.$options.i18n.exportDone, { tag: 'review-tool' });
+                            }
+                        } catch (error) {
+                            console.error('[ReviewTool] Failed to export annotations', error);
+                            mw && mw.notify && mw.notify(
+                                this.$options.i18n.exportError,
+                                { type: 'error', title: '[ReviewTool]' }
+                            );
+                        }
+                    },
                     onUpdateOpen(newValue: boolean) {
                         if (!newValue) {
                             this.closeDialog();
@@ -213,6 +246,14 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         </div>
                         <template #footer>
                             <div class="review-tool-annotation-viewer__footer">
+                                <cdx-button
+                                    v-if="!isEmpty"
+                                    weight="quiet"
+                                    @click.prevent="handleExport"
+                                >
+                                    {{ $options.i18n.export }}
+                                </cdx-button>
+
                                 <cdx-button
                                     v-if="canClearAll && !isEmpty"
                                     action="destructive"
