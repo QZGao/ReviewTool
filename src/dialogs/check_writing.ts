@@ -1,5 +1,5 @@
 import state from "../state";
-import { groupAnnotationsBySection, AnnotationGroup } from "../annotations";
+import { groupAnnotationsBySection, AnnotationGroup, loadAnnotations, saveAnnotations } from "../annotations";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../api";
 import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
@@ -34,6 +34,10 @@ function createCheckWritingDialog(): void {
                 diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
                 diffLoading: state.convByVar({hant: '差異載入中…', hans: '差异载入中…'}),
                 loadAnnotations: state.convByVar({hant: '載入批註', hans: '载入批注'}),
+                importFromFile: state.convByVar({hant: '從檔案載入', hans: '从文件载入'}),
+                importSuccess: state.convByVar({hant: '已從檔案載入批註。', hans: '已从文件载入批注。'}),
+                importError: state.convByVar({hant: '載入檔案時發生錯誤。', hans: '读取文件时发生错误。'}),
+                importInvalid: state.convByVar({hant: '無效的批註檔案。', hans: '无效的批注文件。'}),
                 annotationFallbackChapter: state.convByVar({hant: '（未指定章節）', hans: '（未指定章节）'}),
             }, data() {
                 return {
@@ -50,6 +54,7 @@ function createCheckWritingDialog(): void {
                         pendingNewSectionText: '',
                         diffHtml: '',
                         diffLines: [] as string[],
+                        // no persistent data needed for import UI; the file input is handled via ref
                 };
             }, computed: {
                 primaryAction() {
@@ -230,6 +235,93 @@ function createCheckWritingDialog(): void {
                     out.push('+++ New content to append +++');
                     out.push(...newLines.map(l => '+ ' + l));
                     return out;
+                },
+                // Import helpers
+                handleImportClick() {
+                    // trigger the hidden file input
+                    const input = (this.$refs && (this.$refs.annotationImportInput as HTMLInputElement)) || null;
+                    if (input && typeof input.click === 'function') {
+                        input.value = '';
+                        input.click();
+                    } else {
+                        console.warn('[ReviewTool] file input not available for import');
+                    }
+                },
+                onAnnotationFileSelected(ev: Event) {
+                    const input = ev && (ev.target as HTMLInputElement);
+                    if (!input || !input.files || !input.files.length) return;
+                    const file = input.files[0];
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const text = (e.target && (e.target as any).result) || '';
+                            const parsed = JSON.parse(text);
+                            const pageName = state.articleTitle || '';
+                            if (!pageName) {
+                                this.reportAnnotationLoadFailure(state.convByVar({hant: '無法識別條目名稱，無法載入檔案中的批註。', hans: '无法识别条目名称，无法载入文件中的批注。'}));
+                                return;
+                            }
+
+                            const importedAnnotations: any[] = [];
+                            if (Array.isArray(parsed.annotations)) {
+                                // likely an AnnotationStore
+                                for (const a of parsed.annotations) {
+                                    importedAnnotations.push({
+                                        id: a.id || (`import-${Date.now()}-${Math.random().toString(36).slice(2,9)}`),
+                                        sectionPath: a.sectionPath || '',
+                                        sentenceText: a.sentenceText || a.quote || '',
+                                        opinion: a.opinion || a.suggestion || '',
+                                        createdBy: a.createdBy || state.userName || 'import',
+                                        createdAt: typeof a.createdAt === 'number' ? a.createdAt : Date.now(),
+                                        resolved: Boolean(a.resolved)
+                                    });
+                                }
+                            } else if (Array.isArray(parsed.groups)) {
+                                for (const g of parsed.groups) {
+                                    const section = g.sectionPath || '';
+                                    const annos = Array.isArray(g.annotations) ? g.annotations : [];
+                                    for (const a of annos) {
+                                        importedAnnotations.push({
+                                            id: a.id || (`import-${Date.now()}-${Math.random().toString(36).slice(2,9)}`),
+                                            sectionPath: section,
+                                            sentenceText: a.sentenceText || a.quote || '',
+                                            opinion: a.opinion || a.suggestion || '',
+                                            createdBy: a.createdBy || state.userName || 'import',
+                                            createdAt: typeof a.createdAt === 'number' ? a.createdAt : Date.now(),
+                                            resolved: Boolean(a.resolved)
+                                        });
+                                    }
+                                }
+                            } else {
+                                throw new Error('invalid-format');
+                            }
+
+                            // Merge into existing store (dedupe by id)
+                            const store = loadAnnotations(pageName);
+                            const existingIds = new Set(store.annotations.map((x: any) => x.id));
+                            const toAdd = importedAnnotations.filter(a => !existingIds.has(a.id));
+                            if (toAdd.length) {
+                                const merged = { ...store, annotations: store.annotations.concat(toAdd) };
+                                saveAnnotations(merged);
+                                // reload form content from saved annotations
+                                // give a small timeout to ensure storage notifications propagate
+                                setTimeout(() => { this.loadAnnotationsIntoForm(); }, 50);
+                            }
+
+                            const msg = this.$options.i18n.importSuccess || 'Imported annotations from file.';
+                            mw && mw.notify && mw.notify(msg, { tag: 'review-tool' });
+                        } catch (err) {
+                            console.error('[ReviewTool] failed to import annotations from file', err);
+                            const msg = this.$options.i18n.importInvalid || 'Invalid annotation file.';
+                            this.reportAnnotationLoadFailure(msg);
+                        }
+                    };
+                    reader.onerror = (err) => {
+                        console.error('[ReviewTool] FileReader error', err);
+                        const msg = this.$options.i18n.importError || 'Failed to read file.';
+                        this.reportAnnotationLoadFailure(msg);
+                    };
+                    reader.readAsText(file, 'utf-8');
                 },
                 loadAnnotationsIntoForm() {
                     if (this.isLoadingAnnotations) {
@@ -448,16 +540,24 @@ function createCheckWritingDialog(): void {
                 </div>
 
             <template #footer>
-                <div class="review-tool-multistep-dialog__footer-left">
+                 <div class="review-tool-multistep-dialog__footer-left">
+                     <cdx-button
+                         v-if="showAnnotationLoaderButton"
+                         weight="quiet"
+                         :disabled="isLoadingAnnotations"
+                         @click.prevent="loadAnnotationsIntoForm"
+                     >
+                         {{ $options.i18n.loadAnnotations }}
+                     </cdx-button>
                     <cdx-button
                         v-if="showAnnotationLoaderButton"
                         weight="quiet"
-                        :disabled="isLoadingAnnotations"
-                        @click.prevent="loadAnnotationsIntoForm"
+                        @click.prevent="handleImportClick"
                     >
-                        {{ $options.i18n.loadAnnotations }}
+                        {{ $options.i18n.importFromFile }}
                     </cdx-button>
-                </div>
+                    <input ref="annotationImportInput" type="file" accept="application/json,.json" style="display:none" @change="onAnnotationFileSelected" />
+                 </div>
                 <div class="review-tool-multistep-dialog__actions">
                     <cdx-button
                         v-if="defaultAction"
