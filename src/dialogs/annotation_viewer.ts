@@ -1,5 +1,5 @@
 import state from "../state";
-import { AnnotationGroup } from "../annotations";
+import { AnnotationGroup, Annotation } from "../annotations";
 import {
     loadCodexAndVue,
     mountApp,
@@ -7,6 +7,7 @@ import {
     removeDialogMount,
     getMountedApp
 } from "../dialog";
+import { compareOrderKeys } from "../dom/numeric_pos";
 
 declare const mw: any;
 
@@ -68,7 +69,11 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                     // export-related strings
                     export: state.convByVar({ hant: "匯出", hans: "导出" }),
                     exportDone: state.convByVar({ hant: "已匯出批註。", hans: "已导出批注。" }),
-                    exportError: state.convByVar({ hant: "匯出批註時發生錯誤。", hans: "导出批注时发生错误。" })
+                    exportError: state.convByVar({ hant: "匯出批註時發生錯誤。", hans: "导出批注时发生错误。" }),
+                    sortLabel: state.convByVar({ hant: "排序方式", hans: "排序方式" }),
+                    sortCreatedAsc: state.convByVar({ hant: "最早時間優先", hans: "最早时间优先" }),
+                    sortCreatedDesc: state.convByVar({ hant: "最新時間優先", hans: "最新时间优先" }),
+                    sortPosition: state.convByVar({ hant: "頁面位置", hans: "页面位置" })
                 },
                 data() {
                     return {
@@ -76,13 +81,40 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         groups: viewerDialogOptions?.groups || [],
                         deletingAnnotationId: null as string | null,
                         clearingAll: false,
-                        canClearAll: Boolean(viewerDialogOptions?.onClearAllAnnotations)
+                        canClearAll: Boolean(viewerDialogOptions?.onClearAllAnnotations),
+                        sortMethod: 'position'
                     };
                 },
                 computed: {
                     isEmpty(): boolean {
                         if (!Array.isArray(this.groups) || !this.groups.length) return true;
                         return this.groups.every((group: AnnotationGroup) => !group.annotations || group.annotations.length === 0);
+                    },
+                    flattenedAnnotations(): Annotation[] {
+                        if (!Array.isArray(this.groups)) return [];
+                        const list: Annotation[] = [];
+                        this.groups.forEach((group: AnnotationGroup) => {
+                            if (!Array.isArray(group.annotations)) return;
+                            group.annotations.forEach((anno) => list.push(anno));
+                        });
+                        return list;
+                    },
+                    sortingOptions(): Array<{ value: string, label: string }> {
+                        const i18n = (this.$options as any)?.i18n || {};
+                        return [
+                            { value: 'position', label: i18n.sortPosition || '頁面位置' },
+                            { value: 'created-desc', label: i18n.sortCreatedDesc || '最新時間優先' },
+                            { value: 'created-asc', label: i18n.sortCreatedAsc || '最早時間優先' }
+                        ];
+                    },
+                    sortedGroups(): AnnotationGroup[] {
+                        if (this.sortMethod === 'created-desc') {
+                            return this.buildTimeSortedGroups('desc');
+                        }
+                        if (this.sortMethod === 'created-asc') {
+                            return this.buildTimeSortedGroups('asc');
+                        }
+                        return this.buildPositionSortedGroups();
                     }
                 },
                 methods: {
@@ -175,6 +207,47 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                             );
                         }
                     },
+                    buildPositionSortedGroups(): AnnotationGroup[] {
+                        const buckets = new Map<string, Annotation[]>();
+                        this.flattenedAnnotations.forEach((anno) => {
+                            const key = (anno.sectionPath || '').trim();
+                            if (!buckets.has(key)) buckets.set(key, []);
+                            buckets.get(key)!.push(anno);
+                        });
+                        const groups = Array.from(buckets.entries()).map(([sectionPath, annotations]) => ({
+                            sectionPath,
+                            annotations: annotations.slice().sort((a, b) => {
+                                const cmp = compareOrderKeys(a.sentencePos, b.sentencePos);
+                                if (cmp !== 0) return cmp;
+                                return (a.createdAt || 0) - (b.createdAt || 0);
+                            })
+                        }));
+                        groups.sort((a, b) => {
+                            const firstA = a.annotations[0];
+                            const firstB = b.annotations[0];
+                            const cmp = compareOrderKeys(firstA?.sentencePos, firstB?.sentencePos);
+                            if (cmp !== 0) return cmp;
+                            return (a.sectionPath || '').localeCompare(b.sectionPath || '');
+                        });
+                        return groups;
+                    },
+                    buildTimeSortedGroups(order: 'asc' | 'desc'): AnnotationGroup[] {
+                        const sorted = this.flattenedAnnotations.slice().sort((a, b) => {
+                            const delta = (a.createdAt || 0) - (b.createdAt || 0);
+                            return order === 'asc' ? delta : -delta;
+                        });
+                        const groups: AnnotationGroup[] = [];
+                        sorted.forEach((anno) => {
+                            const sectionPath = (anno.sectionPath || '').trim();
+                            const lastGroup = groups[groups.length - 1];
+                            if (!lastGroup || lastGroup.sectionPath !== sectionPath) {
+                                groups.push({ sectionPath, annotations: [anno] });
+                            } else {
+                                lastGroup.annotations.push(anno);
+                            }
+                        });
+                        return groups;
+                    },
                     onUpdateOpen(newValue: boolean) {
                         if (!newValue) {
                             this.closeDialog();
@@ -204,7 +277,7 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         </div>
                         <div v-else class="review-tool-annotation-viewer__list">
                             <div
-                                v-for="group in groups"
+                                v-for="group in sortedGroups"
                                 :key="group.sectionPath || 'default'"
                                 class="review-tool-annotation-viewer__section"
                             >
@@ -246,23 +319,34 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         </div>
                         <template #footer>
                             <div class="review-tool-annotation-viewer__footer">
-                                <cdx-button
-                                    v-if="!isEmpty"
-                                    weight="quiet"
-                                    @click.prevent="handleExport"
-                                >
-                                    {{ $options.i18n.export }}
-                                </cdx-button>
+                                <div class="review-tool-annotation-viewer__footer-left">
+                                    <cdx-select
+                                        v-model:selected="sortMethod"
+                                        :menu-items="sortingOptions"
+                                        :disabled="isEmpty"
+                                        :aria-label="$options.i18n.sortLabel"
+                                        class="review-tool-annotation-viewer__sort-select"
+                                    />
+                                </div>
+                                <div class="review-tool-annotation-viewer__footer-actions">
+                                    <cdx-button
+                                        v-if="!isEmpty"
+                                        weight="quiet"
+                                        @click.prevent="handleExport"
+                                    >
+                                        {{ $options.i18n.export }}
+                                    </cdx-button>
 
-                                <cdx-button
-                                    v-if="canClearAll && !isEmpty"
-                                    action="destructive"
-                                    weight="quiet"
-                                    :disabled="clearingAll"
-                                    @click.prevent="handleClearAll"
-                                >
-                                    {{ $options.i18n.clearAll }}
-                                </cdx-button>
+                                    <cdx-button
+                                        v-if="canClearAll && !isEmpty"
+                                        action="destructive"
+                                        weight="quiet"
+                                        :disabled="clearingAll"
+                                        @click.prevent="handleClearAll"
+                                    >
+                                        {{ $options.i18n.clearAll }}
+                                    </cdx-button>
+                                </div>
                             </div>
                         </template>
                     </cdx-dialog>

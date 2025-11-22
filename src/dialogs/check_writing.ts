@@ -1,5 +1,6 @@
 import state from "../state";
-import { groupAnnotationsBySection, AnnotationGroup, loadAnnotations, saveAnnotations } from "../annotations";
+import { buildAnnotationGroups, AnnotationGroup, Annotation } from "../annotations";
+import { compareOrderKeys } from "../dom/numeric_pos";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../api";
 import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
@@ -250,6 +251,27 @@ function createCheckWritingDialog(): void {
                         console.warn('[ReviewTool] file input not available for import');
                     }
                 },
+                generateImportAnnotationId(): string {
+                    return `import-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                },
+                normalizeImportedAnnotation(raw: any, fallbackSection = ''): Annotation {
+                    const id = typeof raw?.id === 'string' && raw.id.trim()
+                        ? raw.id.trim()
+                        : this.generateImportAnnotationId();
+                    const sectionPath = typeof raw?.sectionPath === 'string' && raw.sectionPath.trim()
+                        ? raw.sectionPath.trim()
+                        : (fallbackSection || '');
+                    return {
+                        id,
+                        sectionPath,
+                        sentencePos: typeof raw?.sentencePos === 'string' ? raw.sentencePos : '',
+                        sentenceText: raw?.sentenceText || raw?.quote || '',
+                        opinion: raw?.opinion || raw?.suggestion || '',
+                        createdBy: raw?.createdBy || state.userName || 'import',
+                        createdAt: typeof raw?.createdAt === 'number' ? raw.createdAt : Date.now(),
+                        resolved: Boolean(raw?.resolved)
+                    };
+                },
                 onAnnotationFileSelected(ev: Event) {
                     const input = ev && (ev.target as HTMLInputElement);
                     if (!input || !input.files || !input.files.length) return;
@@ -265,51 +287,29 @@ function createCheckWritingDialog(): void {
                                 return;
                             }
 
-                            const importedAnnotations: any[] = [];
+                            const importedAnnotations: Annotation[] = [];
                             if (Array.isArray(parsed.annotations)) {
                                 // likely an AnnotationStore
                                 for (const a of parsed.annotations) {
-                                    importedAnnotations.push({
-                                        id: a.id || (`import-${Date.now()}-${Math.random().toString(36).slice(2,9)}`),
-                                        sectionPath: a.sectionPath || '',
-                                        sentenceText: a.sentenceText || a.quote || '',
-                                        opinion: a.opinion || a.suggestion || '',
-                                        createdBy: a.createdBy || state.userName || 'import',
-                                        createdAt: typeof a.createdAt === 'number' ? a.createdAt : Date.now(),
-                                        resolved: Boolean(a.resolved)
-                                    });
+                                    importedAnnotations.push(this.normalizeImportedAnnotation(a));
                                 }
                             } else if (Array.isArray(parsed.groups)) {
                                 for (const g of parsed.groups) {
                                     const section = g.sectionPath || '';
                                     const annos = Array.isArray(g.annotations) ? g.annotations : [];
                                     for (const a of annos) {
-                                        importedAnnotations.push({
-                                            id: a.id || (`import-${Date.now()}-${Math.random().toString(36).slice(2,9)}`),
-                                            sectionPath: section,
-                                            sentenceText: a.sentenceText || a.quote || '',
-                                            opinion: a.opinion || a.suggestion || '',
-                                            createdBy: a.createdBy || state.userName || 'import',
-                                            createdAt: typeof a.createdAt === 'number' ? a.createdAt : Date.now(),
-                                            resolved: Boolean(a.resolved)
-                                        });
+                                        importedAnnotations.push(this.normalizeImportedAnnotation({ ...a, sectionPath: a.sectionPath || section }, section));
                                     }
                                 }
                             } else {
                                 throw new Error('invalid-format');
                             }
 
-                            // Merge into existing store (dedupe by id)
-                            const store = loadAnnotations(pageName);
-                            const existingIds = new Set(store.annotations.map((x: any) => x.id));
-                            const toAdd = importedAnnotations.filter(a => !existingIds.has(a.id));
-                            if (toAdd.length) {
-                                const merged = { ...store, annotations: store.annotations.concat(toAdd) };
-                                saveAnnotations(merged);
-                                // reload form content from saved annotations
-                                // give a small timeout to ensure storage notifications propagate
-                                setTimeout(() => { this.loadAnnotationsIntoForm(); }, 50);
+                            if (!importedAnnotations.length) {
+                                throw new Error('empty-import');
                             }
+
+                            this.applyImportedAnnotations(importedAnnotations);
 
                             const msg = this.$options.i18n.importSuccess || 'Imported annotations from file.';
                             mw && mw.notify && mw.notify(msg, { tag: 'review-tool' });
@@ -338,7 +338,7 @@ function createCheckWritingDialog(): void {
                             return;
                         }
 
-                        const groups = groupAnnotationsBySection(pageName);
+                        const groups = buildAnnotationGroups(pageName);
                         if (!groups.length) {
                             this.reportAnnotationLoadFailure(state.convByVar({hant: '目前沒有可載入的批註。', hans: '目前没有可载入的批注。'}));
                             return;
@@ -362,7 +362,19 @@ function createCheckWritingDialog(): void {
                         return [];
                     }
                     const fallbackTitle = this.$options.i18n.annotationFallbackChapter || '';
-                    const mapped = groups.map(group => {
+                    const sortedGroups = groups
+                        .map(group => ({
+                            ...group,
+                            annotations: this.sortAnnotationsByPosition(group.annotations)
+                        }))
+                        .sort((a, b) => {
+                            const firstA = a.annotations[0];
+                            const firstB = b.annotations[0];
+                            const cmp = compareOrderKeys(firstA?.sentencePos, firstB?.sentencePos);
+                            if (cmp !== 0) return cmp;
+                            return (a.sectionPath || '').localeCompare(b.sectionPath || '');
+                        });
+                    const mapped = sortedGroups.map(group => {
                         const suggestions = (group.annotations || []).map(anno => ({
                             quote: anno.sentenceText || '',
                             suggestion: anno.opinion || ''
@@ -385,6 +397,37 @@ function createCheckWritingDialog(): void {
                     } else if (this.currentStep === 2) {
                         this.prepareDiffContent();
                     }
+                },
+                sortAnnotationsByPosition(list: Annotation[] | undefined): Annotation[] {
+                    if (!Array.isArray(list)) return [];
+                    return list.slice().sort((a, b) => {
+                        const cmp = compareOrderKeys(a?.sentencePos, b?.sentencePos);
+                        if (cmp !== 0) return cmp;
+                        return (a.createdAt || 0) - (b.createdAt || 0);
+                    });
+                },
+                groupAnnotationsBySection(list: Annotation[]): AnnotationGroup[] {
+                    const buckets = new Map<string, Annotation[]>();
+                    list.forEach((anno) => {
+                        const key = (anno.sectionPath || '').trim();
+                        if (!buckets.has(key)) buckets.set(key, []);
+                        buckets.get(key)!.push(anno);
+                    });
+                    return Array.from(buckets.entries()).map(([sectionPath, annotations]) => ({
+                        sectionPath,
+                        annotations
+                    }));
+                },
+                applyImportedAnnotations(importedAnnotations: Annotation[]) {
+                    if (!Array.isArray(importedAnnotations) || !importedAnnotations.length) {
+                        throw new Error('empty-import');
+                    }
+                    const groups = this.groupAnnotationsBySection(importedAnnotations);
+                    const chapters = this.buildChaptersFromAnnotationGroups(groups);
+                    if (!chapters.length) {
+                        throw new Error('empty-chapters');
+                    }
+                    this.applyAnnotationChapters(chapters);
                 },
                 reportAnnotationLoadFailure(message: string) {
                     mw && mw.notify && mw.notify(message, { type: 'warn', title: '[ReviewTool]' });

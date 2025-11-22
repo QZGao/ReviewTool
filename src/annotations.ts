@@ -3,6 +3,7 @@ import state from './state';
 export interface Annotation {
     id: string;
     sectionPath: string;
+    sentencePos: string;
     sentenceText: string;
     opinion: string;
     createdBy: string;
@@ -22,10 +23,27 @@ export interface AnnotationGroup {
 }
 
 const KEY_PREFIX = 'reviewtool:annotations:';
-const BC_CHANNEL = 'reviewtool:annotations:channel';
 
 function storageKeyForPage(pageName: string): string {
     return KEY_PREFIX + (pageName || 'unknown');
+}
+
+function getStorage(type: 'local' | 'session'): Storage | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        return type === 'local' ? window.localStorage : window.sessionStorage;
+    } catch (e) {
+        console.error(`[ReviewTool] ${type}Storage unavailable`, e);
+        return null;
+    }
+}
+
+function createEmptyStore(pageName: string): AnnotationStore {
+    return {
+        pageName,
+        createdAt: Date.now(),
+        annotations: []
+    };
 }
 
 function uuidv4(): string {
@@ -37,109 +55,106 @@ function uuidv4(): string {
     });
 }
 
-// BroadcastChannel for immediate same-origin notifications (if available)
-let bc: BroadcastChannel | null = null;
-try {
-    if (typeof BroadcastChannel !== 'undefined') {
-        bc = new BroadcastChannel(BC_CHANNEL);
-    }
-} catch (e) {
-    console.warn('[ReviewTool] BroadcastChannel unavailable or failed to initialize', e);
-    bc = null;
-}
-
-// In-memory fallback when localStorage is not available
-const inMemoryStores = new Map<string, AnnotationStore>();
-
-function notifyUpdate(key: string, store: AnnotationStore | null) {
-    try {
-        if (bc) bc.postMessage({ type: store ? 'updated' : 'cleared', key, store });
-    } catch (e) {
-        console.warn('[ReviewTool] failed to post BroadcastChannel message', e, { key, store });
-    }
-}
-
 export function loadAnnotations(pageName: string): AnnotationStore {
     const key = storageKeyForPage(pageName);
-    console.log('[ReviewTool] Loading annotations from localStorage with key:', key);
-    try {
-        let raw = localStorage.getItem(key);
+    const localStore = getStorage('local');
+    const sessionStore = getStorage('session');
+    let raw: string | null = null;
+    let source: 'local' | 'session' | null = null;
 
-        // If no localStorage entry, try migrating from sessionStorage (one-time migration)
-        if (!raw) {
-            try {
-                if (typeof sessionStorage !== 'undefined') {
-                    const sess = sessionStorage.getItem(key);
-                    if (sess) {
-                        // migrate into localStorage so it's persistent across tabs/sessions
-                        try {
-                            localStorage.setItem(key, sess);
-                            // remove from sessionStorage to avoid duplicate source of truth
-                            try { sessionStorage.removeItem(key); } catch (e) { console.warn('[ReviewTool] failed to remove migrated sessionStorage key', e); }
-                            raw = sess;
-                            console.log('[ReviewTool] Migrated annotations from sessionStorage to localStorage for key:', key);
-                            notifyUpdate(key, JSON.parse(sess) as AnnotationStore);
-                        } catch (e) {
-                            console.warn('[ReviewTool] failed to migrate sessionStorage to localStorage', e);
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn('[ReviewTool] sessionStorage access failed during migration check', e);
-            }
-        }
-
-        console.log('[ReviewTool] Raw annotations data:', raw);
-        if (!raw) {
-            return {
-                pageName,
-                createdAt: Date.now(),
-                annotations: []
-            };
-        }
+    if (localStore) {
         try {
-            return JSON.parse(raw) as AnnotationStore;
+            raw = localStore.getItem(key);
+            if (raw) source = 'local';
         } catch (e) {
-            console.warn('[ReviewTool] failed to parse annotations from localStorage', e);
-            return {
-                pageName,
-                createdAt: Date.now(),
-                annotations: []
-            };
+            console.error('[ReviewTool] failed to read annotations from localStorage', e);
         }
-    } catch (e) {
-        // localStorage might be unavailable (private mode, blocked). Fallback to memory.
-        console.warn('[ReviewTool] localStorage unavailable, using in-memory store', e);
-        const mem = inMemoryStores.get(key);
-        if (mem) return mem;
-        const empty: AnnotationStore = { pageName, createdAt: Date.now(), annotations: [] };
-        inMemoryStores.set(key, empty);
-        return empty;
     }
+
+    if (!raw && sessionStore) {
+        try {
+            raw = sessionStore.getItem(key);
+            if (raw) source = 'session';
+        } catch (e) {
+            console.error('[ReviewTool] failed to read annotations from sessionStorage', e);
+        }
+    }
+
+    if (!raw) {
+        return createEmptyStore(pageName);
+    }
+
+    let parsed: AnnotationStore | null = null;
+    try {
+        parsed = JSON.parse(raw) as AnnotationStore;
+    } catch (e) {
+        console.warn('[ReviewTool] failed to parse annotations payload', e);
+        return createEmptyStore(pageName);
+    }
+
+    const annotations = Array.isArray(parsed?.annotations)
+        ? parsed.annotations.map((anno: any) => ({
+            ...anno,
+            sentencePos: typeof anno?.sentencePos === 'string' ? anno.sentencePos : ''
+        }))
+        : [];
+
+    const normalized: AnnotationStore = {
+        pageName: parsed?.pageName || pageName,
+        createdAt: parsed?.createdAt || Date.now(),
+        annotations
+    };
+
+    if (source === 'session' && localStore) {
+        try {
+            localStore.setItem(key, JSON.stringify(normalized));
+            sessionStore?.removeItem(key);
+        } catch (e) {
+            console.error('[ReviewTool] failed to migrate annotations from sessionStorage to localStorage', e);
+        }
+    }
+
+    return normalized;
 }
 
 export function saveAnnotations(store: AnnotationStore): void {
     const key = storageKeyForPage(store.pageName);
-    try {
-        localStorage.setItem(key, JSON.stringify(store));
-        // notify other tabs/windows
-        notifyUpdate(key, store);
-    } catch (e) {
-        console.error('[ReviewTool] failed to save annotations to localStorage, falling back to in-memory', e);
+    const payload = JSON.stringify(store);
+    const localStore = getStorage('local');
+    if (localStore) {
         try {
-            inMemoryStores.set(key, store);
-            notifyUpdate(key, store);
-        } catch (err) {
-            console.error('[ReviewTool] failed to save annotations to in-memory store', err);
+            localStore.setItem(key, payload);
+            return;
+        } catch (e) {
+            console.error('[ReviewTool] failed to save annotations to localStorage', e);
         }
+    }
+
+    const sessionStore = getStorage('session');
+    if (sessionStore) {
+        try {
+            sessionStore.setItem(key, payload);
+        } catch (e) {
+            console.error('[ReviewTool] failed to save annotations to sessionStorage fallback', e);
+        }
+    } else {
+        console.error('[ReviewTool] no available storage to save annotations');
     }
 }
 
-export function createAnnotation(pageName: string, sectionPath: string, sentenceText: string, opinion: string): Annotation {
+export function createAnnotation(
+    pageName: string,
+    sectionPath: string,
+    sentenceText: string,
+    opinion: string,
+    sentencePos = ''
+): Annotation {
     const store = loadAnnotations(pageName);
+    const normalizedSectionPath = sectionPath === '目次' ? '序言' : sectionPath;
     const anno: Annotation = {
         id: uuidv4(),
-        sectionPath: sectionPath,
+        sectionPath: normalizedSectionPath,
+        sentencePos,
         sentenceText,
         opinion,
         createdBy: state.userName || 'unknown',
@@ -161,7 +176,11 @@ export function getAnnotation(pageName: string, id: string): Annotation | null {
     return store.annotations.find(a => a.id === id) || null;
 }
 
-export function updateAnnotation(pageName: string, id: string, updates: Partial<Pick<Annotation, 'opinion' | 'sentenceText' | 'resolved'>>): Annotation | null {
+export function updateAnnotation(
+    pageName: string,
+    id: string,
+    updates: Partial<Pick<Annotation, 'opinion' | 'sentenceText' | 'resolved' | 'sentencePos'>>
+): Annotation | null {
     const store = loadAnnotations(pageName);
     const idx = store.annotations.findIndex(a => a.id === id);
     if (idx === -1) return null;
@@ -184,30 +203,36 @@ export function deleteAnnotation(pageName: string, id: string): boolean {
 
 export function clearAnnotations(pageName: string): boolean {
     const key = storageKeyForPage(pageName);
-    let existed;
-    try {
-        existed = localStorage.getItem(key) !== null;
+    const localStore = getStorage('local');
+    const sessionStore = getStorage('session');
+    let removed = false;
+
+    if (localStore) {
         try {
-            localStorage.removeItem(key);
+            if (localStore.getItem(key) !== null) removed = true;
+            localStore.removeItem(key);
         } catch (e) {
-            console.error('[ReviewTool] failed to remove annotations from localStorage', e);
+            console.error('[ReviewTool] failed to clear annotations from localStorage', e);
         }
-        notifyUpdate(key, null);
-        return existed;
-    } catch (e) {
-        console.warn('[ReviewTool] localStorage unavailable when clearing annotations, using in-memory fallback', e);
-        existed = inMemoryStores.has(key);
-        inMemoryStores.delete(key);
-        notifyUpdate(key, null);
-        return existed;
     }
+
+    if (sessionStore) {
+        try {
+            if (sessionStore.getItem(key) !== null) removed = true;
+            sessionStore.removeItem(key);
+        } catch (e) {
+            console.error('[ReviewTool] failed to clear annotations from sessionStorage', e);
+        }
+    }
+
+    return removed;
 }
 
 function sortAnnotationsByTimestamp(list: Annotation[]): Annotation[] {
     return [...list].sort((a, b) => a.createdAt - b.createdAt);
 }
 
-export function groupAnnotationsBySection(pageName: string): AnnotationGroup[] {
+export function buildAnnotationGroups(pageName: string): AnnotationGroup[] {
     const store = loadAnnotations(pageName);
     if (!store.annotations.length) {
         return [];
@@ -244,33 +269,4 @@ export function groupAnnotationsBySection(pageName: string): AnnotationGroup[] {
     });
 
     return groups;
-}
-
-// Listen for BroadcastChannel messages to update in-memory store
-if (bc) {
-    bc.onmessage = (ev) => {
-        const { key, store, type } = ev.data;
-        if (type === 'updated' && store) {
-            inMemoryStores.set(key, store);
-        } else if (type === 'cleared') {
-            inMemoryStores.delete(key);
-        }
-    };
-}
-
-// Also listen for storage events (fires in other tabs/windows when localStorage changes)
-if (typeof window !== 'undefined' && window.addEventListener) {
-    window.addEventListener('storage', (ev: StorageEvent) => {
-        try {
-            if (!ev.key || !ev.key.startsWith(KEY_PREFIX)) return;
-            if (ev.newValue) {
-                const parsed = JSON.parse(ev.newValue) as AnnotationStore;
-                inMemoryStores.set(ev.key, parsed);
-            } else {
-                inMemoryStores.delete(ev.key);
-            }
-        } catch (e) {
-            console.warn('[ReviewTool] failed to handle storage event', e);
-        }
-    });
 }

@@ -6,7 +6,7 @@ export interface OrderKeyOptions {
 }
 
 const DEFAULT_ROOT_SELECTOR = '#mw-content-text';
-const DEFAULT_PADDING = 3;
+const DEFAULT_PADDING = 6;
 
 function resolveRoot(root?: Element | string): Element | null {
     if (!root) {

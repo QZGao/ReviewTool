@@ -259,8 +259,31 @@ html:not(.review-tool-annotation-mode) .review-tool-inline-annotation {
 
 .review-tool-annotation-viewer__footer {
     display: flex;
-    justify-content: flex-start;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
     padding-top: 12px;
+    flex-wrap: wrap;
+}
+
+.review-tool-annotation-viewer__footer-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 240px;
+}
+
+.review-tool-annotation-viewer__sort-select {
+    min-width: 200px;
+    flex: 0 0 220px;
+}
+
+.review-tool-annotation-viewer__footer-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
 }
 
 .review-tool-annotation-viewer__section {

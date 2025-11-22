@@ -5,7 +5,7 @@ import {
     deleteAnnotation,
     getAnnotation,
     updateAnnotation,
-    groupAnnotationsBySection,
+    buildAnnotationGroups,
     clearAnnotations
 } from "../annotations";
 import {openAnnotationEditorDialog} from "../dialogs/annotation_editor";
@@ -15,6 +15,7 @@ import {
     openAnnotationViewerDialog,
     updateAnnotationViewerDialogGroups
 } from "../dialogs/annotation_viewer";
+import { getElementOrderKey } from "./numeric_pos";
 
 declare var mw: any;
 
@@ -277,9 +278,11 @@ function onSelectionChange() {
                 const sel = document.getSelection();
                 sel && sel.removeAllRanges();
                 const computedSectionPath = computeSectionPathFromNode(selectionRange ? selectionRange.startContainer : null);
+                const sentencePos = computeSentenceOrderKey(selectionRange ? selectionRange.startContainer : null);
                 openAnnotationDialog(activePageName, null, computedSectionPath, {
                     sentenceText: selectedText,
-                    selectionRange: rangeClone
+                    selectionRange: rangeClone,
+                    sentencePos
                 });
             }
         });
@@ -293,6 +296,18 @@ function findAncestorSentence(node: Node | null): Element | null {
         cur = cur.parentNode;
     }
     return null;
+}
+
+function computeSentenceOrderKey(target: Node | Element | null): string {
+    const sentenceEl = (() => {
+        if (!target) return null;
+        if (target instanceof Element) {
+            return target.classList.contains(SENTENCE_CLASS) ? target : findAncestorSentence(target);
+        }
+        return findAncestorSentence(target as Node | null);
+    })();
+    if (!sentenceEl) return '';
+    return getElementOrderKey(sentenceEl) || '';
 }
 
 // --- Section path helpers -------------------------------------------------
@@ -970,6 +985,7 @@ function removeInlineAnnotationBubble(annotationId: string) {
 interface AnnotationDialogOptions {
     sentenceText?: string;
     selectionRange?: Range | null;
+    sentencePos?: string;
 }
 
 async function openAnnotationDialog(pageName: string, annotationId: string | null, sectionPath: string, options: AnnotationDialogOptions = {}) {
@@ -1015,7 +1031,9 @@ async function openAnnotationDialog(pageName: string, annotationId: string | nul
                     updateInlineAnnotationBubble(annotationId, result.opinion);
                 }
             } else {
-                const created = createAnnotation(pageName, sectionPath, displaySentenceText, result.opinion);
+                const sentencePosKey = options.sentencePos
+                    || computeSentenceOrderKey(selectionRange ? selectionRange.startContainer : null);
+                const created = createAnnotation(pageName, sectionPath, displaySentenceText, result.opinion, sentencePosKey);
                 insertInlineAnnotationBubble(selectionRange, pageName, sectionPath, created.id, result.opinion);
             }
         }
@@ -1149,9 +1167,11 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
                     const sel = window.getSelection();
                     sel && sel.removeAllRanges();
                     const computedSectionPath = computeSectionPathFromNode(s);
+                    const sentencePos = computeSentenceOrderKey(s);
                     openAnnotationDialog(activePageName, null, computedSectionPath, {
                         sentenceText,
-                        selectionRange: rangeClone
+                        selectionRange: rangeClone,
+                        sentencePos
                     });
                 }
             });
@@ -1165,7 +1185,7 @@ export function showAnnotationViewer(pageName: string) {
         return;
     }
 
-    const groups = groupAnnotationsBySection(pageName);
+    const groups = buildAnnotationGroups(pageName);
     openAnnotationViewerDialog({
         groups,
         onEditAnnotation: (annotationId, sectionPath) => {
@@ -1175,13 +1195,13 @@ export function showAnnotationViewer(pageName: string) {
             const removed = deleteAnnotation(pageName, annotationId);
             if (removed) {
                 removeInlineAnnotationBubble(annotationId);
-                updateAnnotationViewerDialogGroups(groupAnnotationsBySection(pageName));
+                updateAnnotationViewerDialogGroups(buildAnnotationGroups(pageName));
             }
         },
         onClearAllAnnotations: async () => {
             const cleared = clearAnnotations(pageName);
             clearAllInlineAnnotationBubbles();
-            updateAnnotationViewerDialogGroups(groupAnnotationsBySection(pageName));
+            updateAnnotationViewerDialogGroups(buildAnnotationGroups(pageName));
             return cleared;
         }
     });
