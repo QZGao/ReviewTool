@@ -26,7 +26,7 @@ function createCheckWritingDialog(): void {
                 removeSuggestion: state.convByVar({hant: '刪除意見', hans: '删除意见'}),
                 chapterTitleLabel: state.convByVar({hant: '章節標題', hans: '章节标题'}),
                 quoteLabel: state.convByVar({hant: '引用原文', hans: '引用原文'}),
-                quotePlaceholder: state.convByVar({hant: '原文句子', hans: '原文句子'}),
+                quotePlaceholder: state.convByVar({hant: '原文句子（可留空）', hans: '原文句子（可留空）'}),
                 suggestionPlaceholder: state.convByVar({hant: '意見或建議', hans: '意见或建议'}),
                 next: state.convByVar({hant: '下一步', hans: '下一步'}),
                 previous: state.convByVar({hant: '上一步', hans: '上一步'}),
@@ -216,11 +216,14 @@ function createCheckWritingDialog(): void {
                         wikitext += "'''" + title + "'''\n";
                         for (const s of (ch.suggestions || [])) {
                             const quote = (s.quote || '').trim();
-                            const suggestion = (s.suggestion || '').trim();
+                            const suggestion = (s.suggestion || '').trim()
+                                .replace(/\n{2,}/g, '{{pb}}')
+                                .replace(/\n/g, '<br>');
                             wikitext += `* {{rvw|1=${quote}}} —— ${suggestion}\n`;
                         }
                         wikitext += '--~~~~\n\n';
                     }
+                    wikitext = wikitext.replace("{{rvw|1=}} —— ", ""); // remove empty quotes
                     return wikitext;
                 },
                 buildDiffLines(oldText: string, appendedFragment: string) {
