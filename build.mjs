@@ -14,7 +14,7 @@ const buildOptions = {
     format: 'iife',
     charset: 'utf8',
     target: ['es2017'],
-    minify: true,
+    minify: false,
     sourcemap: false,
     // Tell esbuild to load CSS files as text so they're bundled into the JS
     loader: {
