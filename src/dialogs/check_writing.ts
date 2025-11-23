@@ -34,6 +34,9 @@ function createCheckWritingDialog(): void {
                 previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
                 diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
                 diffLoading: state.convByVar({hant: '差異載入中…', hans: '差异载入中…'}),
+                editHeading: state.convByVar({hant: '編輯建議', hans: '编辑建议'}),
+                editInstruction: state.convByVar({hant: '在此調整要新增的維基語法內容，再前往預覽或差異。', hans: '在此调整要新增的维基语法内容，再前往预览或差异。'}),
+                editPlaceholder: state.convByVar({hant: '在此輸入或修改文筆建議的維基語法內容…', hans: '在此输入或修改文笔建议的维基语法内容…'}),
                 loadAnnotations: state.convByVar({hant: '載入批註', hans: '载入批注'}),
                 importFromFile: state.convByVar({hant: '從檔案載入', hans: '从文件载入'}),
                 importSuccess: state.convByVar({hant: '已從檔案載入批註。', hans: '已从文件载入批注。'}),
@@ -55,19 +58,21 @@ function createCheckWritingDialog(): void {
                         pendingNewSectionText: '',
                         diffHtml: '',
                         diffLines: [] as string[],
+                            editedDraft: '',
                         // no persistent data needed for import UI; the file input is handled via ref
                 };
             }, computed: {
                 primaryAction() {
-                    // Next / Save depending on step
-                    if (this.currentStep < 2) {
+                    if (this.currentStep < 3) {
                         return { label: this.$options.i18n.next || 'Next', actionType: 'progressive', disabled: false };
                     }
                     return { label: this.isSaving ? this.$options.i18n.saving : this.$options.i18n.save, actionType: 'progressive', disabled: this.isSaving };
-                }, defaultAction() {
+                },
+                defaultAction() {
                     if (this.currentStep > 0) return { label: this.$options.i18n.previous || 'Previous', disabled: false };
                     return { label: this.$options.i18n.cancel, disabled: false };
-                }, showAnnotationLoaderButton() {
+                },
+                showAnnotationLoaderButton() {
                     return this.currentStep === 0;
                 }
             }, methods: {
@@ -85,6 +90,9 @@ function createCheckWritingDialog(): void {
                 },
                 getStepClass(step: number) {
                     return { 'review-tool-multistep-dialog__stepper__step--active': step <= this.currentStep };
+                },
+                prepareEditDraft() {
+                    this.editedDraft = this.buildWikitext().trim();
                 },
                 preparePreviewContent() {
                     const { pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
@@ -108,7 +116,7 @@ function createCheckWritingDialog(): void {
                         this.pendingNewSectionText = baseline + appendSuffix;
                         parseWikitextToHtml(previewFragment, pageTitleToUse).then((html: string) => {
                             this.previewHtml = html || '';
-                            if (this.previewHtml && this.currentStep === 1) {
+                            if (this.previewHtml && this.currentStep === 2) {
                                 this.triggerContentHooks('preview');
                             }
                         }).catch((e: any) => {
@@ -147,7 +155,7 @@ function createCheckWritingDialog(): void {
                         this.pendingNewSectionText = newSectionText;
                         compareWikitext(baseline, newSectionText).then((diffHtml: string) => {
                             this.diffHtml = diffHtml || '';
-                            if (this.diffHtml && this.currentStep === 2) {
+                            if (this.diffHtml && this.currentStep === 3) {
                                 this.triggerContentHooks('diff');
                             } else {
                                 this.diffLines = this.buildDiffLines(baseline, appendSuffix);
@@ -181,18 +189,24 @@ function createCheckWritingDialog(): void {
                 },
                 onPrimaryAction() {
                     if (advanceDialogStep(this, {
+                        totalSteps: 4,
+                        onEnterEditStep: this.prepareEditDraft,
                         onEnterPreviewStep: this.preparePreviewContent,
                         onEnterDiffStep: this.prepareDiffContent,
+                        previewStepIndex: 2,
+                        diffStepIndex: 3,
                     })) {
                         return;
                     }
                     this.saveCheckWriting();
-                }, onDefaultAction() {
+                },
+                onDefaultAction() {
                     if (regressDialogStep(this)) {
                         return;
                     }
                     this.closeDialog();
-                }, onUpdateOpen(newValue: any) {
+                },
+                onUpdateOpen(newValue: any) {
                     if (!newValue) {
                         this.closeDialog();
                     }
@@ -203,7 +217,8 @@ function createCheckWritingDialog(): void {
                     }, 300);
                 },
                 buildPreviewBundle(): { previewFragment: string; appendSuffix: string } | null {
-                    const fragment = this.buildWikitext().trim();
+                    const draft = (this.editedDraft || '').trim();
+                    const fragment = draft || this.buildWikitext().trim();
                     if (!fragment) {
                         return null;
                     }
@@ -392,9 +407,9 @@ function createCheckWritingDialog(): void {
                         return;
                     }
                     this.chapters = nextChapters;
-                    if (this.currentStep === 1) {
+                    if (this.currentStep === 2) {
                         this.preparePreviewContent();
-                    } else if (this.currentStep === 2) {
+                    } else if (this.currentStep === 3) {
                         this.prepareDiffContent();
                     }
                 },
@@ -504,9 +519,9 @@ function createCheckWritingDialog(): void {
                     </div>
 
                     <div class="review-tool-multistep-dialog__stepper">
-                        <div class="review-tool-multistep-dialog__stepper__label">{{ ( currentStep + 1 ) + ' / 3' }}</div>
+                        <div class="review-tool-multistep-dialog__stepper__label">{{ ( currentStep + 1 ) + ' / 4' }}</div>
                         <div class="review-tool-multistep-dialog__stepper__steps" aria-hidden>
-                            <span v-for="step of [0,1,2]" :key="step" class="review-tool-multistep-dialog__stepper__step" :class="getStepClass(step)"></span>
+                            <span v-for="step of [0,1,2,3]" :key="step" class="review-tool-multistep-dialog__stepper__step" :class="getStepClass(step)"></span>
                         </div>
                     </div>
 				</template>
@@ -558,8 +573,19 @@ function createCheckWritingDialog(): void {
                     </div>
                 </div>
 
-                <!-- Step 1: Preview -->
-                <div v-else-if="currentStep === 1" class="review-tool-preview">
+                <!-- Step 1: Edit Draft -->
+                <div v-else-if="currentStep === 1" class="review-tool-edit-step">
+                    <h3>{{ $options.i18n.editHeading }}</h3>
+                    <p class="review-tool-edit-step__instruction">{{ $options.i18n.editInstruction }}</p>
+                    <cdx-text-area
+                        v-model="editedDraft"
+                        :placeholder="$options.i18n.editPlaceholder"
+                        rows="16"
+                    ></cdx-text-area>
+                </div>
+
+                <!-- Step 2: Preview -->
+                <div v-else-if="currentStep === 2" class="review-tool-preview">
                     <h3>{{ $options.i18n.previewHeading }}</h3>
                     <div
                         v-if="previewHtml"
@@ -570,8 +596,8 @@ function createCheckWritingDialog(): void {
                     <pre class="review-tool-preview-pre" v-else>{{ previewWikitext }}</pre>
                 </div>
 
-                <!-- Step 2: Diff & Save -->
-                <div v-else-if="currentStep === 2" class="review-tool-diff">
+                <!-- Step 3: Diff & Save -->
+                <div v-else-if="currentStep === 3" class="review-tool-diff">
                     <h3>{{ $options.i18n.diffHeading }}</h3>
                     <div
                         v-if="diffHtml"

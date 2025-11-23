@@ -67,6 +67,12 @@
     resize: vertical;
 }
 
+.review-tool-dialog .review-tool-edit-step textarea {
+    font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+    min-height: 180px;
+    max-height: calc(100vh - 220px);
+}
+
 .review-tool-dialog .quote-area textarea {
     color: #008560;
 }

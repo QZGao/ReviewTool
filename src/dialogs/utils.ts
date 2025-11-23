@@ -14,6 +14,9 @@ export interface StepHandlers {
     totalSteps?: number;
     onEnterPreviewStep?: () => void;
     onEnterDiffStep?: () => void;
+    onEnterEditStep?: () => void;
+    previewStepIndex?: number;
+    diffStepIndex?: number;
 }
 
 export function afterServerHtmlInjected(targetEl: HTMLElement | null, html: string | null) {
@@ -56,11 +59,13 @@ export function triggerDialogContentHooks(vm: DialogVm, kind: HtmlHostKind) {
     });
 }
 
-export function ensureDialogStepContentHooks(vm: DialogVm) {
+export function ensureDialogStepContentHooks(vm: DialogVm, handlers?: StepHandlers) {
     vm.$nextTick(() => {
-        if (vm.currentStep === 1 && vm.previewHtml) {
+        const previewStep = handlers?.previewStepIndex ?? 1;
+        const diffStep = handlers?.diffStepIndex ?? 2;
+        if (vm.currentStep === previewStep && vm.previewHtml) {
             triggerDialogContentHooks(vm, "preview");
-        } else if (vm.currentStep === 2 && vm.diffHtml) {
+        } else if (vm.currentStep === diffStep && vm.diffHtml) {
             triggerDialogContentHooks(vm, "diff");
         }
     });
@@ -72,13 +77,15 @@ export function advanceDialogStep(vm: DialogVm, handlers: StepHandlers): boolean
     const nextStep = vm.currentStep + 1;
     vm.currentStep = nextStep;
 
-    const runHandlers = () => {
-        if (nextStep === 1 && handlers.onEnterPreviewStep) {
-            handlers.onEnterPreviewStep.call(vm);
-        } else if (nextStep === 2 && handlers.onEnterDiffStep) {
-            handlers.onEnterDiffStep.call(vm);
-        }
-        ensureDialogStepContentHooks(vm);
+        const runHandlers = () => {
+            if (nextStep === 1 && handlers.onEnterEditStep) {
+                handlers.onEnterEditStep.call(vm);
+            } else if (nextStep === 2 && handlers.onEnterPreviewStep) {
+                handlers.onEnterPreviewStep.call(vm);
+            } else if (nextStep === 3 && handlers.onEnterDiffStep) {
+                handlers.onEnterDiffStep.call(vm);
+            }
+            ensureDialogStepContentHooks(vm, handlers);
     };
 
     if (typeof vm.$nextTick === 'function') {

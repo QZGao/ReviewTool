@@ -31,23 +31,27 @@ function createReviewManagementDialog(): void {
                 previous: state.convByVar({hant: '上一步', hans: '上一步'}),
                 previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
                 diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
+                editHeading: state.convByVar({hant: '編輯建議', hans: '编辑建议'}),
+                editInstruction: state.convByVar({hant: '在此調整要新增的維基語法內容，再前往預覽或差異。', hans: '在此调整要新增的维基语法内容，再前往预览或差异。'}),
+                editPlaceholder: state.convByVar({hant: '在此輸入或修改評審建議的維基語法內容…', hans: '在此输入或修改评审建议的维基语法内容…'}),
                 noSpecificCriteria: state.convByVar({hant: '未選擇評審標準。', hans: '未选择评审标准。'}),
                 noDiff: state.convByVar({hant: '無差異。', hans: '无差异。'}),
             }, data() {
                 return {
-                        open: true,
-                        isSubmitting: false,
-                        currentStep: 0,
-                        submitUnderOpinionSubsection: !state.inTalkPage, // selected assessment type (e.g. 'bplus', 'good', ...)
-                        selectedAssessmentType: state.assessmentType || '', // selected suggested criteria (array of strings)
-                        selectedCriteria: [], // selected specific criterion (if needed)
-                        criterion: null,
-                        previewHtml: '',
-                        diffHtml: '',
+                    open: true,
+                    isSubmitting: false,
+                    currentStep: 0,
+                    submitUnderOpinionSubsection: !state.inTalkPage, // selected assessment type (e.g. 'bplus', 'good', ...)
+                    selectedAssessmentType: state.assessmentType || '', // selected suggested criteria (array of strings)
+                    selectedCriteria: [], // selected specific criterion (if needed)
+                    criterion: null,
+                    previewHtml: '',
+                    diffHtml: '',
                     previewWikitext: '',
                     existingSectionText: '',
                     pendingNewSectionText: '',
                     sectionRevisionInfo: null as null | { starttimestamp: string; basetimestamp: string },
+                    editedDraft: '',
                 };
             }, computed: {
                 assessmentLabels(): Record<string, string> {
@@ -65,7 +69,7 @@ function createReviewManagementDialog(): void {
                 },
                 
                 primaryAction() {
-                    if (this.currentStep < 2) {
+                    if (this.currentStep < 3) {
                         return { label: this.$options.i18n.next || 'Next', actionType: 'primary', disabled: false };
                     }
                     return { label: this.isSubmitting ? this.$options.i18n.submitting : this.$options.i18n.submit, actionType: 'progressive', disabled: this.isSubmitting };
@@ -105,6 +109,21 @@ function createReviewManagementDialog(): void {
                     }
                     return msg;
                 },
+                prepareEditDraft() {
+                    this.editedDraft = this.buildDraftContent().trim();
+                },
+                buildDraftContent() {
+                    const level = this.submitUnderOpinionSubsection ? 4 : 3;
+                    if (this.submitUnderOpinionSubsection) {
+                        return this.buildOpinionContent(level);
+                    }
+                    return this.buildHeadersForCriteria(level);
+                },
+                getDraftFragment() {
+                    const rawDraft = (this.editedDraft || '').trim();
+                    if (!rawDraft) return '';
+                    return `\n${rawDraft}`;
+                },
                 preparePreviewContent() {
                     const { pageTitleToUse, sectionIdToUse } = this.getPendingReviewSectionInfo();
                     const level = this.submitUnderOpinionSubsection ? 4 : 3;
@@ -114,8 +133,10 @@ function createReviewManagementDialog(): void {
                     this.existingSectionText = '';
                     this.sectionRevisionInfo = null;
 
+                    const draftFragment = this.getDraftFragment();
+
                     if (!this.submitUnderOpinionSubsection) {
-                        const headers = this.buildHeadersForCriteria(level);
+                        const headers = draftFragment || this.buildHeadersForCriteria(level);
                         if (!headers || !headers.trim()) {
                             this.reportMissingOpinionEntries();
                             return;
@@ -123,7 +144,7 @@ function createReviewManagementDialog(): void {
                         this.previewWikitext = headers;
                         parseWikitextToHtml(headers, pageTitleToUse).then((html: string) => {
                             this.previewHtml = html || '';
-                            if (this.previewHtml && this.currentStep === 1) {
+                            if (this.previewHtml && this.currentStep === 2) {
                                 this.triggerContentHooks('preview');
                             }
                         }).catch((e: any) => {
@@ -134,18 +155,10 @@ function createReviewManagementDialog(): void {
                     }
 
                     const opinionHeaderTitle = `${state.userName}${state.convByVar({hant: ' 的意見', hans: ' 的意见'})}`;
-                    const h4s = this.buildOpinionContent(4);
+                    const h4s = draftFragment || this.buildOpinionContent(4);
                     if (!h4s || !h4s.trim()) {
                         this.reportMissingOpinionEntries(true);
                         this.isSubmitting = false;
-                        return;
-                    }
-                    if (!h4s || !h4s.trim()) {
-                        this.reportMissingOpinionEntries();
-                        return;
-                    }
-                    if (!h4s || !h4s.trim()) {
-                        this.reportMissingOpinionEntries();
                         return;
                     }
                     const fallbackFragment = h4s ? (createHeaderMarkup(opinionHeaderTitle, 3) + h4s) : '';
@@ -155,7 +168,7 @@ function createReviewManagementDialog(): void {
                         this.pendingNewSectionText = newText;
                         parseWikitextToHtml(fragment, pageTitleToUse).then((html: string) => {
                             this.previewHtml = html || '';
-                            if (this.previewHtml && this.currentStep === 1) {
+                            if (this.previewHtml && this.currentStep === 2) {
                                 this.triggerContentHooks('preview');
                             }
                         }).catch((e: any) => {
@@ -182,9 +195,10 @@ function createReviewManagementDialog(): void {
                 prepareDiffContent() {
                     const { pageTitleToUse, sectionIdToUse } = this.getPendingReviewSectionInfo();
                     this.diffHtml = '';
+                    const draftFragment = this.getDraftFragment();
 
                     if (!this.submitUnderOpinionSubsection) {
-                        const headers = this.previewWikitext || this.buildHeadersForCriteria(3);
+                        const headers = this.previewWikitext || draftFragment || this.buildHeadersForCriteria(3);
                         if (!headers || !headers.trim()) {
                             this.reportMissingOpinionEntries();
                             return;
@@ -192,7 +206,7 @@ function createReviewManagementDialog(): void {
                         const runDiff = (oldText: string, newText: string) => {
                             compareWikitext(oldText || '', newText).then((dhtml: string) => {
                                 this.diffHtml = dhtml || '';
-                                if (this.diffHtml && this.currentStep === 2) {
+                                if (this.diffHtml && this.currentStep === 3) {
                                     this.triggerContentHooks('diff');
                                 }
                             }).catch((e: any) => {
@@ -219,13 +233,13 @@ function createReviewManagementDialog(): void {
                     }
 
                     const opinionHeaderTitle = `${state.userName}${state.convByVar({hant: ' 的意見', hans: ' 的意见'})}`;
-                    const h4s = this.buildOpinionContent(4);
+                    const h4s = draftFragment || this.buildOpinionContent(4);
                     const runOpinionDiff = (oldText: string, newText: string) => {
                         this.existingSectionText = oldText;
                         this.pendingNewSectionText = newText;
                         compareWikitext(oldText || '', newText).then((dhtml: string) => {
                             this.diffHtml = dhtml || '';
-                            if (this.diffHtml && this.currentStep === 2) {
+                            if (this.diffHtml && this.currentStep === 3) {
                                 this.triggerContentHooks('diff');
                             }
                         }).catch((e: any) => {
@@ -319,8 +333,12 @@ function createReviewManagementDialog(): void {
                 },
                 onPrimaryAction() {
                     if (advanceDialogStep(this, {
+                        totalSteps: 4,
+                        onEnterEditStep: this.prepareEditDraft,
                         onEnterPreviewStep: this.preparePreviewContent,
                         onEnterDiffStep: this.prepareDiffContent,
+                        previewStepIndex: 2,
+                        diffStepIndex: 3,
                     })) {
                         return;
                     }
@@ -378,6 +396,7 @@ function createReviewManagementDialog(): void {
                     // exists inside the target section, insert H4s immediately after it; otherwise
                     // append a new H3 and the H4s.
                     const level = this.submitUnderOpinionSubsection ? 4 : 3;
+                    const draftFragment = this.getDraftFragment();
 
                     // Helper to create combined content for multiple criteria at a given level
                     const buildHeadersForCriteria = (criteria: any[], lvl: number) => {
@@ -391,9 +410,9 @@ function createReviewManagementDialog(): void {
 
                     if (!this.submitUnderOpinionSubsection) {
                         // simple case: append H3s (or H2.. as level) for each criterion
-                        const headers = (Array.isArray(this.selectedCriteria) && this.selectedCriteria.length > 0)
+                        const headers = draftFragment || ((Array.isArray(this.selectedCriteria) && this.selectedCriteria.length > 0)
                             ? buildHeadersForCriteria(this.selectedCriteria, level)
-                            : (this.criterion ? createHeaderMarkup(String(this.criterion), level) : '');
+                            : (this.criterion ? createHeaderMarkup(String(this.criterion), level) : ''));
                         if (!headers || !headers.trim()) {
                             this.reportMissingOpinionEntries(true);
                             this.isSubmitting = false;
@@ -419,7 +438,7 @@ function createReviewManagementDialog(): void {
 
                     // submitUnderOpinionSubsection === true: need to insert H4s under a H3 named "<userName> 的意見"
                     const opinionHeaderTitle = `${state.userName}${state.convByVar({hant: ' 的意見', hans: ' 的意见'})}`;
-                    const h4s = this.buildOpinionContent(4);
+                    const h4s = draftFragment || this.buildOpinionContent(4);
 
                     const revisionInfo = this.sectionRevisionInfo;
                     if (!revisionInfo) {
@@ -497,9 +516,9 @@ function createReviewManagementDialog(): void {
                     </div>
 
                     <div class="review-tool-multistep-dialog__stepper">
-                        <div class="review-tool-multistep-dialog__stepper__label">{{ ( currentStep + 1 ) + ' / 3' }}</div>
+                        <div class="review-tool-multistep-dialog__stepper__label">{{ ( currentStep + 1 ) + ' / 4' }}</div>
                         <div class="review-tool-multistep-dialog__stepper__steps" aria-hidden>
-                            <span v-for="step of [0,1,2]" :key="step" class="review-tool-multistep-dialog__stepper__step" :class="getStepClass(step)"></span>
+                            <span v-for="step of [0,1,2,3]" :key="step" class="review-tool-multistep-dialog__stepper__step" :class="getStepClass(step)"></span>
                         </div>
                     </div>
                 </template>
@@ -534,8 +553,19 @@ function createReviewManagementDialog(): void {
                     </div>
                 </div>
 
-                <!-- Step 1: Preview -->
-                <div v-if="currentStep === 1" class="review-tool-preview">
+                <!-- Step 1: Edit Draft -->
+                <div v-else-if="currentStep === 1" class="review-tool-edit-step">
+                    <h3>{{ $options.i18n.editHeading }}</h3>
+                    <p class="review-tool-edit-step__instruction">{{ $options.i18n.editInstruction }}</p>
+                    <cdx-text-area
+                        v-model="editedDraft"
+                        :placeholder="$options.i18n.editPlaceholder"
+                        rows="16"
+                    ></cdx-text-area>
+                </div>
+
+                <!-- Step 2: Preview -->
+                <div v-else-if="currentStep === 2" class="review-tool-preview">
                     <h3>{{ $options.i18n.previewHeading }}</h3>
                     <div
                         v-if="previewHtml"
@@ -543,11 +573,11 @@ function createReviewManagementDialog(): void {
                         ref="previewHtmlHost"
                         v-html="previewHtml"
                     ></div>
-                    <pre class="review-tool-preview-pre" v-else>{{ selectedCriteria.length ? selectedCriteria.join('\\n') : (criterion || $options.i18n.noSpecificCriteria) }}</pre>
+                    <pre class="review-tool-preview-pre" v-else>{{ previewWikitext || editedDraft || (selectedCriteria.length ? selectedCriteria.join('\\n') : (criterion || $options.i18n.noSpecificCriteria)) }}</pre>
                 </div>
 
-                <!-- Step 2: Diff & Save -->
-                <div v-if="currentStep === 2" class="review-tool-diff">
+                <!-- Step 3: Diff & Save -->
+                <div v-else-if="currentStep === 3" class="review-tool-diff">
                     <h3>{{ $options.i18n.diffHeading }}</h3>
                     <div
                         v-if="diffHtml"
