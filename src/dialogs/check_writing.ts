@@ -34,7 +34,7 @@ function createCheckWritingDialog(): void {
                 previewHeading: state.convByVar({hant: '預覽', hans: '预览'}),
                 diffHeading: state.convByVar({hant: '差異', hans: '差异'}),
                 diffLoading: state.convByVar({hant: '差異載入中…', hans: '差异载入中…'}),
-                editHeading: state.convByVar({hant: '編輯建議', hans: '编辑建议'}),
+                editHeading: state.convByVar({hant: '檢查編輯', hans: '检查编辑'}),
                 editInstruction: state.convByVar({hant: '在此調整要新增的維基語法內容，再前往預覽或差異。', hans: '在此调整要新增的维基语法内容，再前往预览或差异。'}),
                 editPlaceholder: state.convByVar({hant: '在此輸入或修改文筆建議的維基語法內容…', hans: '在此输入或修改文笔建议的维基语法内容…'}),
                 loadAnnotations: state.convByVar({hant: '載入批註', hans: '载入批注'}),

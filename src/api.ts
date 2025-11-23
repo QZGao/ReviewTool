@@ -275,7 +275,7 @@ export function parseWikitextToHtml(wikitext: string, title?: string): Promise<s
 			const api = state.getApi();
 			const params: any = { action: 'parse', text: wikitext || '', contentmodel: 'wikitext', format: 'json' };
 			if (title) params.title = title;
-			api.get(params).done((data: any) => {
+			api.post(params).done((data: any) => {
 				try {
 					if (data && data.parse && data.parse.text) {
 						resolve(data.parse.text['*'] || '');
