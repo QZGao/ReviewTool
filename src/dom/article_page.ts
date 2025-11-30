@@ -17,8 +17,6 @@ import {
 } from "../dialogs/annotation_viewer";
 import { getElementOrderKey } from "./numeric_pos";
 
-declare var mw: any;
-
 let floatingButton: HTMLElement | null = null;
 const ANNOTATION_CONTAINER_CLASS = 'review-tool-annotation-ui';
 const SENTENCE_CLASS = 'sentence';

@@ -9,8 +9,6 @@ import {
 } from "../dialog";
 import { compareOrderKeys } from "../dom/numeric_pos";
 
-declare const mw: any;
-
 export interface AnnotationViewerDialogOptions {
     groups: AnnotationGroup[];
     onEditAnnotation?: (annotationId: string, sectionPath: string) => void;

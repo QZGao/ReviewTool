@@ -1,5 +1,3 @@
-declare var mw: any;
-
 /**
  * 全局狀態管理。
  */
@@ -11,7 +9,7 @@ class State {
         }
         return "繁簡轉換未初始化，且 langDict 無效！";
     };
-    initHanAssist(): Promise<void> {
+    initHanAssist(): JQuery.Promise<void> {
         return mw.loader.using('ext.gadget.HanAssist').then((require) => {
             const { convByVar } = require('ext.gadget.HanAssist');
             if (typeof convByVar === 'function') {
@@ -36,7 +34,11 @@ class State {
     private _api: any = null;
     getApi() {
         if (!this._api) {
-            this._api = new mw.Api({ 'User-Agent': 'ReviewTool/1.0' });
+            this._api = new mw.Api({
+                ajax: {
+                    headers: { 'Api-User-Agent': 'ReviewTool/1.0' }
+                }
+            });
         }
         return this._api;
     }

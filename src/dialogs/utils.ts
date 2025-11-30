@@ -8,8 +8,6 @@ type DialogVm = {
     diffHtml?: string;
 };
 
-declare const mw: any;
-
 export interface StepHandlers {
     totalSteps?: number;
     onEnterPreviewStep?: () => void;
@@ -27,11 +25,7 @@ export function afterServerHtmlInjected(targetEl: HTMLElement | null, html: stri
             mw.hook("wikipage.content").fire($ ? $(targetEl) : targetEl);
         }
     } catch (e) {
-        try {
-            mw && mw.hook && mw.hook("wikipage.content").fire(targetEl);
-        } catch (err) {
-            /* ignore */
-        }
+        /* ignore */
     }
     if (html.indexOf('class="diff') !== -1) {
         try {

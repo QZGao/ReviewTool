@@ -5,8 +5,6 @@ import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, 
 import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../api";
 import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
 
-declare var mw: any;
-
 /**
  * 創建檢查文筆對話框。
  */

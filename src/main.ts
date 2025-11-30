@@ -3,8 +3,6 @@ import styles from './styles.css';
 import {addTalkPageReviewToolButtonsToDOM} from "./dom/talk_page";
 import {addMainPageReviewToolButtonsToDOM} from "./dom/article_page";
 
-declare var mw: any;
-
 /**
  * 將 CSS 樣式注入到頁面中。
  * @param css {string} 要注入的 CSS 樣式

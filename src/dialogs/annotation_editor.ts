@@ -20,9 +20,7 @@ export type AnnotationEditorDialogResult =
     | { action: "delete" }
     | { action: "cancel" };
 
-declare const mw: any;
-
-export function openAnnotationEditorDialog(options: AnnotationEditorDialogOptions): Promise<AnnotationEditorDialogResult> {
+export function openAnnotationEditorDialog(options: AnnotationEditorDialogOptions): JQuery.Promise<AnnotationEditorDialogResult> {
     const dialogOptions: Required<AnnotationEditorDialogOptions> = {
         sectionPath: options.sectionPath,
         sentenceText: options.sentenceText,

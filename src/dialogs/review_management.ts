@@ -4,7 +4,6 @@ import {assessments, getAssessmentLabels} from "../templates";
 import { loadCodexAndVue, mountApp, removeDialogMount, registerCodexComponents, getMountedApp } from "../dialog";
 import { findSectionInfoFromHeading, createHeaderMarkup, appendTextToSection, retrieveFullText, replaceSectionText, parseWikitextToHtml, compareWikitext } from "../api";
 import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "./utils";
-declare var mw: any;
 
 /**
  * 創建評審對話框。

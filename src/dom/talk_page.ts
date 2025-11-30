@@ -4,8 +4,6 @@ import {openReviewManagementDialog} from "../dialogs/review_management";
 import {openCheckWritingDialog} from "../dialogs/check_writing";
 import {appendButtonToHeading, createMwEditSectionButton, getHeadingTitle} from "./utils";
 
-declare const mw: any;
-
 function deriveSubjectArticleTitle(pageName: string): string {
     if (!pageName) {
         return '';

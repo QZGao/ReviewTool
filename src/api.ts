@@ -1,7 +1,5 @@
 import state from "./state";
 
-declare var mw: any;
-
 // Helper: parse query parameters from a URL-like string
 function parseQueryParams(url: string): Record<string, string> {
 	const qIdx = url.indexOf('?');

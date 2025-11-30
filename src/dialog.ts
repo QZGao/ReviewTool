@@ -1,9 +1,7 @@
-declare var mw: any;
-
 // Module responsible for dialog-related side effects (loader, mount element, mounting)
 let _mountedApp: any = null;
 
-export function loadCodexAndVue(): Promise<{Vue: any, Codex: any}> {
+export function loadCodexAndVue(): JQuery.Promise<{Vue: any, Codex: any}> {
     return mw.loader.using('@wikimedia/codex').then((require: any) => ({
         Vue: require('vue'),
         Codex: require('@wikimedia/codex')
@@ -120,13 +118,8 @@ export function showPreviewOverlay(html: string, title?: string) {
             content.innerHTML = html || '';
             try {
                 if (typeof mw !== 'undefined' && mw && mw.hook && typeof mw.hook === 'function') {
-                    // Pass a jQuery object when available to match other gadgets' expectations
-                    try {
-                        const $ = (window as any).jQuery;
-                        mw.hook('wikipage.content').fire($ ? $(content) : content);
-                    } catch (e) {
-                        mw.hook('wikipage.content').fire(content);
-                    }
+                    const $ = (window as any).jQuery;
+                    mw.hook('wikipage.content').fire($ ? $(content) : content);
                 }
                 // If diff HTML is present, ensure diff CSS is loaded
                 if (html && html.indexOf('class="diff') !== -1) {

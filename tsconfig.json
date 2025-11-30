@@ -6,8 +6,15 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "strict": false,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "types": [
+      "@types/node",
+      "types-mediawiki"
+    ],
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "global.d.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "global.d.ts"
+  ]
 }
-
