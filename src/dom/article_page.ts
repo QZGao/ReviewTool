@@ -476,6 +476,37 @@ function hideFloatingButton() {
 
 // Wrap text nodes inside the section into sentence spans, handling nested markup (templates, references, etc.)
 export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element | null) {
+    function getComputedLang(node: Node | null): string | null {
+        let el: Element | null = null;
+        if (node instanceof Element) el = node;
+        if (!el && node && node.parentElement) el = node.parentElement;
+        while (el) {
+            const lang = el.getAttribute('lang') || el.getAttribute('xml:lang');
+            if (lang) return lang.toLowerCase();
+            el = el.parentElement;
+        }
+        const docLang = document.documentElement?.getAttribute('lang');
+        return docLang ? docLang.toLowerCase() : null;
+    }
+
+    function shouldTreatHalfWidthTerminators(lang: string | null): boolean {
+        if (!lang) return false; // default to zh wiki behavior
+        return !(lang.startsWith('zh') || lang.startsWith('ja'));
+    }
+
+    function getSentenceTerminatorRegex(allowHalfWidth: boolean): RegExp {
+        const terminators = allowHalfWidth ? '。！？?!….' : '。！？…';
+        return new RegExp(`[」』】〗〕\\)\\]\\}\\"'’”〉》]*[${terminators}]+[」』】〗〕\\)\\]\\}\\"'’”〉》]*`, 'g');
+    }
+
+    function splitTextToPartsSimple(text: string, allowHalfWidth: boolean): string[] {
+        const terminators = allowHalfWidth
+            ? '。！？!?；;」』】〗〕\\]］}｝\\.'
+            : '。！？；;」』】〗〕\\]］}｝';
+        const re = new RegExp(`(?<=[${terminators}])\\s*`, 'g');
+        return text.split(re).filter(p => p.trim());
+    }
+
     // Helper to check if an element should be skipped (belongs to other scripts/widgets)
     function shouldSkipElement(node: Node): boolean {
         if (node.nodeType !== Node.ELEMENT_NODE) return false;
@@ -537,7 +568,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
     console.log('[ReviewTool] wrapSectionSentences: processing', sectionElements.length, 'child nodes');
 
     // Helper to split a block element's concatenated text into sentence ranges
-    function splitTextIntoRanges(text: string): Array<{ start: number, end: number }> {
+    function splitTextIntoRanges(text: string, lang: string | null): Array<{ start: number, end: number }> {
         // Use a regex-based splitter that recognizes both Chinese and Western sentence terminators.
         // This is more robust for mixed-language content than single-character scanning.
         const ranges: Array<{ start: number, end: number }> = [];
@@ -548,7 +579,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
         //  - "sentence."  (terminator before closing quote)
         //  - "sentence".  (terminator after closing quote)
         // and will recognise CJK terminators such as '。', '？', '！' and ellipsis '…'.
-        const re = /[」』】〗〕\)\]\}\"'’”〉》]*[。！？\?\.\.\.\.\.\.\.!…]+[」』】〗〕\)\]\}\"'’”〉》]*/g;
+        const re = getSentenceTerminatorRegex(shouldTreatHalfWidthTerminators(lang));
         let lastIndex = 0;
         let m: RegExpExecArray | null;
         while ((m = re.exec(text)) !== null) {
@@ -568,7 +599,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
         // splitter that also splits on newlines or multiple spaces.
         if (ranges.length <= 1) {
             const alt: Array<{ start: number, end: number }> = [];
-            const altRe = /[」』】〗〕\)\]\}\"'’”〉》]*[。！？\?\.\.\.\.\.\.\.!…]+[」』】〗〕\)\]\}\"'’”〉》]*|(?:\r?\n)+|(?:\s{2,})/g;
+            const altRe = new RegExp(`${getSentenceTerminatorRegex(shouldTreatHalfWidthTerminators(lang)).source}|(?:\\r?\\n)+|(?:\\s{2,})`, 'g');
             let last = 0;
             let mm: RegExpExecArray | null;
             while ((mm = altRe.exec(text)) !== null) {
@@ -591,6 +622,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
 
     // Process an element root - gather its text nodes and map offsets
     function processElementRoot(root: Element) {
+        const allowHalfWidth = shouldTreatHalfWidthTerminators(getComputedLang(root));
         // If this root has element children that are non-inline (block/boundary),
         // process each child separately to avoid creating ranges that span across
         // sibling block elements (which breaks lists, tables, etc.). However,
@@ -616,7 +648,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                     const textNode = child as Text;
                     const text = textNode.nodeValue || '';
                     if (!text.trim()) return;
-                    const parts = splitTextIntoRanges(text).map(r => text.slice(r.start, r.end)).filter(p => p.trim());
+                    const parts = splitTextIntoRanges(text, getComputedLang(textNode)).map(r => text.slice(r.start, r.end)).filter(p => p.trim());
                     if (parts.length <= 1) {
                         const span = document.createElement('span');
                         span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
@@ -671,7 +703,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
         }
         // console.log('[ReviewTool] processElementRoot: segments count', segments.length);
         if (!segments.length) return;
-        const ranges = splitTextIntoRanges(acc);
+        const ranges = splitTextIntoRanges(acc, getComputedLang(root));
         // console.log('[ReviewTool] processElementRoot: ranges computed', ranges.length);
 
         // Map ranges to actual text node offsets first
@@ -754,7 +786,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                     tn2 = walker2.nextNode() as Text | null;
                     continue;
                 }
-                const parts = text.split(/(?<=[。！？!?；;】\]}])\s*/g).filter(p => p.trim());
+                const parts = splitTextToPartsSimple(text, allowHalfWidth);
                 if (parts.length <= 1) {
                     const span = document.createElement('span');
                     span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
@@ -797,7 +829,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             const textNode = rootNode as Text;
             const text = textNode.textContent || '';
             if (!text.trim()) return;
-            const parts = text.split(/(?<=[。！？!?；;」』】〗〕\]］}｝])\s*/g).filter(p => p.trim());
+            const parts = splitTextToPartsSimple(text, shouldTreatHalfWidthTerminators(getComputedLang(textNode)));
             if (parts.length <= 1) {
                 const span = document.createElement('span');
                 span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
