@@ -1,4 +1,4 @@
-import {addVectorMenuTab, getHeadingTitle} from "./utils";
+import {addPortletTrigger, addVectorMenuTab, getHeadingTitle} from "./utils";
 import state from "../state";
 import {
     createAnnotation,
@@ -36,6 +36,9 @@ const SELECTION_SHOW_DELAY_MS = 120;
 let selectionShowTimer: number | null = null;
 let floatingHideTimer: number | null = null;
 const inlineAnnotationBubbles = new Map<string, HTMLElement>();
+
+const ARTICLE_ANNOTATION_KEY = '__article__';
+const REVIEWTOOL_PORTLET_ID = 'ca-reviewtool-toggle';
 
 // Remove common reference/decoration nodes from an element clone and return cleaned text
 function getCleanTextFromElement(el: Element | null): string {
@@ -1245,13 +1248,14 @@ export function addMainPageReviewToolButtonsToDOM(pageName: string): void {
     if (document.querySelector('#ca-annotate')) return;
     // Add a single Vector menu tab to toggle annotation mode for the whole article
     // This replaces per-heading mw-editsection buttons to avoid overlapping areas.
-    const tab = addVectorMenuTab('ca-annotate', state.convByVar({
+    addVectorMenuTab('ca-annotate', state.convByVar({
         hant: '批註模式', hans: '批注模式'
     }), state.convByVar({
         hant: '切換批註模式', hans: '切换批注模式'
     }), (e) => toggleArticleAnnotationMode(pageName));
     // add global viewer button (guard against duplicate)
     addGlobalAnnotationViewerButton(pageName);
+    syncAnnotationModeMenuState(state.isAnnotationModeActive(ARTICLE_ANNOTATION_KEY), pageName);
 }
 
 function addGlobalAnnotationViewerButton(pageName: string): void {
@@ -1303,18 +1307,12 @@ function addGlobalAnnotationViewerButton(pageName: string): void {
  * @param headingTitle {string} 章節標題
  */
 function toggleArticleAnnotationMode(pageName: string): void {
-    const key = '__article__';
-    state.toggleAnnotationModeState(key);
-    if (state.isAnnotationModeActive(key)) {
+    state.toggleAnnotationModeState(ARTICLE_ANNOTATION_KEY);
+    const isActive = state.isAnnotationModeActive(ARTICLE_ANNOTATION_KEY);
+    syncAnnotationModeMenuState(isActive, pageName);
+    if (isActive) {
         // mark document so we can override page styles while annotation mode is active
         document.documentElement.classList.add('review-tool-annotation-mode');
-        // Update Vector tab appearance to bold
-            const tab = document.getElementById('ca-annotate');
-            if (tab) {
-                const span = tab.querySelector('a > span');
-                if (span && span instanceof HTMLElement) span.style.fontWeight = 'bold';
-                tab.classList.add('selected');
-            }
         // Notify user
         mw && mw.notify && mw.notify(state.convByVar({
             hant: '批註模式已啟用。', hans: '批注模式已启用。'
@@ -1354,18 +1352,6 @@ function toggleArticleAnnotationMode(pageName: string): void {
         console.log(`[ReviewTool] 條目「${state.articleTitle}」批註模式已停用。`);
         uninstallSelectionListeners();
         clearWrappedSentences();
-        // Update Vector tab appearance to normal
-        try {
-            const tab = document.getElementById('ca-annotate');
-            if (tab) {
-                const span = tab.querySelector('a > span');
-                if (span && span instanceof HTMLElement) span.style.fontWeight = 'normal';
-                tab.classList.remove('selected');
-            }
-        } catch (e) {
-            console.error('[ReviewTool] failed to restore tab appearance', e);
-            throw e;
-        }
         try {
             document.documentElement.classList.remove('review-tool-annotation-mode');
         } catch (e) {
@@ -1388,5 +1374,31 @@ function toggleArticleAnnotationMode(pageName: string): void {
             console.error('[ReviewTool] failed to hide global viewer button', e);
             throw e;
         }
+    }
+}
+
+function getReviewToolPortletLabel(isActive: boolean): string {
+    return state.convByVar({
+        hant: isActive ? '關閉 ReviewTool' : '啟用 ReviewTool',
+        hans: isActive ? '关闭 ReviewTool' : '启用 ReviewTool'
+    });
+}
+
+function syncAnnotationModeMenuState(isActive: boolean, pageName: string): void {
+    const tab = document.getElementById('ca-annotate');
+    if (tab) {
+        const span = tab.querySelector('a > span');
+        if (span && span instanceof HTMLElement) {
+            span.style.fontWeight = isActive ? 'bold' : 'normal';
+        }
+        tab.classList.toggle('selected', isActive);
+    }
+
+    addPortletTrigger(REVIEWTOOL_PORTLET_ID, getReviewToolPortletLabel(isActive), () => {
+        toggleArticleAnnotationMode(pageName);
+    });
+    const portlet = document.getElementById(REVIEWTOOL_PORTLET_ID);
+    if (portlet) {
+        portlet.classList.toggle('selected', isActive);
     }
 }
