@@ -1379,8 +1379,8 @@ function toggleArticleAnnotationMode(pageName: string): void {
 
 function getReviewToolPortletLabel(isActive: boolean): string {
     return state.convByVar({
-        hant: isActive ? '關閉 ReviewTool' : '啟用 ReviewTool',
-        hans: isActive ? '关闭 ReviewTool' : '启用 ReviewTool'
+        hant: isActive ? '關閉批註模式' : '啟用批註模式',
+        hans: isActive ? '关闭批注模式' : '开启批注模式'
     });
 }
 
