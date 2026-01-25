@@ -38,7 +38,7 @@ function init(): void {
         1   // 討論頁
     ];
     const allowedNamePrefixes = [
-        'Wikipedia:同行评审', 'Wikipedia:優良條目評選', 'Wikipedia:典范条目评选', 'Wikipedia:特色列表評選', 'User:SuperGrey/gadgets/ReviewTool/TestPage', 'User_talk:SuperGrey/gadgets/ReviewTool/TestPage'
+        'Wikipedia:同行评审', 'Wikipedia:優良條目評選', 'Wikipedia:典范条目评选', 'Wikipedia:特色列表评选', 'User:SuperGrey/gadgets/ReviewTool/TestPage', 'User_talk:SuperGrey/gadgets/ReviewTool/TestPage'
     ];
     if (!allowedNamespaces.includes(namespace) && !allowedNamePrefixes.some((p) => pageName.startsWith(p))) {
         console.log('[ReviewTool] 不是目標頁面，小工具終止。');

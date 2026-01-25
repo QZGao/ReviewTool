@@ -64,7 +64,7 @@ function decideAssessmentType(articleTitle: string, sectionTitle: string): strin
         assessmentType = 'good';
     } else if (articleTitle === 'Wikipedia:Wikipedia:典范条目评选') {
         assessmentType = 'featured';
-    } else if (articleTitle === 'Wikipedia:Wikipedia:特色列表評選') {
+    } else if (articleTitle === 'Wikipedia:Wikipedia:特色列表评选') {
         assessmentType = 'featured_list';
     }
     return assessmentType;
