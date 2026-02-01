@@ -1,9 +1,14 @@
 import state from "../state";
-import {getSectionRegexes} from "../templates";
+import {getSectionRegexes, supplementarySectionTitleRegexes} from "../templates";
 import {openReviewManagementDialog} from "../dialogs/review_management";
 import {openCheckWritingDialog} from "../dialogs/check_writing";
 import {appendButtonToHeading, createMwEditSectionButton, getHeadingTitle} from "./utils";
 
+/**
+ * 根據討論頁名稱推斷對應的評審條目標題。
+ * @param pageName {string} 討論頁名稱
+ * @returns {string} 評審條目標題
+ */
 function deriveSubjectArticleTitle(pageName: string): string {
     if (!pageName) {
         return '';
@@ -126,7 +131,7 @@ export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: s
         const relevantHeadings = Array.from(allSectionHeadings).filter(heading => {
             const sectionTitle = getHeadingTitle(heading);
             if (!sectionTitle) return false;
-            return Object.values(getSectionRegexes()).some(regex => regex.test(sectionTitle));
+            return Object.values(getSectionRegexes()).some(regex => regex.test(sectionTitle)) || supplementarySectionTitleRegexes.some(regex => regex.test(sectionTitle));
         });
 
         relevantHeadings.forEach(heading => {

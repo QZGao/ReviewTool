@@ -88,6 +88,11 @@ export function assessments(): Record<string, {
     };
 }
 
+export const supplementarySectionTitleRegexes: RegExp[] = [
+    /建[議议]/,
+    /重新?[評评][級级]?/
+];
+
 /**
  * 獲取所有評級類型與正則表達式的映射。
  * @returns {Record<string, RegExp>} 評級類型與正則表達式的映射
