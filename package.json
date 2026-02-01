@@ -8,14 +8,19 @@
 		"build": "node build.mjs",
 		"watch": "node build.mjs --watch",
 		"release": "node build.mjs --release",
-		"lint": "eslint \"src/**/*.{ts,tsx}\" --no-inline-config"
+		"lint": "eslint \"src/**/*.{ts,tsx,vue}\" --no-inline-config"
 	},
 	"devDependencies": {
 		"@types/node": "^24.10.1",
 		"@typescript-eslint/eslint-plugin": "^8.54.0",
 		"@typescript-eslint/parser": "^8.54.0",
+		"@vue/compiler-sfc": "^3.4.38",
+		"@vue/runtime-dom": "^3.5.27",
 		"esbuild": "^0.21.5",
 		"eslint": "^9.39.2",
-		"types-mediawiki": "^1.9.1"
+		"eslint-plugin-vue": "^10.7.0",
+		"types-mediawiki": "^1.9.1",
+		"vue": "^3.4.27",
+		"vue-eslint-parser": "^10.2.0"
 	}
 }

@@ -22,10 +22,14 @@ let _mountedApp: VueApp | null = null;
 let _mountedRoot: unknown = null;
 
 export function loadCodexAndVue(): JQuery.Promise<{ Vue: VueModule, Codex: CodexModule }> {
-	return mw.loader.using('@wikimedia/codex').then((requireFn: (name: string) => unknown) => ({
-		Vue: requireFn('vue') as VueModule,
-		Codex: requireFn('@wikimedia/codex') as CodexModule
-	}));
+	return mw.loader.using('@wikimedia/codex').then((requireFn: (name: string) => unknown) => {
+		const Vue = requireFn('vue') as VueModule;
+		const Codex = requireFn('@wikimedia/codex') as CodexModule;
+		if (typeof window !== 'undefined' && !(window as unknown as { Vue?: VueModule }).Vue) {
+			(window as unknown as { Vue?: VueModule }).Vue = Vue;
+		}
+		return { Vue, Codex };
+	});
 }
 
 export function createDialogMountIfNeeded(): HTMLElement | null {
