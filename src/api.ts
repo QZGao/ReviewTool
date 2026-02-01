@@ -1,3 +1,12 @@
+import type {
+	ApiComparePagesParams,
+	ApiEditPageParams,
+	ApiParseParams,
+	ApiQueryParams,
+	ApiQueryRevisionsParams,
+	UnknownApiParams,
+} from "types-mediawiki/api_params";
+import type { ApiResponse } from "types-mediawiki/mw/Api";
 import state from "./state";
 
 // Helper: parse query parameters from a URL-like string
@@ -9,9 +18,24 @@ function parseQueryParams(url: string): Record<string, string> {
 	for (const p of pairs) {
 		const [k, v] = p.split('=');
 		if (!k) continue;
-		try { out[decodeURIComponent(k)] = v ? decodeURIComponent(v) : ''; } catch (e) { out[k] = v || ''; }
+		try { out[decodeURIComponent(k)] = v ? decodeURIComponent(v) : ''; } catch { out[k] = v || ''; }
 	}
 	return out;
+}
+
+function toError(err: unknown): Error {
+	if (err instanceof Error) return err;
+	if (typeof err === 'string') return new Error(err);
+	if (typeof err === 'number' || typeof err === 'boolean' || typeof err === 'bigint') {
+		return new Error(String(err));
+	}
+	if (typeof err === 'symbol') return new Error(err.description || 'Unknown error');
+	if (typeof err === 'function') return new Error(err.name || 'Unknown error');
+	try {
+		return new Error(JSON.stringify(err));
+	} catch {
+		return new Error('Unknown error');
+	}
 }
 
 /**
@@ -25,7 +49,7 @@ function parseQueryParams(url: string): Record<string, string> {
 export function findSectionInfoFromHeading(headingEl: Element | null): { pageTitle?: string | null, sectionId?: number | null } {
 	if (!headingEl) return { pageTitle: null, sectionId: null };
 	// search within the heading wrapper for edit links
-	const link = headingEl.querySelector('a.qe-target') || headingEl.querySelector('a[href*="action=edit"]') as HTMLAnchorElement | null;
+	const link = headingEl.querySelector('a.qe-target') || headingEl.querySelector('a[href*="action=edit"]');
 	if (!link || !link.getAttribute) return { pageTitle: null, sectionId: null };
 	const href = link.getAttribute('href') || '';
 	// href may be absolute or relative, with query params
@@ -51,35 +75,124 @@ export function createHeaderMarkup(title: string, level: number): string {
 	return `\n${eq}${title}${eq}`;
 }
 
+interface ApiEditResponse {
+	edit?: {
+		result?: string;
+	};
+	error?: {
+		code?: string;
+	};
+}
+
+interface ApiQueryRevisionSlot {
+	content?: string;
+	'*'?: string;
+}
+
+interface ApiQueryRevision {
+	timestamp?: string;
+	slots?: {
+		main?: ApiQueryRevisionSlot;
+	};
+}
+
+interface ApiQueryPage {
+	revisions?: ApiQueryRevision[];
+}
+
+interface ApiQueryRevisionsResponse {
+	curtimestamp?: string;
+	query?: {
+		pages?: ApiQueryPage[];
+	};
+}
+
+interface ApiParseResponse {
+	parse?: {
+		text?: {
+			'*'?: string;
+		};
+	};
+}
+
+interface ApiCompareResponse {
+	compare?: {
+		'*'?: string;
+	};
+}
+
+interface XToolsAssessment {
+	value: string;
+	badge: string;
+}
+
+interface XToolsPageInfo {
+	project: string;
+	page: string;
+	created_rev_id: number;
+	modified_rev_id: number;
+	pageviews_offset: number;
+	creator: string;
+	created_at: string;
+	revisions: number;
+	editors: number;
+	watchers: number;
+	pageviews: number;
+	secs_since_last_edit: number;
+	assessment: XToolsAssessment;
+	creator_editcount?: number;
+}
+
+function isXToolsPageInfo(data: unknown): data is XToolsPageInfo {
+	if (!data || typeof data !== 'object') return false;
+	const info = data as Partial<XToolsPageInfo>;
+	return typeof info.project === 'string'
+		&& typeof info.page === 'string'
+		&& typeof info.created_rev_id === 'number'
+		&& typeof info.modified_rev_id === 'number'
+		&& typeof info.pageviews_offset === 'number'
+		&& typeof info.creator === 'string'
+		&& typeof info.created_at === 'string'
+		&& typeof info.revisions === 'number'
+		&& typeof info.editors === 'number'
+		&& typeof info.watchers === 'number'
+		&& typeof info.pageviews === 'number'
+		&& typeof info.secs_since_last_edit === 'number'
+		&& !!info.assessment
+		&& typeof info.assessment.value === 'string'
+		&& typeof info.assessment.badge === 'string';
+}
+
 /**
  * Append raw wikitext to a specific section of a page using MediaWiki API.
  * Requires that a valid `sectionId` be provided. Returns the API response promise.
  */
-export function appendTextToSection(pageTitle: string, sectionId: number, appendText: string, summary?: string): Promise<any> {
+export function appendTextToSection(pageTitle: string, sectionId: number, appendText: string, summary?: string): Promise<ApiResponse> {
 	return new Promise((resolve, reject) => {
 		if (!pageTitle || typeof sectionId !== 'number' || isNaN(sectionId)) {
 			reject(new Error('Invalid pageTitle or sectionId'));
 			return;
 		}
 		const api = state.getApi();
-		const params: any = {
+		const params: ApiEditPageParams = {
 			action: 'edit',
 			title: pageTitle,
-			section: sectionId,
+			section: String(sectionId),
 			appendtext: appendText,
 			format: 'json',
-			formatversion: 2,
+			formatversion: "2",
 		};
 		if (summary) params.summary = summary;
-		api.postWithToken('csrf', params).done((res: any) => {
-			if (res.edit && res.edit.result === 'Success') {
+		api.postWithToken('csrf', params).done((res: ApiResponse) => {
+			const response = res as ApiEditResponse;
+			if (response.edit && response.edit.result === 'Success') {
 				console.log('[ReviewTool][appendTextToSection] Append successful');
 				mw.notify(state.convByVar({
 					hant: '已成功將內容附加到指定段落。',
 					hans: '已成功将内容附加到指定段落。'
 				}));
 				refreshPage();
-			} else if (res.error && res.error.code === 'editconflict') {
+			} else if (response.error && response.error.code === 'editconflict') {
 				console.error('[ReviewTool][appendTextToSection] Edit conflict occurred');
 				mw.notify(state.convByVar({
 					hant: '附加內容時發生編輯衝突。請重新嘗試。',
@@ -92,7 +205,8 @@ export function appendTextToSection(pageTitle: string, sectionId: number, append
 					hans: '附加内容失败。请稍后再试。'
 				}));
 			}
-		}).fail((err: any) => reject(err));
+			resolve(res);
+		}).fail((err: unknown) => reject(toError(err)));
 	});
 }
 
@@ -115,47 +229,48 @@ export interface RetrieveFullTextResult {
  * 檢索指定頁面（或段落）的文本與相關時間戳。
  */
 export function retrieveFullText(pageTitle: string, sectionId?: number): Promise<RetrieveFullTextResult> {
-	return new Promise((resolve, reject) => {
+	return new Promise<RetrieveFullTextResult>((resolve, reject) => {
 		if (!pageTitle) {
 			reject(new Error('Invalid pageTitle'));
 			return;
 		}
 		const api = state.getApi();
-		const params: any = {
+		const params: ApiQueryParams & ApiQueryRevisionsParams = {
 			action: 'query',
 			prop: 'revisions',
 			titles: pageTitle,
 			rvslots: 'main',
 			rvprop: ['timestamp', 'content'],
-			curtimestamp: 1,
+			curtimestamp: true,
 			format: 'json',
-			formatversion: 2,
+			formatversion: "2",
 		};
 		if (typeof sectionId === 'number' && !isNaN(sectionId)) {
-			params.rvsection = sectionId;
+			params.rvsection = String(sectionId);
 		}
-		api.postWithToken('csrf', params).done((res: any) => {
+		api.postWithToken('csrf', params).done((res: ApiResponse) => {
 			try {
-				const page = res?.query?.pages?.[0];
+				const response = res as ApiQueryRevisionsResponse;
+				const page = response.query?.pages?.[0];
 				const revision = page?.revisions?.[0];
 				if (revision) {
-					const mainSlot = revision.slots?.main || {};
+					const mainSlot = revision.slots?.main || { '*': '' };
 					const text = typeof mainSlot.content === 'string'
 						? mainSlot.content
-						: (mainSlot['*'] || '');
+						: mainSlot['*'];
 					resolve({
 						text,
-						starttimestamp: res?.curtimestamp || '',
+						starttimestamp: response.curtimestamp || '',
 						basetimestamp: revision.timestamp || '',
 					});
 					return;
 				}
-			} catch (err) {
-				reject(err);
+			} catch (error) {
+				reject(toError(error));
 				return;
 			}
 			reject(new Error('No content found'));
-		}).fail((error: any) => reject(error));
+		}).fail((error: unknown) => reject(toError(error)));
 	});
 }
 
@@ -181,7 +296,10 @@ export async function getXToolsInfo(pageName: string): Promise<string> {
 		if (!resp.ok) {
 			throw new Error(`XTools responded ${resp.status}`);
 		}
-		const pageInfo = await resp.json();
+		const pageInfo: unknown = await resp.json();
+		if (!isXToolsPageInfo(pageInfo)) {
+			throw new Error('Unexpected XTools response shape');
+		}
 
 		const project = pageInfo.project;
 		const pageEnc = encodeURIComponent(pageInfo.page);
@@ -223,44 +341,41 @@ export interface SectionTimestamps {
 	basetimestamp: string;
 }
 
-export function replaceSectionText(pageTitle: string, sectionId: number, newText: string, summary?: string, timestamps?: SectionTimestamps): Promise<any> {
-	return new Promise(async (resolve, reject) => {
-		try {
-			if (!pageTitle || typeof sectionId !== 'number' || isNaN(sectionId)) {
-				reject(new Error('Invalid pageTitle or sectionId'));
-				return;
-			}
-			const api = state.getApi();
-			let starttimestamp = timestamps?.starttimestamp;
-			let basetimestamp = timestamps?.basetimestamp;
-			if (!starttimestamp || !basetimestamp) {
-				const fetched = await retrieveFullText(pageTitle, sectionId);
-				starttimestamp = fetched.starttimestamp;
-				basetimestamp = fetched.basetimestamp;
-			}
-			const params: any = {
-				action: 'edit',
-				title: pageTitle,
-				section: sectionId,
-				text: newText,
-				starttimestamp,
-				basetimestamp,
-				format: 'json',
-				formatversion: 2,
-			};
-			if (summary) params.summary = summary;
-			api.postWithToken('csrf', params)
-				.done((data: any) => {
-					if (data?.edit?.result === 'Success') {
-						refreshPage();
-					}
-					resolve(data);
-				})
-				.fail((err: any) => reject(err));
-		} catch (error) {
-			reject(error);
-		}
+export async function replaceSectionText(pageTitle: string, sectionId: number, newText: string, summary?: string, timestamps?: SectionTimestamps): Promise<ApiResponse> {
+	if (!pageTitle || typeof sectionId !== 'number' || isNaN(sectionId)) {
+		throw new Error('Invalid pageTitle or sectionId');
+	}
+	const api = state.getApi();
+	let starttimestamp = timestamps?.starttimestamp;
+	let basetimestamp = timestamps?.basetimestamp;
+	if (!starttimestamp || !basetimestamp) {
+		const fetched = await retrieveFullText(pageTitle, sectionId);
+		starttimestamp = fetched.starttimestamp;
+		basetimestamp = fetched.basetimestamp;
+	}
+	const params: ApiEditPageParams = {
+		action: 'edit',
+		title: pageTitle,
+		section: String(sectionId),
+		text: newText,
+		starttimestamp,
+		basetimestamp,
+		format: 'json',
+		formatversion: "2",
+	};
+	if (summary) params.summary = summary;
+	const data = await new Promise<ApiResponse>((resolve, reject) => {
+		api.postWithToken('csrf', params)
+			.done((response: ApiResponse) => {
+				const result = response as ApiEditResponse;
+				if (result.edit?.result === 'Success') {
+					refreshPage();
+				}
+				resolve(response);
+			})
+			.fail((err: unknown) => reject(toError(err)));
 	});
+	return data;
 }
 
 /**
@@ -271,19 +386,20 @@ export function parseWikitextToHtml(wikitext: string, title?: string): Promise<s
 	return new Promise((resolve, reject) => {
 		try {
 			const api = state.getApi();
-			const params: any = { action: 'parse', text: wikitext || '', contentmodel: 'wikitext', format: 'json' };
+			const params: ApiParseParams = { action: 'parse', text: wikitext || '', contentmodel: 'wikitext', format: 'json' };
 			if (title) params.title = title;
-			api.post(params).done((data: any) => {
+			api.post(params).done((data: ApiResponse) => {
 				try {
-					if (data && data.parse && data.parse.text) {
-						resolve(data.parse.text['*'] || '');
+					const response = data as ApiParseResponse;
+					if (response.parse?.text) {
+						resolve(response.parse.text['*'] || '');
 						return;
 					}
-				} catch (e) { /* fallthrough */ }
+				} catch { /* fallthrough */ }
 				resolve('');
-			}).fail((err: any) => reject(err));
-		} catch (e) {
-			reject(e);
+			}).fail((err: unknown) => reject(toError(err)));
+		} catch (error: unknown) {
+			reject(toError(error));
 		}
 	});
 }
@@ -297,27 +413,28 @@ export function compareWikitext(oldWikitext: string, newWikitext: string): Promi
 	return new Promise((resolve, reject) => {
 		try {
 			const api = state.getApi();
-			const params: any = {
+			const params: ApiComparePagesParams & UnknownApiParams = {
 				action: 'compare',
 				fromslots: 'main',
 				'fromtext-main': oldWikitext || '',
 				fromtitle: mw.config.get('wgPageName'),
-				frompst: 'true',
+				frompst: true,
 				toslots: 'main',
 				'totext-main': newWikitext || '',
 				totitle: mw.config.get('wgPageName'),
-				topst: 'true',
+				topst: true,
 			};
-			api.postWithToken('csrf', params).done((res: any) => {
+			api.postWithToken('csrf', params).done((res: ApiResponse) => {
 				try {
-					if (res && res.compare && res.compare['*']) {
-						resolve('<table class="diff"><colgroup><col class="diff-marker"/><col class="diff-content"/><col class="diff-marker"/><col class="diff-content"/></colgroup>' + res.compare['*'] + '</table>');
+					const response = res as ApiCompareResponse;
+					if (response.compare && response.compare['*']) {
+						resolve('<table class="diff"><colgroup><col class="diff-marker"/><col class="diff-content"/><col class="diff-marker"/><col class="diff-content"/></colgroup>' + response.compare['*'] + '</table>');
 					}
 					resolve(state.convByVar({ hant: '無差異。', hans: '无差异。' }));
-				} catch (e) {
-					reject(e);
+				} catch (error) {
+					reject(toError(error));
 				}
-			}).fail((err: any) => reject(err));
-		} catch (e) { reject(e); }
+			}).fail((err: unknown) => reject(toError(err)));
+		} catch (error: unknown) { reject(toError(error)); }
 	});
 }

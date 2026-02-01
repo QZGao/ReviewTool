@@ -55,6 +55,34 @@ function uuidv4(): string {
     });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object';
+}
+
+function normalizeAnnotation(anno: unknown): Annotation | null {
+    if (!isRecord(anno)) return null;
+    if (typeof anno.id !== 'string') return null;
+    if (typeof anno.sectionPath !== 'string') return null;
+    if (typeof anno.sentenceText !== 'string') return null;
+    if (typeof anno.opinion !== 'string') return null;
+    if (typeof anno.createdBy !== 'string') return null;
+    if (typeof anno.createdAt !== 'number') return null;
+
+    const sentencePos = typeof anno.sentencePos === 'string' ? anno.sentencePos : '';
+    const resolved = typeof anno.resolved === 'boolean' ? anno.resolved : undefined;
+
+    return {
+        id: anno.id,
+        sectionPath: anno.sectionPath,
+        sentencePos,
+        sentenceText: anno.sentenceText,
+        opinion: anno.opinion,
+        createdBy: anno.createdBy,
+        createdAt: anno.createdAt,
+        resolved
+    };
+}
+
 export function loadAnnotations(pageName: string): AnnotationStore {
     const key = storageKeyForPage(pageName);
     const localStore = getStorage('local');
@@ -84,24 +112,25 @@ export function loadAnnotations(pageName: string): AnnotationStore {
         return createEmptyStore(pageName);
     }
 
-    let parsed: AnnotationStore | null = null;
+    let parsed: unknown = null;
     try {
-        parsed = JSON.parse(raw) as AnnotationStore;
+        parsed = JSON.parse(raw);
     } catch (e) {
         console.warn('[ReviewTool] failed to parse annotations payload', e);
         return createEmptyStore(pageName);
     }
 
-    const annotations = Array.isArray(parsed?.annotations)
-        ? parsed.annotations.map((anno: any) => ({
-            ...anno,
-            sentencePos: typeof anno?.sentencePos === 'string' ? anno.sentencePos : ''
-        }))
+    const parsedRecord = isRecord(parsed) ? parsed : null;
+    const parsedAnnotations = parsedRecord && Array.isArray(parsedRecord.annotations)
+        ? parsedRecord.annotations
         : [];
+    const annotations = parsedAnnotations
+        .map((anno) => normalizeAnnotation(anno))
+        .filter((anno): anno is Annotation => !!anno);
 
     const normalized: AnnotationStore = {
-        pageName: parsed?.pageName || pageName,
-        createdAt: parsed?.createdAt || Date.now(),
+        pageName: typeof parsedRecord?.pageName === 'string' ? parsedRecord.pageName : pageName,
+        createdAt: typeof parsedRecord?.createdAt === 'number' ? parsedRecord.createdAt : Date.now(),
         annotations
     };
 

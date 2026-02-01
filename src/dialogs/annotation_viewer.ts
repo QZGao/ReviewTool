@@ -16,7 +16,53 @@ export interface AnnotationViewerDialogOptions {
     onClearAllAnnotations?: () => Promise<boolean | void> | boolean | void;
 }
 
-let viewerAppInstance: any = null;
+type AnnotationViewerI18n = {
+    title: string;
+    empty: string;
+    edit: string;
+    delete: string;
+    deleteConfirm: string;
+    clearAll: string;
+    clearAllConfirm: string;
+    clearAllDone: string;
+    clearAllNothing: string;
+    clearAllError: string;
+    sectionFallback: string;
+    close: string;
+    export: string;
+    exportDone: string;
+    exportError: string;
+    sortLabel: string;
+    sortCreatedAsc: string;
+    sortCreatedDesc: string;
+    sortPosition: string;
+};
+
+type AnnotationViewerDialogVm = {
+    open: boolean;
+    groups: AnnotationGroup[];
+    deletingAnnotationId: string | null;
+    clearingAll: boolean;
+    canClearAll: boolean;
+    sortMethod: string;
+    isEmpty: boolean;
+    flattenedAnnotations: Annotation[];
+    sortingOptions: Array<{ value: string; label: string }>;
+    sortedGroups: AnnotationGroup[];
+    quotePreview: (text: string) => string;
+    formatTimestamp: (ts: number | undefined) => string;
+    handleEdit: (annotationId: string, sectionPath: string) => void;
+    handleDelete: (annotationId: string, sectionPath: string) => void;
+    handleClearAll: () => void;
+    handleExport: () => void;
+    buildPositionSortedGroups: () => AnnotationGroup[];
+    buildTimeSortedGroups: (order: 'asc' | 'desc') => AnnotationGroup[];
+    onUpdateOpen: (newValue: boolean) => void;
+    closeDialog: () => void;
+    $options: { i18n: AnnotationViewerI18n };
+};
+
+let viewerAppInstance: AnnotationViewerDialogVm | null = null;
 let viewerDialogOptions: AnnotationViewerDialogOptions | null = null;
 
 export function isAnnotationViewerDialogOpen(): boolean {
@@ -49,7 +95,7 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
     if (getMountedApp()) removeDialogMount();
 
     loadCodexAndVue()
-        .then(({ Vue, Codex }: any) => {
+        .then(({ Vue, Codex }) => {
             const app = Vue.createMwApp({
                 i18n: {
                     title: state.convByVar({ hant: "批註列表", hans: "批注列表" }),
@@ -84,11 +130,11 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                     };
                 },
                 computed: {
-                    isEmpty(): boolean {
+                    isEmpty(this: AnnotationViewerDialogVm): boolean {
                         if (!Array.isArray(this.groups) || !this.groups.length) return true;
                         return this.groups.every((group: AnnotationGroup) => !group.annotations || group.annotations.length === 0);
                     },
-                    flattenedAnnotations(): Annotation[] {
+                    flattenedAnnotations(this: AnnotationViewerDialogVm): Annotation[] {
                         if (!Array.isArray(this.groups)) return [];
                         const list: Annotation[] = [];
                         this.groups.forEach((group: AnnotationGroup) => {
@@ -97,15 +143,15 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         });
                         return list;
                     },
-                    sortingOptions(): Array<{ value: string, label: string }> {
-                        const i18n = (this.$options as any)?.i18n || {};
+                    sortingOptions(this: AnnotationViewerDialogVm): Array<{ value: string, label: string }> {
+                        const i18n = this.$options.i18n;
                         return [
                             { value: 'position', label: i18n.sortPosition || '頁面位置' },
                             { value: 'created-desc', label: i18n.sortCreatedDesc || '最新時間優先' },
                             { value: 'created-asc', label: i18n.sortCreatedAsc || '最早時間優先' }
                         ];
                     },
-                    sortedGroups(): AnnotationGroup[] {
+                    sortedGroups(this: AnnotationViewerDialogVm): AnnotationGroup[] {
                         if (this.sortMethod === 'created-desc') {
                             return this.buildTimeSortedGroups('desc');
                         }
@@ -116,24 +162,24 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                     }
                 },
                 methods: {
-                    quotePreview(text: string): string {
+                    quotePreview(this: AnnotationViewerDialogVm, text: string): string {
                         if (!text) return "";
                         const trimmed = text.trim();
                         if (trimmed.length <= 60) return trimmed;
                         return `${trimmed.slice(0, 57)}…`;
                     },
-                    formatTimestamp(ts: number | undefined): string {
+                    formatTimestamp(this: AnnotationViewerDialogVm, ts: number | undefined): string {
                         if (!ts) return "";
                         try {
                             return new Date(ts).toLocaleString();
-                        } catch (e) {
+                        } catch {
                             return "";
                         }
                     },
-                    handleEdit(annotationId: string, sectionPath: string) {
+                    handleEdit(this: AnnotationViewerDialogVm, annotationId: string, sectionPath: string) {
                         viewerDialogOptions?.onEditAnnotation?.(annotationId, sectionPath);
                     },
-                    handleDelete(annotationId: string, sectionPath: string) {
+                    handleDelete(this: AnnotationViewerDialogVm, annotationId: string, sectionPath: string) {
                         if (!viewerDialogOptions?.onDeleteAnnotation) return;
                         const ok = window.confirm(this.$options.i18n.deleteConfirm);
                         if (!ok) return;
@@ -141,16 +187,18 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         Promise.resolve(viewerDialogOptions.onDeleteAnnotation(annotationId, sectionPath))
                             .catch((error) => {
                                 console.error('[ReviewTool] Failed to delete annotation', error);
-                                mw && mw.notify && mw.notify(
-                                    state.convByVar({ hant: "刪除批註時發生錯誤。", hans: "删除批注时发生错误。" }),
-                                    { type: 'error', title: '[ReviewTool]' }
-                                );
+                                if (mw && mw.notify) {
+                                    mw.notify(
+                                        state.convByVar({ hant: "刪除批註時發生錯誤。", hans: "删除批注时发生错误。" }),
+                                        { type: 'error', title: '[ReviewTool]' }
+                                    );
+                                }
                             })
                             .finally(() => {
                                 this.deletingAnnotationId = null;
                             });
                     },
-                    handleClearAll() {
+                    handleClearAll(this: AnnotationViewerDialogVm) {
                         if (!viewerDialogOptions?.onClearAllAnnotations || this.isEmpty) return;
                         const ok = window.confirm(this.$options.i18n.clearAllConfirm);
                         if (!ok) return;
@@ -167,16 +215,18 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                             })
                             .catch((error) => {
                                 console.error('[ReviewTool] Failed to clear annotations', error);
-                                mw && mw.notify && mw.notify(
-                                    this.$options.i18n.clearAllError,
-                                    { type: 'error', title: '[ReviewTool]' }
-                                );
+                                if (mw && mw.notify) {
+                                    mw.notify(
+                                        this.$options.i18n.clearAllError,
+                                        { type: 'error', title: '[ReviewTool]' }
+                                    );
+                                }
                             })
                             .finally(() => {
                                 this.clearingAll = false;
                             });
                     },
-                    handleExport() {
+                    handleExport(this: AnnotationViewerDialogVm) {
                         if (this.isEmpty) return;
                         try {
                             const payload = {
@@ -199,18 +249,24 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                             }
                         } catch (error) {
                             console.error('[ReviewTool] Failed to export annotations', error);
-                            mw && mw.notify && mw.notify(
-                                this.$options.i18n.exportError,
-                                { type: 'error', title: '[ReviewTool]' }
-                            );
+                            if (mw && mw.notify) {
+                                mw.notify(
+                                    this.$options.i18n.exportError,
+                                    { type: 'error', title: '[ReviewTool]' }
+                                );
+                            }
                         }
                     },
-                    buildPositionSortedGroups(): AnnotationGroup[] {
+                    buildPositionSortedGroups(this: AnnotationViewerDialogVm): AnnotationGroup[] {
                         const buckets = new Map<string, Annotation[]>();
                         this.flattenedAnnotations.forEach((anno) => {
                             const key = (anno.sectionPath || '').trim();
-                            if (!buckets.has(key)) buckets.set(key, []);
-                            buckets.get(key)!.push(anno);
+                            const bucket = buckets.get(key);
+                            if (bucket) {
+                                bucket.push(anno);
+                            } else {
+                                buckets.set(key, [anno]);
+                            }
                         });
                         const groups = Array.from(buckets.entries()).map(([sectionPath, annotations]) => ({
                             sectionPath,
@@ -229,7 +285,7 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         });
                         return groups;
                     },
-                    buildTimeSortedGroups(order: 'asc' | 'desc'): AnnotationGroup[] {
+                    buildTimeSortedGroups(this: AnnotationViewerDialogVm, order: 'asc' | 'desc'): AnnotationGroup[] {
                         const sorted = this.flattenedAnnotations.slice().sort((a, b) => {
                             const delta = (a.createdAt || 0) - (b.createdAt || 0);
                             return order === 'asc' ? delta : -delta;
@@ -246,12 +302,12 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
                         });
                         return groups;
                     },
-                    onUpdateOpen(newValue: boolean) {
+                    onUpdateOpen(this: AnnotationViewerDialogVm, newValue: boolean) {
                         if (!newValue) {
                             this.closeDialog();
                         }
                     },
-                    closeDialog() {
+                    closeDialog(this: AnnotationViewerDialogVm) {
                         this.open = false;
                         setTimeout(() => {
                             removeDialogMount();
@@ -352,13 +408,15 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
             });
 
             registerCodexComponents(app, Codex);
-            viewerAppInstance = mountApp(app);
+            viewerAppInstance = mountApp(app) as AnnotationViewerDialogVm;
         })
-        .catch((error: any) => {
+        .catch((error: unknown) => {
             console.error("[ReviewTool] Failed to open annotation viewer dialog", error);
-            mw && mw.notify && mw.notify(
-                state.convByVar({ hant: "無法開啟批註列表。", hans: "无法开启批注列表。" }),
-                { type: "error", title: "[ReviewTool]" }
-            );
+            if (mw && mw.notify) {
+                mw.notify(
+                    state.convByVar({ hant: "無法開啟批註列表。", hans: "无法开启批注列表。" }),
+                    { type: "error", title: "[ReviewTool]" }
+                );
+            }
         });
 }

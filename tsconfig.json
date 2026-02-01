@@ -1,20 +1,20 @@
 {
-  "compilerOptions": {
-    "target": "ES2017",
-    "module": "ESNext",
-    "moduleResolution": "Node",
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "strict": false,
-    "forceConsistentCasingInFileNames": true,
-    "types": [
-      "@types/node",
-      "types-mediawiki"
-    ],
-  },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "global.d.ts"
-  ]
+	"compilerOptions": {
+		"target": "ES2017",
+		"module": "ESNext",
+		"moduleResolution": "Node",
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"strict": false,
+		"forceConsistentCasingInFileNames": true,
+		"types": [
+			"@types/node",
+			"types-mediawiki"
+		],
+	},
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"global.d.ts"
+	]
 }

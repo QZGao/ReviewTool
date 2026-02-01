@@ -1,367 +1,382 @@
 .review-tool-dialog .review-tool-suggested-criteria-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 0;
-    margin-top: 5px;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 0;
+	margin-top: 5px;
 }
 
 .review-tool-dialog .review-tool-form-section:not(:first-child) {
-    margin-top: 10px;
+	margin-top: 10px;
 }
 
 .review-tool-dialog.review-tool-check-writing-dialog {
-    /* Make dialog wider for denser layout */
-    max-width: 900px;
-    width: 90vw;
+	/* Make dialog wider for denser layout */
+	max-width: 900px;
+	width: 90vw;
 }
 
 .review-tool-dialog .chapter-block {
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    background: rgba(0, 0, 0, 0.02);
-    padding: 12px;
-    margin-bottom: 12px;
-    border-radius: 6px;
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	background: rgba(0, 0, 0, 0.02);
+	padding: 12px;
+	margin-bottom: 12px;
+	border-radius: 6px;
 }
 
 .review-tool-dialog .chapter-suggestions {
-    margin-top: 8px;
+	margin-top: 8px;
 }
 
 .review-tool-dialog .suggestion-row {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    padding: 6px 0;
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	padding: 6px 0;
 }
 
 .review-tool-dialog .suggestion-row:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
+	border-bottom: none;
+	margin-bottom: 0;
 }
 
 .review-tool-dialog .suggestion-bullet {
-    display: list-item;
-    color: #666;
-    list-style-position: inside;
-    padding-left: 5px;
+	display: list-item;
+	color: #666;
+	list-style-position: inside;
+	padding-left: 5px;
 }
 
 .review-tool-dialog .suggestion-columns {
-    display: flex;
-    gap: 8px;
-    flex: 1 1 auto;
-    align-items: flex-start;
+	display: flex;
+	gap: 8px;
+	flex: 1 1 auto;
+	align-items: flex-start;
 }
 
 .review-tool-dialog .quote-col {
-    flex: 0 0 35%;
+	flex: 0 0 35%;
 }
 
 .review-tool-dialog .suggestion-col {
-    flex: 1 1 auto;
+	flex: 1 1 auto;
 }
 
 .review-tool-dialog textarea {
-    min-height: 32px;
-    max-height: 160px;
-    resize: vertical;
+	min-height: 32px;
+	max-height: 160px;
+	resize: vertical;
 }
 
 .review-tool-dialog .review-tool-edit-step textarea {
-    font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
-    min-height: 180px;
-    max-height: calc(100vh - 220px);
+	font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+	min-height: 180px;
+	max-height: calc(100vh - 220px);
 }
 
 .review-tool-dialog .quote-area textarea {
-    color: #008560;
+	color: #008560;
 }
 
 .review-tool-dialog .suggestion-controls {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    margin-top: 3px;
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	margin-top: 3px;
 }
 
 /* Controls row that places the add-suggestion button and chapter-level controls on one line */
 .review-tool-dialog .row-controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 8px;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 8px;
 }
 
 .review-tool-dialog .suggestion-add {
-    margin-top: 0;
-    /* align with chapter controls inside .row-controls */
-    display: flex;
-    justify-content: flex-start;
+	margin-top: 0;
+	/* align with chapter controls inside .row-controls */
+	display: flex;
+	justify-content: flex-start;
 }
 
 .review-tool-dialog .chapter-controls {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    margin-top: 0;
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	margin-top: 0;
 }
 
 /* Compact appearance for icon-only buttons */
 .review-tool-dialog .cdx-button--icon-only {
-    padding: 4px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+	padding: 4px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 }
 
 /* Ensure the icon span inherits reasonable size */
 .review-tool-dialog .cdx-button__icon {
-    width: 16px;
-    height: 16px;
+	width: 16px;
+	height: 16px;
 }
 
 /* Annotation UI styles */
 .review-tool-annotation-ui .sentence {
-    background: transparent;
+	background: transparent;
 }
+
 .review-tool-annotation-ui .sentence:hover {
-    background: rgba(255, 235, 59, 0.12);
+	background: rgba(255, 235, 59, 0.12);
 }
+
 .review-tool-annotation-ui .annotation-badge {
-    display: inline-block;
-    background: #ffcc00;
-    color: #000;
-    border-radius: 10px;
-    padding: 0 6px;
-    font-size: 11px;
-    margin-left: 6px;
+	display: inline-block;
+	background: #ffcc00;
+	color: #000;
+	border-radius: 10px;
+	padding: 0 6px;
+	font-size: 11px;
+	margin-left: 6px;
 }
+
 .review-tool-annotation-ui .floating-button {
-    background: #1976d2;
-    color: white;
-    border: none;
-    padding: 6px 8px;
-    border-radius: 4px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-    cursor: pointer;
+	background: #1976d2;
+	color: white;
+	border: none;
+	padding: 6px 8px;
+	border-radius: 4px;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+	cursor: pointer;
 }
 
 /* Floating popup button: span has both classes on same element */
 .review-tool-annotation-ui.floating-button,
 .floating-button.review-tool-annotation-ui {
-    background: #1976d2;
-    color: #fff;
-    border: none;
-    padding: 6px 8px;
-    border-radius: 4px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-    cursor: pointer;
-    font-size: 13px;
-    line-height: 1.2;
-    white-space: nowrap;
+	background: #1976d2;
+	color: #fff;
+	border: none;
+	padding: 6px 8px;
+	border-radius: 4px;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+	cursor: pointer;
+	font-size: 13px;
+	line-height: 1.2;
+	white-space: nowrap;
 }
+
 .review-tool-annotation-ui.floating-button:hover {
-    background: #1e88e5;
+	background: #1e88e5;
 }
 
 /* Annotation badge actual class name fix */
 .review-tool-annotation-badge {
-    display: inline-block;
-    background: #ffcc00;
-    color: #000;
-    border-radius: 10px;
-    padding: 0 6px;
-    font-size: 11px;
-    margin-left: 4px;
-    vertical-align: baseline;
-    text-decoration: none;
+	display: inline-block;
+	background: #ffcc00;
+	color: #000;
+	border-radius: 10px;
+	padding: 0 6px;
+	font-size: 11px;
+	margin-left: 4px;
+	vertical-align: baseline;
+	text-decoration: none;
 }
+
 .review-tool-annotation-badge:hover {
-    filter: brightness(1.1);
+	filter: brightness(1.1);
 }
+
 .review-tool-annotation-badge--section {
-    margin-left: 6px;
+	margin-left: 6px;
 }
 
 .review-tool-inline-annotation {
-    display: inline-flex;
-    align-items: center;
-    margin-left: 4px;
-    vertical-align: baseline;
-    gap: 2px;
+	display: inline-flex;
+	align-items: center;
+	margin-left: 4px;
+	vertical-align: baseline;
+	gap: 2px;
 }
 
 .review-tool-inline-annotation__icon {
-    background: #fff7d1;
-    border: 1px solid #f5c400;
-    border-radius: 999px;
-    color: #202122;
-    cursor: pointer;
-    font-size: 11px;
-    line-height: 1.3;
-    padding: 0 6px;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 16px;
+	background: #fff7d1;
+	border: 1px solid #f5c400;
+	border-radius: 999px;
+	color: #202122;
+	cursor: pointer;
+	font-size: 11px;
+	line-height: 1.3;
+	padding: 0 6px;
+	text-decoration: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 16px;
 }
 
 .review-tool-inline-annotation__icon:hover {
-    background: #ffe58f;
+	background: #ffe58f;
 }
 
 html:not(.review-tool-annotation-mode) .review-tool-inline-annotation {
-    display: none;
+	display: none;
 }
 
 .review-tool-annotation-editor__label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #54595d;
-    margin-bottom: 4px;
+	font-size: 12px;
+	font-weight: 600;
+	color: #54595d;
+	margin-bottom: 4px;
 }
 
 .review-tool-annotation-editor__section {
-    font-size: 13px;
-    color: #202122;
+	font-size: 13px;
+	color: #202122;
 }
 
 .review-tool-annotation-editor__quote {
-    background: #f8f9fa;
-    border: 1px solid #eaecf0;
-    border-radius: 4px;
-    padding: 8px;
-    white-space: pre-wrap;
-    max-height: 160px;
-    overflow-y: auto;
+	background: #f8f9fa;
+	border: 1px solid #eaecf0;
+	border-radius: 4px;
+	padding: 8px;
+	white-space: pre-wrap;
+	max-height: 160px;
+	overflow-y: auto;
 }
 
 .review-tool-annotation-editor__error {
-    color: #d73333;
-    font-size: 12px;
-    margin-top: 4px;
+	color: #d73333;
+	font-size: 12px;
+	margin-top: 4px;
 }
 
 .review-tool-annotation-editor__footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    padding-top: 12px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+	padding-top: 12px;
 }
 
 .review-tool-annotation-editor__actions {
-    display: flex;
-    gap: 8px;
+	display: flex;
+	gap: 8px;
 }
 
 .review-tool-annotation-viewer__empty {
-    text-align: center;
-    color: #54595d;
-    padding: 32px 0;
+	text-align: center;
+	color: #54595d;
+	padding: 32px 0;
 }
 
 .review-tool-annotation-viewer__footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    padding-top: 12px;
-    flex-wrap: wrap;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+	padding-top: 12px;
+	flex-wrap: wrap;
 }
 
 .review-tool-annotation-viewer__footer-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1 1 240px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 240px;
 }
 
 .review-tool-annotation-viewer__sort-select {
-    min-width: 200px;
-    flex: 0 0 220px;
+	min-width: 200px;
+	flex: 0 0 220px;
 }
 
 .review-tool-annotation-viewer__footer-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    flex: 1 1 auto;
-    flex-wrap: wrap;
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	flex: 1 1 auto;
+	flex-wrap: wrap;
 }
 
 .review-tool-annotation-viewer__section {
-    margin-bottom: 16px;
+	margin-bottom: 16px;
 }
 
 .review-tool-annotation-viewer__section-title {
-    font-size: 13px;
-    font-weight: 600;
-    margin: 0 0 6px;
+	font-size: 13px;
+	font-weight: 600;
+	margin: 0 0 6px;
 }
 
 .review-tool-annotation-viewer__items {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+	list-style: none;
+	padding: 0;
+	margin: 0;
 }
 
 .review-tool-annotation-viewer__item {
-    border: 1px solid #eaecf0;
-    border-radius: 6px;
-    padding: 8px;
-    margin-bottom: 8px;
-    background: #fff;
+	border: 1px solid #eaecf0;
+	border-radius: 6px;
+	padding: 8px;
+	margin-bottom: 8px;
+	background: #fff;
 }
 
 .review-tool-annotation-viewer__quote {
-    font-style: italic;
-    color: #54595d;
+	font-style: italic;
+	color: #54595d;
 }
 
 .review-tool-annotation-viewer__opinion {
-    margin-top: 4px;
+	margin-top: 4px;
 }
 
 .review-tool-annotation-viewer__meta {
-    font-size: 12px;
-    color: #72777d;
-    margin-top: 4px;
+	font-size: 12px;
+	color: #72777d;
+	margin-top: 4px;
 }
 
 .review-tool-annotation-viewer__actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 6px;
+	display: flex;
+	gap: 8px;
+	margin-top: 6px;
 }
 
 /* Sentence highlight styles adapt to current DOM: spans carry both classes */
 .review-tool-annotation-ui.sentence {
-    background: transparent;
-    transition: background 120ms ease-in;
+	background: transparent;
+	transition: background 120ms ease-in;
 }
+
 .review-tool-annotation-ui.sentence:hover {
-    background: rgba(255, 235, 59, 0.2);
+	background: rgba(255, 235, 59, 0.2);
 }
+
 /* Keep descendant version for future container-based refactor */
 .review-tool-annotation-ui .sentence:hover {
-    background: rgba(255, 235, 59, 0.2);
+	background: rgba(255, 235, 59, 0.2);
 }
 
 /* Cursor behavior for annotation sentences */
-.review-tool-annotation-ui.sentence { cursor: pointer; }
-html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
+.review-tool-annotation-ui.sentence {
+	cursor: pointer;
+}
+
+html.rt-selecting .review-tool-annotation-ui.sentence {
+	cursor: text;
+}
 
 /* Ensure floating button is always clickable */
 .review-tool-annotation-ui.floating-button,
-.floating-button.review-tool-annotation-ui { cursor: pointer; }
+.floating-button.review-tool-annotation-ui {
+	cursor: pointer;
+}
 
 /* Stronger highlight rule to ensure visibility on pages with competing styles */
 .review-tool-annotation-ui.sentence:hover,
 .review-tool-annotation-ui .sentence:hover {
-    background: rgba(255, 235, 59, 0.22) !important;
+	background: rgba(255, 235, 59, 0.22) !important;
 }
 
 /* While annotation mode is active, allow selection over known inline editor widgets
@@ -371,77 +386,109 @@ html.rt-selecting .review-tool-annotation-ui.sentence { cursor: text; }
 .review-tool-annotation-mode .ipe-quick-edit,
 .review-tool-annotation-mode .ipe-quick-edit--create-only,
 .review-tool-annotation-mode .qeec-ref-tag-copy-btn {
-    user-select: text !important;
-    pointer-events: auto !important;
+	user-select: text !important;
+	pointer-events: auto !important;
 }
 
 .review-tool-multistep-dialog header {
-    padding: 16px 24px;
+	padding: 16px 24px;
 }
+
 .review-tool-multistep-dialog header h2 {
-    margin: 0;
-    padding: 0;
-    font-size: 20px;
+	margin: 0;
+	padding: 0;
+	font-size: 20px;
 }
+
 .review-tool-multistep-dialog__header-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
 }
+
 .review-tool-multistep-dialog__stepper {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 24px 0 24px;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 24px 0 24px;
 }
+
 .review-tool-multistep-dialog__stepper__label {
-    color: #6b7280; /* subtle gray */
-    font-size: 13px;
+	color: #6b7280;
+	/* subtle gray */
+	font-size: 13px;
 }
+
 .review-tool-multistep-dialog__stepper__steps {
-    display: flex;
-    gap: 8px;
+	display: flex;
+	gap: 8px;
 }
+
 .review-tool-multistep-dialog__stepper__step {
-    background-color: #c8ccd1;
-    display: block;
-    width: 12px;
-    height: 12px;
-    border-radius: 999px;
+	background-color: #c8ccd1;
+	display: block;
+	width: 12px;
+	height: 12px;
+	border-radius: 999px;
 }
+
 .review-tool-multistep-dialog__stepper__step--active {
-    background-color: #0b5fff; /* accent */
+	background-color: #0b5fff;
+	/* accent */
 }
+
 .review-tool-multistep-dialog__image {
-    background-color: #f1f5f9;
-    display: flex;
-    justify-content: center;
-    padding: 12px 0;
+	background-color: #f1f5f9;
+	display: flex;
+	justify-content: center;
+	padding: 12px 0;
 }
-.review-tool-multistep-dialog__image img { display: block; max-width: 100%; }
+
+.review-tool-multistep-dialog__image img {
+	display: block;
+	max-width: 100%;
+}
+
 .review-tool-multistep-dialog__text {
-    padding: 16px 24px;
+	padding: 16px 24px;
 }
-.review-tool-multistep-dialog__text p { margin: 8px 0 0 0; font-size: 13px; }
-.review-tool-multistep-dialog__text ul { margin: 0; padding-left: 24px; }
-.review-tool-multistep-dialog__text li { font-size: 13px; }
+
+.review-tool-multistep-dialog__text p {
+	margin: 8px 0 0 0;
+	font-size: 13px;
+}
+
+.review-tool-multistep-dialog__text ul {
+	margin: 0;
+	padding-left: 24px;
+}
+
+.review-tool-multistep-dialog__text li {
+	font-size: 13px;
+}
+
 .review-tool-multistep-dialog footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-top: 1px solid rgba(0,0,0,0.06);
-    padding: 12px 24px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	border-top: 1px solid rgba(0, 0, 0, 0.06);
+	padding: 12px 24px;
 }
+
 .review-tool-multistep-dialog__footer-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
-.review-tool-multistep-dialog__actions { display: flex; gap: 12px; }
+
+.review-tool-multistep-dialog__actions {
+	display: flex;
+	gap: 12px;
+}
 
 .review-tool-preview-pre--html {
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 6px;
-    background: #fafafa;
-    padding: 12px;
+	border: 1px solid rgba(0, 0, 0, 0.1);
+	border-radius: 6px;
+	background: #fafafa;
+	padding: 12px;
 }

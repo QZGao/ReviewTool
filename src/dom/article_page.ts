@@ -40,6 +40,11 @@ const inlineAnnotationBubbles = new Map<string, HTMLElement>();
 const ARTICLE_ANNOTATION_KEY = '__article__';
 const REVIEWTOOL_PORTLET_ID = 'ca-reviewtool-toggle';
 
+const onMouseDownListener = (e: Event) => onMouseDown(e as MouseEvent);
+const onMouseUpListener = (e: Event) => onMouseUp(e as MouseEvent);
+const onTouchStartListener = (e: Event) => onTouchStart(e as TouchEvent);
+const onTouchEndListener = (e: Event) => onTouchEnd(e as TouchEvent);
+
 // Remove common reference/decoration nodes from an element clone and return cleaned text
 function getCleanTextFromElement(el: Element | null): string {
     if (!el) return '';
@@ -108,18 +113,18 @@ export function installSelectionListenersForSection(
     restrictSelectionToDescendants = restrictToDescendants;
 
     document.addEventListener('selectionchange', onSelectionChange);
-    document.addEventListener('mouseup', onMouseUp as any);
-    document.addEventListener('mousedown', onMouseDown as any); // listen for mousedown to detect drag/selection start
-    document.addEventListener('touchstart', onTouchStart as any, {passive: true});
-    document.addEventListener('touchend', onTouchEnd as any);
+    document.addEventListener('mouseup', onMouseUpListener);
+    document.addEventListener('mousedown', onMouseDownListener); // listen for mousedown to detect drag/selection start
+    document.addEventListener('touchstart', onTouchStartListener, {passive: true});
+    document.addEventListener('touchend', onTouchEndListener);
 }
 
 export function uninstallSelectionListeners() {
     document.removeEventListener('selectionchange', onSelectionChange);
-    document.removeEventListener('mouseup', onMouseUp);
-    document.removeEventListener('mousedown', onMouseDown);
-    document.removeEventListener('touchstart', onTouchStart);
-    document.removeEventListener('touchend', onTouchEnd);
+    document.removeEventListener('mouseup', onMouseUpListener);
+    document.removeEventListener('mousedown', onMouseDownListener);
+    document.removeEventListener('touchstart', onTouchStartListener);
+    document.removeEventListener('touchend', onTouchEndListener);
     // clear timers
     if (selectionShowTimer) {
         clearTimeout(selectionShowTimer);
@@ -143,7 +148,8 @@ function isNodeWithinSection(node: Node | null): boolean {
     if (!node || !activeSectionStart) return false;
     // Prefer an Element ancestor for location checks
     let el: Element | null = null;
-    if (node.nodeType === Node.TEXT_NODE) el = (node as Text).parentElement; else if (node instanceof Element) el = node as Element;
+    if (node.nodeType === Node.TEXT_NODE) el = node.parentElement;
+    else if (node instanceof Element) el = node;
     if (!el) return false;
 
     // If the element is the section start or contained within it, it's inside
@@ -169,8 +175,8 @@ function selectionInsideActiveSection(): Range | null {
     const range = sel.getRangeAt(0);
     if (!activeSectionStart) return null;
     // ensure both startContainer and endContainer are within the section
-    const startIn = isNodeWithinSection(range.startContainer as Node);
-    const endIn = isNodeWithinSection(range.endContainer as Node);
+    const startIn = isNodeWithinSection(range.startContainer);
+    const endIn = isNodeWithinSection(range.endContainer);
     // If either endpoint is outside the section, ignore
     if (!startIn || !endIn) return null;
     return range;
@@ -277,10 +283,10 @@ function onSelectionChange() {
             if (activePageName) {
                 hideFloatingButton();
                 const sel = document.getSelection();
-                sel && sel.removeAllRanges();
+                if (sel) sel.removeAllRanges();
                 const computedSectionPath = computeSectionPathFromNode(selectionRange ? selectionRange.startContainer : null);
                 const sentencePos = computeSentenceOrderKey(selectionRange ? selectionRange.startContainer : null);
-                openAnnotationDialog(activePageName, null, computedSectionPath, {
+                void openAnnotationDialog(activePageName, null, computedSectionPath, {
                     sentenceText: selectedText,
                     selectionRange: rangeClone,
                     sentencePos
@@ -293,7 +299,7 @@ function onSelectionChange() {
 function findAncestorSentence(node: Node | null): Element | null {
     let cur: Node | null = node;
     while (cur && cur !== document.body) {
-        if (cur instanceof Element && (cur as Element).classList.contains(SENTENCE_CLASS)) return cur as Element;
+        if (cur instanceof Element && cur.classList.contains(SENTENCE_CLASS)) return cur;
         cur = cur.parentNode;
     }
     return null;
@@ -305,7 +311,7 @@ function computeSentenceOrderKey(target: Node | Element | null): string {
         if (target instanceof Element) {
             return target.classList.contains(SENTENCE_CLASS) ? target : findAncestorSentence(target);
         }
-        return findAncestorSentence(target as Node | null);
+        return findAncestorSentence(target);
     })();
     if (!sentenceEl) return '';
     return getElementOrderKey(sentenceEl) || '';
@@ -315,30 +321,18 @@ function computeSentenceOrderKey(target: Node | Element | null): string {
 function previousNode(node: Node | null): Node | null {
     if (!node) return null;
     if (node.previousSibling) {
-        let p = node.previousSibling;
-        let pp: any = node.previousSibling;
-        while (pp && pp.lastChild) pp = pp.lastChild;
-        return pp as Node | null;
+        let p: Node | null = node.previousSibling;
+        while (p && p.lastChild) p = p.lastChild;
+        return p;
     }
     return node.parentNode;
-}
-
-function nextNode(node: Node | null): Node | null {
-    if (!node) return null;
-    if (node.firstChild) return node.firstChild;
-    let n: Node | null = node;
-    while (n) {
-        if (n.nextSibling) return n.nextSibling;
-        n = n.parentNode;
-    }
-    return null;
 }
 
 function findHeadingElementFromNode(node: Node | null): Element | null {
     let cur: Node | null = node;
     while (cur) {
         if (cur instanceof Element) {
-            const el = cur as Element;
+            const el = cur;
             const tag = (el.tagName || '').toLowerCase();
             if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) return el;
             if (el.classList && el.classList.contains('mw-heading')) return el;
@@ -359,32 +353,18 @@ function getHeadingLevelAndTitle(el: Element | null): { level: number | null, ti
     const inner = el.querySelector('h1,h2,h3,h4,h5,h6');
     if (inner) {
         const lvl = parseInt((inner.tagName || '').charAt(1), 10);
-        const title = getHeadingTitle(el) || getHeadingTitle(inner as Element) || null;
+        const title = getHeadingTitle(el) || getHeadingTitle(inner) || null;
         return {level: lvl, title};
     }
     const t = getHeadingTitle(el);
     return {level: null, title: t};
 }
 
-function findPreviousHeadingOfLevel(startNode: Node | null, targetLevel: number): Element | null {
-    let n: Node | null = startNode;
-    while (n) {
-        n = previousNode(n);
-        if (!n) break;
-        const h = findHeadingElementFromNode(n);
-        if (h) {
-            const info = getHeadingLevelAndTitle(h);
-            if (info.level === targetLevel) return h;
-        }
-    }
-    return null;
-}
-
 function computeSectionPathFromNode(startNode: Node | null): string {
     const pageFallback = state.articleTitle || state.convByVar({hant: '導言', hans: '导言'});
     if (!startNode) return pageFallback;
     let anchor: Node | null = startNode;
-    if (anchor.nodeType === Node.TEXT_NODE) anchor = (anchor as Text).parentNode;
+    if (anchor.nodeType === Node.TEXT_NODE) anchor = anchor.parentNode;
     if (!anchor) return pageFallback;
 
     // Walk strictly backwards from the start position and collect the nearest
@@ -413,7 +393,8 @@ function computeSectionPathFromNode(startNode: Node | null): string {
     // Build ordered parts from H2 -> H6 using nearest found titles
     const parts: string[] = [];
     for (let lvl = 2; lvl <= 6; lvl++) {
-        if (nearestByLevel.has(lvl)) parts.push(nearestByLevel.get(lvl) as string);
+        const title = nearestByLevel.get(lvl);
+        if (title) parts.push(title);
     }
     return parts.join('—');
 }
@@ -584,8 +565,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
         // and will recognise CJK terminators such as '。', '？', '！' and ellipsis '…'.
         const re = getSentenceTerminatorRegex(shouldTreatHalfWidthTerminators(lang));
         let lastIndex = 0;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(text)) !== null) {
+        while (re.exec(text) !== null) {
             const endPos = re.lastIndex;
             const part = text.slice(lastIndex, endPos);
             if (part.trim()) ranges.push({start: lastIndex, end: endPos});
@@ -604,8 +584,7 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             const alt: Array<{ start: number, end: number }> = [];
             const altRe = new RegExp(`${getSentenceTerminatorRegex(shouldTreatHalfWidthTerminators(lang)).source}|(?:\\r?\\n)+|(?:\\s{2,})`, 'g');
             let last = 0;
-            let mm: RegExpExecArray | null;
-            while ((mm = altRe.exec(text)) !== null) {
+            while (altRe.exec(text) !== null) {
                 const endPos = altRe.lastIndex;
                 const part = text.slice(last, endPos);
                 if (part.trim()) alt.push({start: last, end: endPos});
@@ -657,7 +636,9 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                         span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
                         span.setAttribute('data-sentence-index', String(sentenceIndex++));
                         span.textContent = text;
-                        textNode.parentNode && textNode.parentNode.replaceChild(span, textNode);
+                        if (textNode.parentNode) {
+                            textNode.parentNode.replaceChild(span, textNode);
+                        }
                     } else {
                         const frag = document.createDocumentFragment();
                         parts.forEach(part => {
@@ -667,7 +648,9 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                             span.textContent = part;
                             frag.appendChild(span);
                         });
-                        textNode.parentNode && textNode.parentNode.replaceChild(frag, textNode);
+                        if (textNode.parentNode) {
+                            textNode.parentNode.replaceChild(frag, textNode);
+                        }
                     }
                 } else if (child.nodeType === Node.ELEMENT_NODE) {
                     processElementRoot(child as Element);
@@ -769,7 +752,10 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                 span.setAttribute('data-sentence-index', String(sentenceIndex++));
                 span.appendChild(frag);
                 range.insertNode(span);
-                range.detach && (range as any).detach();
+                const detach = (range as Range & { detach?: () => void }).detach;
+                if (typeof detach === 'function') {
+                    detach.call(range);
+                }
 
                 successCount++;
             } catch (e) {
@@ -795,7 +781,9 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                     span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
                     span.setAttribute('data-sentence-index', String(sentenceIndex++));
                     span.textContent = text;
-                    tn2.parentNode && tn2.parentNode.replaceChild(span, tn2);
+                    if (tn2.parentNode) {
+                        tn2.parentNode.replaceChild(span, tn2);
+                    }
                 } else {
                     const frag = document.createDocumentFragment();
                     parts.forEach(part => {
@@ -805,7 +793,9 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                         span.textContent = part;
                         frag.appendChild(span);
                     });
-                    tn2.parentNode && tn2.parentNode.replaceChild(frag, tn2);
+                    if (tn2.parentNode) {
+                        tn2.parentNode.replaceChild(frag, tn2);
+                    }
                 }
                 tn2 = walker2.nextNode() as Text | null;
             }
@@ -820,10 +810,10 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
             // Special-case list containers: process each list item separately to avoid
             // creating ranges that span across <li> siblings which would break list structure.
             if (tag === 'ul' || tag === 'ol' || tag === 'dl') {
-                const items = Array.from(el.children).filter(c => c.nodeType === Node.ELEMENT_NODE);
+                const items = Array.from(el.children);
                 items.forEach(item => {
                     // process each li/dt/dd as a root so ranges don't cross boundaries
-                    processElementRoot(item as Element);
+                    processElementRoot(item);
                 });
             } else {
                 processElementRoot(el);
@@ -838,7 +828,9 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                 span.className = `${ANNOTATION_CONTAINER_CLASS} ${SENTENCE_CLASS}`;
                 span.setAttribute('data-sentence-index', String(sentenceIndex++));
                 span.textContent = text;
-                textNode.parentNode && textNode.parentNode.replaceChild(span, textNode);
+                if (textNode.parentNode) {
+                    textNode.parentNode.replaceChild(span, textNode);
+                }
             } else {
                 const frag = document.createDocumentFragment();
                 parts.forEach(part => {
@@ -848,7 +840,9 @@ export function wrapSectionSentences(sectionStart: Element, sectionEnd: Element 
                     span.textContent = part;
                     frag.appendChild(span);
                 });
-                textNode.parentNode && textNode.parentNode.replaceChild(frag, textNode);
+                if (textNode.parentNode) {
+                    textNode.parentNode.replaceChild(frag, textNode);
+                }
             }
         }
     });
@@ -887,14 +881,19 @@ export function ensureWrappedSection(sectionStart: Element, sectionEnd: Element 
             }
             const all = Array.from(document.querySelectorAll(sel));
             return all.filter(el => sectionStart.contains(el)).length;
-        } catch (e) {
+        } catch {
             return 0;
         }
     }
 
     // Default retry schedule in ms: immediate, short, medium, longer, up to 5s
     let schedule: number[];
-    if (Array.isArray(attempts)) schedule = attempts as number[]; else schedule = [0, 250, 750, 1500, 3000, 5000];
+    const baseDelay = typeof delayMs === 'number' ? Math.max(0, delayMs) : 250;
+    if (Array.isArray(attempts)) {
+        schedule = attempts.filter((value): value is number => typeof value === 'number');
+    } else {
+        schedule = [0, baseDelay, baseDelay * 3, baseDelay * 6, baseDelay * 12, baseDelay * 20];
+    }
     // allow attempts as count
     if (!Array.isArray(attempts) && typeof attempts === 'number') {
         // trim or extend schedule to that many attempts
@@ -969,7 +968,7 @@ function createInlineAnnotationBubbleElement(pageName: string, sectionPath: stri
     icon.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        openAnnotationDialog(pageName, annotationId, sectionPath);
+        void openAnnotationDialog(pageName, annotationId, sectionPath);
     };
     icon.onkeydown = (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -1024,7 +1023,7 @@ interface AnnotationDialogOptions {
 async function openAnnotationDialog(pageName: string, annotationId: string | null, sectionPath: string, options: AnnotationDialogOptions = {}) {
     const selectionRange = options.selectionRange ? options.selectionRange.cloneRange() : null;
     const isEdit = annotationId !== null;
-    const existingAnnotation = isEdit ? getAnnotation(pageName, annotationId!) : null;
+    const existingAnnotation = isEdit && annotationId ? getAnnotation(pageName, annotationId) : null;
     const displaySentenceText = isEdit
         ? (existingAnnotation?.sentenceText || '')
         : sanitizePlainText(options.sentenceText || '');
@@ -1085,10 +1084,12 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
     // If no explicit sectionEnd is provided (container mode), simply attach to all sentence spans inside the container.
     if (!sectionEnd) {
         const spans = sectionStart.querySelectorAll(`.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`);
-        spans.forEach(s => attachHandlerToSpan(s as HTMLElement));
+        spans.forEach((s) => {
+            if (s instanceof HTMLElement) attachHandlerToSpan(s);
+        });
         // Also handle the rare case the container itself is a sentence span
-        if (sectionStart.classList && sectionStart.classList.contains(ANNOTATION_CONTAINER_CLASS) && sectionStart.classList.contains(SENTENCE_CLASS)) {
-            attachHandlerToSpan(sectionStart as HTMLElement);
+        if (sectionStart instanceof HTMLElement && sectionStart.classList.contains(ANNOTATION_CONTAINER_CLASS) && sectionStart.classList.contains(SENTENCE_CLASS)) {
+            attachHandlerToSpan(sectionStart);
         }
         return;
     }
@@ -1100,11 +1101,11 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
             const el = cur as Element;
             // Attach to descendant sentence spans
             el.querySelectorAll(`.${ANNOTATION_CONTAINER_CLASS}.${SENTENCE_CLASS}`).forEach((span) => {
-                attachHandlerToSpan(span as HTMLElement);
+                if (span instanceof HTMLElement) attachHandlerToSpan(span);
             });
             // If the element itself is a sentence span
-            if (el.classList && el.classList.contains(ANNOTATION_CONTAINER_CLASS) && el.classList.contains(SENTENCE_CLASS)) {
-                attachHandlerToSpan(el as HTMLElement);
+            if (el instanceof HTMLElement && el.classList.contains(ANNOTATION_CONTAINER_CLASS) && el.classList.contains(SENTENCE_CLASS)) {
+                attachHandlerToSpan(el);
             }
         }
         cur = cur.nextSibling;
@@ -1118,14 +1119,9 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
         try {
             // add a data attribute to indicate handler attached for debugging
             s.dataset._rtHandler = '1';
-        } catch (e) {
+        } catch {
             /* ignore */
         }
-        if ((attachHandlerToSpan as any)._attachedCount === undefined) (attachHandlerToSpan as any)._attachedCount = 0;
-        (attachHandlerToSpan as any)._attachedCount++;
-        // if ((attachHandlerToSpan as any)._attachedCount <= 5) {
-        //     console.log('[ReviewTool] attachHandlerToSpan: attached handler to span', s.getAttribute('data-sentence-index'));
-        // }
 
         // Remove any inline cursor override; CSS will control cursor state
         // Ensure pointer events and cursor are enabled; add inline cursor as a fail-safe
@@ -1165,7 +1161,7 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
 
         s.addEventListener('click', (e) => {
             // Check if this was a drag (text selection) rather than a simple click
-            if (wasMouseDragged(e as MouseEvent)) {
+            if (wasMouseDragged(e)) {
                 // User was selecting text, don't intercept - let the selection handler deal with it
                 return;
             }
@@ -1198,10 +1194,10 @@ function attachSentenceClickHandlers(sectionStart: Element, sectionEnd: Element 
                     hideFloatingButton();
                     // Clear selection
                     const sel = window.getSelection();
-                    sel && sel.removeAllRanges();
+                    if (sel) sel.removeAllRanges();
                     const computedSectionPath = computeSectionPathFromNode(s);
                     const sentencePos = computeSentenceOrderKey(s);
-                    openAnnotationDialog(activePageName, null, computedSectionPath, {
+                    void openAnnotationDialog(activePageName, null, computedSectionPath, {
                         sentenceText,
                         selectionRange: rangeClone,
                         sentencePos
@@ -1222,16 +1218,16 @@ export function showAnnotationViewer(pageName: string) {
     openAnnotationViewerDialog({
         groups,
         onEditAnnotation: (annotationId, sectionPath) => {
-            openAnnotationDialog(pageName, annotationId, sectionPath);
+            void openAnnotationDialog(pageName, annotationId, sectionPath);
         },
-        onDeleteAnnotation: async (annotationId, sectionPath) => {
+        onDeleteAnnotation: (annotationId) => {
             const removed = deleteAnnotation(pageName, annotationId);
             if (removed) {
                 removeInlineAnnotationBubble(annotationId);
                 updateAnnotationViewerDialogGroups(buildAnnotationGroups(pageName));
             }
         },
-        onClearAllAnnotations: async () => {
+        onClearAllAnnotations: () => {
             const cleared = clearAnnotations(pageName);
             clearAllInlineAnnotationBubbles();
             updateAnnotationViewerDialogGroups(buildAnnotationGroups(pageName));
@@ -1252,7 +1248,7 @@ export function addMainPageReviewToolButtonsToDOM(pageName: string): void {
         hant: '批註模式', hans: '批注模式'
     }), state.convByVar({
         hant: '切換批註模式', hans: '切换批注模式'
-    }), (e) => toggleArticleAnnotationMode(pageName));
+    }), () => toggleArticleAnnotationMode(pageName));
     // add global viewer button (guard against duplicate)
     addGlobalAnnotationViewerButton(pageName);
     syncAnnotationModeMenuState(state.isAnnotationModeActive(ARTICLE_ANNOTATION_KEY), pageName);
@@ -1281,15 +1277,10 @@ function addGlobalAnnotationViewerButton(pageName: string): void {
     btn.style.display = 'none';
     btn.onclick = () => {
         try {
-            const fn: any = showAnnotationViewer;
-            if (typeof fn === 'function') {
-                fn(state.articleTitle || pageName);
-            } else {
-                console.warn('[ReviewTool] showAnnotationViewer function not available');
-            }
-        } catch (e) {
-            console.error('[ReviewTool] failed to open viewer', e);
-            throw e;
+            showAnnotationViewer(state.articleTitle || pageName);
+        } catch (error) {
+            console.error('[ReviewTool] failed to open viewer', error);
+            throw error;
         }
     };
     btn.onmouseenter = () => {
@@ -1314,9 +1305,11 @@ function toggleArticleAnnotationMode(pageName: string): void {
         // mark document so we can override page styles while annotation mode is active
         document.documentElement.classList.add('review-tool-annotation-mode');
         // Notify user
-        mw && mw.notify && mw.notify(state.convByVar({
-            hant: '批註模式已啟用。', hans: '批注模式已启用。'
-        }), {tag: 'review-tool'});
+        if (mw && mw.notify) {
+            mw.notify(state.convByVar({
+                hant: '批註模式已啟用。', hans: '批注模式已启用。'
+            }), {tag: 'review-tool'});
+        }
         console.log(`[ReviewTool] 條目「${state.articleTitle}」批註模式已啟用。`);
         // find main content container - prefer the parser output inside mw-content-text
         const selectors = [
@@ -1346,7 +1339,7 @@ function toggleArticleAnnotationMode(pageName: string): void {
         const tryCount = ensureWrappedSection ? ensureWrappedSection : wrapSectionSentences;
         tryCount(container, null, 4, 220);
         // Ensure global viewer button is visible while annotation mode is active
-        const gv = document.querySelector('.review-tool-global-button') as HTMLElement | null;
+        const gv = document.querySelector<HTMLElement>('.review-tool-global-button');
         if (gv) gv.style.display = 'block';
     } else {
         console.log(`[ReviewTool] 條目「${state.articleTitle}」批註模式已停用。`);
@@ -1359,16 +1352,18 @@ function toggleArticleAnnotationMode(pageName: string): void {
             throw e;
         }
         try {
-            mw && mw.notify && mw.notify(state.convByVar({
-                hant: '批註模式已停用。', hans: '批注模式已停用。'
-            }), {tag: 'review-tool'});
+            if (mw && mw.notify) {
+                mw.notify(state.convByVar({
+                    hant: '批註模式已停用。', hans: '批注模式已停用。'
+                }), {tag: 'review-tool'});
+            }
         } catch (e) {
             console.error('[ReviewTool] mw.notify failed', e);
             throw e;
         }
         // Hide global viewer button when annotation mode is disabled
         try {
-            const gv = document.querySelector('.review-tool-global-button') as HTMLElement | null;
+            const gv = document.querySelector<HTMLElement>('.review-tool-global-button');
             if (gv) gv.style.display = 'none';
         } catch (e) {
             console.error('[ReviewTool] failed to hide global viewer button', e);

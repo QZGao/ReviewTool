@@ -21,35 +21,41 @@ export function afterServerHtmlInjected(targetEl: HTMLElement | null, html: stri
     if (!targetEl || !html) return;
     try {
         if (typeof mw !== "undefined" && mw && mw.hook && typeof mw.hook === "function") {
-            const $ = (window as any).jQuery;
+            const $ = (window as Window & { jQuery?: JQueryStatic }).jQuery;
             mw.hook("wikipage.content").fire($ ? $(targetEl) : targetEl);
         }
-    } catch (e) {
+    } catch {
         /* ignore */
     }
     if (html.indexOf('class="diff') !== -1) {
         try {
-            mw && mw.loader && mw.loader.load && mw.loader.load("mediawiki.diff.styles");
-        } catch (e) {
+            if (mw && mw.loader && mw.loader.load) {
+                mw.loader.load("mediawiki.diff.styles");
+            }
+        } catch {
             /* ignore */
         }
     }
 }
 
+function getHtmlByKind(vm: DialogVm, kind: HtmlHostKind): string | null {
+    if (kind === "preview") return vm.previewHtml ?? null;
+    return vm.diffHtml ?? null;
+}
+
 export function triggerDialogContentHooks(vm: DialogVm, kind: HtmlHostKind) {
     vm.$nextTick(() => {
-        const htmlProp = kind === "preview" ? "previewHtml" : "diffHtml";
-        const html = (vm as any)[htmlProp] as string | null;
+        const html = getHtmlByKind(vm, kind);
         if (!html) return;
         const refName = kind === "preview" ? "previewHtmlHost" : "diffHtmlHost";
-        const refs = vm.$refs as Record<string, HTMLElement | HTMLElement[] | undefined>;
+        const refs = vm.$refs;
         let host = refs[refName];
         if (Array.isArray(host)) host = host[0];
         if (!host) return;
         if (!host.innerHTML || !host.innerHTML.trim()) {
             host.innerHTML = html;
         }
-        afterServerHtmlInjected(host as HTMLElement, html);
+        afterServerHtmlInjected(host, html);
     });
 }
 
@@ -71,15 +77,15 @@ export function advanceDialogStep(vm: DialogVm, handlers: StepHandlers): boolean
     const nextStep = vm.currentStep + 1;
     vm.currentStep = nextStep;
 
-        const runHandlers = () => {
-            if (nextStep === 1 && handlers.onEnterEditStep) {
-                handlers.onEnterEditStep.call(vm);
-            } else if (nextStep === 2 && handlers.onEnterPreviewStep) {
-                handlers.onEnterPreviewStep.call(vm);
-            } else if (nextStep === 3 && handlers.onEnterDiffStep) {
-                handlers.onEnterDiffStep.call(vm);
-            }
-            ensureDialogStepContentHooks(vm, handlers);
+    const runHandlers = () => {
+        if (nextStep === 1 && handlers.onEnterEditStep) {
+            handlers.onEnterEditStep.call(vm);
+        } else if (nextStep === 2 && handlers.onEnterPreviewStep) {
+            handlers.onEnterPreviewStep.call(vm);
+        } else if (nextStep === 3 && handlers.onEnterDiffStep) {
+            handlers.onEnterDiffStep.call(vm);
+        }
+        ensureDialogStepContentHooks(vm, handlers);
     };
 
     if (typeof vm.$nextTick === 'function') {

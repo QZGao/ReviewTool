@@ -5,6 +5,8 @@
  * @param onClick {(e: Event) => void} 按鈕點擊事件處理函數
  * @returns {HTMLElement} mw-editsection 風格的按鈕元素
  */
+import state from "../state";
+
 export function createMwEditSectionButton(label: string, title: string, onClick: (e: Event) => void): HTMLElement {
     const button = document.createElement('a');
     button.href = '#';
@@ -65,9 +67,6 @@ export function appendButtonToHeading(heading: Element, button: Element): void {
     // When appending the button, ensure its internal anchor will set the
     // global `state.pendingReviewHeading` so dialogs know which heading invoked them.
     try {
-        // import state lazily to avoid circular load order issues
-        const stateModule = require('../state');
-        const state = stateModule && stateModule.default ? stateModule.default : stateModule;
         // find anchor inside provided button element
         const anchor = (button.querySelector && button.querySelector('a')) || null;
         if (anchor && typeof anchor.onclick === 'function') {
@@ -78,7 +77,7 @@ export function appendButtonToHeading(heading: Element, button: Element): void {
                 try { orig.call(anchor, e); } catch (ex) { console.error('[ReviewTool][appendButtonToHeading] original click handler failed', ex); throw ex; }
             };
         } else if (anchor) {
-            anchor.addEventListener('click', (e) => {
+            anchor.addEventListener('click', () => {
                 try { state.pendingReviewHeading = heading; } catch (err) { console.error('[ReviewTool][appendButtonToHeading] failed to set pendingReviewHeading', err); throw err; }
             });
         }

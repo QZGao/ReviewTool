@@ -8,8 +8,99 @@ import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from 
 /**
  * 創建檢查文筆對話框。
  */
+type CheckWritingI18n = {
+    dialogTitle: string;
+    save: string;
+    saving: string;
+    cancel: string;
+    addChapter: string;
+    removeChapter: string;
+    addSuggestion: string;
+    removeSuggestion: string;
+    chapterTitleLabel: string;
+    quoteLabel: string;
+    quotePlaceholder: string;
+    suggestionPlaceholder: string;
+    next: string;
+    previous: string;
+    previewHeading: string;
+    diffHeading: string;
+    diffLoading: string;
+    editHeading: string;
+    editInstruction: string;
+    editPlaceholder: string;
+    loadAnnotations: string;
+    importFromFile: string;
+    importSuccess: string;
+    importError: string;
+    importInvalid: string;
+    annotationFallbackChapter: string;
+};
+
+type CheckWritingSuggestion = { quote: string; suggestion: string };
+type CheckWritingChapter = { title: string; suggestions: CheckWritingSuggestion[] };
+
+type CheckWritingDialogVm = {
+    open: boolean;
+    isSaving: boolean;
+    isLoadingAnnotations: boolean;
+    currentStep: number;
+    chapters: CheckWritingChapter[];
+    previewWikitext: string;
+    previewHtml: string;
+    existingSectionText: string;
+    pendingNewSectionText: string;
+    diffHtml: string;
+    diffLines: string[];
+    editedDraft: string;
+    $nextTick: (cb: () => void) => void;
+    primaryAction: { label: string; actionType: string; disabled: boolean };
+    defaultAction: { label: string; disabled: boolean };
+    showAnnotationLoaderButton: boolean;
+    $options: { i18n: CheckWritingI18n };
+    $refs: Record<string, HTMLElement | HTMLInputElement | HTMLElement[] | undefined>;
+    triggerContentHooks: (kind: 'preview' | 'diff') => void;
+    getPendingCheckWritingSectionInfo: () => {
+        headingEl: Element | null;
+        sec: { pageTitle?: string | null; sectionId?: number | null } | null;
+        pageTitleToUse: string;
+        sectionIdToUse: number | null;
+    };
+    getStepClass: (step: number) => Record<string, boolean>;
+    prepareEditDraft: () => void;
+    preparePreviewContent: () => void;
+    prepareDiffContent: () => void;
+    onPrimaryAction: () => void;
+    onDefaultAction: () => void;
+    onUpdateOpen: (newValue: boolean) => void;
+    closeDialog: () => void;
+    buildPreviewBundle: () => { previewFragment: string; appendSuffix: string } | null;
+    buildWikitext: () => string;
+    buildDiffLines: (oldText: string, appendedFragment: string) => string[];
+    handleImportClick: () => void;
+    generateImportAnnotationId: () => string;
+    normalizeImportedAnnotation: (raw: unknown, fallbackSection?: string) => Annotation;
+    onAnnotationFileSelected: (ev: Event) => void;
+    loadAnnotationsIntoForm: () => void;
+    buildChaptersFromAnnotationGroups: (groups: AnnotationGroup[]) => CheckWritingChapter[];
+    applyAnnotationChapters: (nextChapters: CheckWritingChapter[]) => void;
+    sortAnnotationsByPosition: (list: Annotation[] | undefined) => Annotation[];
+    groupAnnotationsBySection: (list: Annotation[]) => AnnotationGroup[];
+    applyImportedAnnotations: (importedAnnotations: Annotation[]) => void;
+    reportAnnotationLoadFailure: (message: string) => void;
+    saveCheckWriting: () => void;
+    addChapter: () => void;
+    removeChapter: (idx: number) => void;
+    addSuggestion: (chIdx: number) => void;
+    removeSuggestion: (chIdx: number, sIdx: number) => void;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object';
+}
+
 function createCheckWritingDialog(): void {
-    loadCodexAndVue().then(({Vue, Codex}: any) => {
+    loadCodexAndVue().then(({Vue, Codex}) => {
         const app = Vue.createMwApp({
             i18n: {
                 dialogTitle: state.convByVar({
@@ -60,39 +151,39 @@ function createCheckWritingDialog(): void {
                         // no persistent data needed for import UI; the file input is handled via ref
                 };
             }, computed: {
-                primaryAction() {
+                primaryAction(this: CheckWritingDialogVm) {
                     if (this.currentStep < 3) {
                         return { label: this.$options.i18n.next || 'Next', actionType: 'progressive', disabled: false };
                     }
                     return { label: this.isSaving ? this.$options.i18n.saving : this.$options.i18n.save, actionType: 'progressive', disabled: this.isSaving };
                 },
-                defaultAction() {
+                defaultAction(this: CheckWritingDialogVm) {
                     if (this.currentStep > 0) return { label: this.$options.i18n.previous || 'Previous', disabled: false };
                     return { label: this.$options.i18n.cancel, disabled: false };
                 },
-                showAnnotationLoaderButton() {
+                showAnnotationLoaderButton(this: CheckWritingDialogVm) {
                     return this.currentStep === 0;
                 }
             }, methods: {
-                triggerContentHooks(kind: 'preview' | 'diff') {
+                triggerContentHooks(this: CheckWritingDialogVm, kind: 'preview' | 'diff') {
                     triggerDialogContentHooks(this, kind);
                 },
-                getPendingCheckWritingSectionInfo() {
-                    const headingEl: Element | null = (state as any).pendingReviewHeading || null;
-                    const sec = findSectionInfoFromHeading(headingEl as Element | null);
+                getPendingCheckWritingSectionInfo(this: CheckWritingDialogVm) {
+                    const headingEl: Element | null = state.pendingReviewHeading || null;
+                    const sec = findSectionInfoFromHeading(headingEl);
                     const pageTitleToUse = sec && sec.pageTitle ? sec.pageTitle : (state.articleTitle || '');
-                    const sectionIdToUse = typeof (sec && (sec as any).sectionId) === 'number'
-                        ? (sec as any).sectionId
-                        : (sec && sec.sectionId != null ? sec.sectionId : null);
+                    const sectionIdToUse = typeof sec?.sectionId === 'number'
+                        ? sec.sectionId
+                        : (sec?.sectionId ?? null);
                     return { headingEl, sec, pageTitleToUse, sectionIdToUse };
                 },
-                getStepClass(step: number) {
+                getStepClass(this: CheckWritingDialogVm, step: number) {
                     return { 'review-tool-multistep-dialog__stepper__step--active': step <= this.currentStep };
                 },
-                prepareEditDraft() {
+                prepareEditDraft(this: CheckWritingDialogVm) {
                     this.editedDraft = this.buildWikitext().trim();
                 },
-                preparePreviewContent() {
+                preparePreviewContent(this: CheckWritingDialogVm) {
                     const { pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
                     this.previewHtml = '';
                     this.previewWikitext = '';
@@ -117,8 +208,8 @@ function createCheckWritingDialog(): void {
                             if (this.previewHtml && this.currentStep === 2) {
                                 this.triggerContentHooks('preview');
                             }
-                        }).catch((e: any) => {
-                            console.error('[ReviewTool] parseWikitextToHtml failed', e);
+                        }).catch((error: unknown) => {
+                            console.error('[ReviewTool] parseWikitextToHtml failed', error);
                             this.previewHtml = '';
                         });
                     };
@@ -126,15 +217,15 @@ function createCheckWritingDialog(): void {
                     if (sectionIdToUse != null) {
                         retrieveFullText(pageTitleToUse, sectionIdToUse).then(({ text }) => {
                             renderPreview(text || '');
-                        }).catch((err: any) => {
-                            console.error('[ReviewTool] retrieveFullText failed', err);
+                        }).catch((error: unknown) => {
+                            console.error('[ReviewTool] retrieveFullText failed', error);
                             renderPreview('');
                         });
                     } else {
                         renderPreview('');
                     }
                 },
-                prepareDiffContent() {
+                prepareDiffContent(this: CheckWritingDialogVm) {
                     const { pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
                     this.diffHtml = '';
                     this.diffLines = [];
@@ -158,8 +249,8 @@ function createCheckWritingDialog(): void {
                             } else {
                                 this.diffLines = this.buildDiffLines(baseline, appendSuffix);
                             }
-                        }).catch((err: any) => {
-                            console.error('[ReviewTool] compareWikitext failed', err);
+                        }).catch((error: unknown) => {
+                            console.error('[ReviewTool] compareWikitext failed', error);
                             this.diffHtml = '';
                             this.diffLines = this.buildDiffLines(baseline, appendSuffix);
                         });
@@ -177,15 +268,15 @@ function createCheckWritingDialog(): void {
                     if (sectionIdToUse != null) {
                         retrieveFullText(pageTitleToUse, sectionIdToUse).then(({ text }) => {
                             runDiff(text || '');
-                        }).catch((err: any) => {
-                            console.error('[ReviewTool] retrieveFullText failed', err);
+                        }).catch((error: unknown) => {
+                            console.error('[ReviewTool] retrieveFullText failed', error);
                             runDiff('');
                         });
                     } else {
                         runDiff('');
                     }
                 },
-                onPrimaryAction() {
+                onPrimaryAction(this: CheckWritingDialogVm) {
                     if (advanceDialogStep(this, {
                         totalSteps: 4,
                         onEnterEditStep: this.prepareEditDraft,
@@ -198,23 +289,23 @@ function createCheckWritingDialog(): void {
                     }
                     this.saveCheckWriting();
                 },
-                onDefaultAction() {
+                onDefaultAction(this: CheckWritingDialogVm) {
                     if (regressDialogStep(this)) {
                         return;
                     }
                     this.closeDialog();
                 },
-                onUpdateOpen(newValue: any) {
+                onUpdateOpen(this: CheckWritingDialogVm, newValue: boolean) {
                     if (!newValue) {
                         this.closeDialog();
                     }
-                }, closeDialog() {
+                }, closeDialog(this: CheckWritingDialogVm) {
                     this.open = false;
                     setTimeout(() => {
                         removeDialogMount();
                     }, 300);
                 },
-                buildPreviewBundle(): { previewFragment: string; appendSuffix: string } | null {
+                buildPreviewBundle(this: CheckWritingDialogVm): { previewFragment: string; appendSuffix: string } | null {
                     const draft = (this.editedDraft || '').trim();
                     const fragment = draft || this.buildWikitext().trim();
                     if (!fragment) {
@@ -223,7 +314,7 @@ function createCheckWritingDialog(): void {
                     const appendSuffix = `\n\n${fragment}`;
                     return { previewFragment: fragment, appendSuffix };
                 },
-                buildWikitext() {
+                buildWikitext(this: CheckWritingDialogVm) {
                     let wikitext = '';
                     for (const ch of this.chapters) {
                         const title = (ch.title || '').trim();
@@ -240,7 +331,7 @@ function createCheckWritingDialog(): void {
                     wikitext = wikitext.replace("{{rvw|1=}} —— ", ""); // remove empty quotes
                     return wikitext;
                 },
-                buildDiffLines(oldText: string, appendedFragment: string) {
+                buildDiffLines(this: CheckWritingDialogVm, oldText: string, appendedFragment: string) {
                     const oldLines = (oldText || '').split(/\r?\n/);
                     const appendedOnly = (appendedFragment || '').replace(/^\s*\n+/, '');
                     const newLines = appendedOnly.split(/\r?\n/);
@@ -254,46 +345,49 @@ function createCheckWritingDialog(): void {
                     return out;
                 },
                 // Import helpers
-                handleImportClick() {
+                handleImportClick(this: CheckWritingDialogVm) {
                     // trigger the hidden file input
-                    const input = (this.$refs && (this.$refs.annotationImportInput as HTMLInputElement)) || null;
-                    if (input && typeof input.click === 'function') {
-                        input.value = '';
-                        input.click();
+                    const input = this.$refs.annotationImportInput;
+                    const inputEl = input instanceof HTMLInputElement ? input : null;
+                    if (inputEl && typeof inputEl.click === 'function') {
+                        inputEl.value = '';
+                        inputEl.click();
                     } else {
                         console.warn('[ReviewTool] file input not available for import');
                     }
                 },
-                generateImportAnnotationId(): string {
+                generateImportAnnotationId(this: CheckWritingDialogVm): string {
                     return `import-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
                 },
-                normalizeImportedAnnotation(raw: any, fallbackSection = ''): Annotation {
-                    const id = typeof raw?.id === 'string' && raw.id.trim()
-                        ? raw.id.trim()
+                normalizeImportedAnnotation(this: CheckWritingDialogVm, raw: unknown, fallbackSection = ''): Annotation {
+                    const record = isRecord(raw) ? raw : {};
+                    const id = typeof record.id === 'string' && record.id.trim()
+                        ? record.id.trim()
                         : this.generateImportAnnotationId();
-                    const sectionPath = typeof raw?.sectionPath === 'string' && raw.sectionPath.trim()
-                        ? raw.sectionPath.trim()
+                    const sectionPath = typeof record.sectionPath === 'string' && record.sectionPath.trim()
+                        ? record.sectionPath.trim()
                         : (fallbackSection || '');
                     return {
                         id,
                         sectionPath,
-                        sentencePos: typeof raw?.sentencePos === 'string' ? raw.sentencePos : '',
-                        sentenceText: raw?.sentenceText || raw?.quote || '',
-                        opinion: raw?.opinion || raw?.suggestion || '',
-                        createdBy: raw?.createdBy || state.userName || 'import',
-                        createdAt: typeof raw?.createdAt === 'number' ? raw.createdAt : Date.now(),
-                        resolved: Boolean(raw?.resolved)
+                        sentencePos: typeof record.sentencePos === 'string' ? record.sentencePos : '',
+                        sentenceText: typeof record.sentenceText === 'string' ? record.sentenceText : (typeof record.quote === 'string' ? record.quote : ''),
+                        opinion: typeof record.opinion === 'string' ? record.opinion : (typeof record.suggestion === 'string' ? record.suggestion : ''),
+                        createdBy: typeof record.createdBy === 'string' ? record.createdBy : (state.userName || 'import'),
+                        createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
+                        resolved: Boolean(record.resolved)
                     };
                 },
-                onAnnotationFileSelected(ev: Event) {
-                    const input = ev && (ev.target as HTMLInputElement);
+                onAnnotationFileSelected(this: CheckWritingDialogVm, ev: Event) {
+                    const input = ev.target instanceof HTMLInputElement ? ev.target : null;
                     if (!input || !input.files || !input.files.length) return;
                     const file = input.files[0];
                     const reader = new FileReader();
-                    reader.onload = (e) => {
+                    reader.onload = (event: ProgressEvent<FileReader>) => {
                         try {
-                            const text = (e.target && (e.target as any).result) || '';
-                            const parsed = JSON.parse(text);
+                            const result = event.target?.result;
+                            const text = typeof result === 'string' ? result : '';
+                            const parsed: unknown = JSON.parse(text);
                             const pageName = state.articleTitle || '';
                             if (!pageName) {
                                 this.reportAnnotationLoadFailure(state.convByVar({hant: '無法識別條目名稱，無法載入檔案中的批註。', hans: '无法识别条目名称，无法载入文件中的批注。'}));
@@ -301,17 +395,21 @@ function createCheckWritingDialog(): void {
                             }
 
                             const importedAnnotations: Annotation[] = [];
-                            if (Array.isArray(parsed.annotations)) {
+                            if (isRecord(parsed) && Array.isArray(parsed.annotations)) {
                                 // likely an AnnotationStore
                                 for (const a of parsed.annotations) {
                                     importedAnnotations.push(this.normalizeImportedAnnotation(a));
                                 }
-                            } else if (Array.isArray(parsed.groups)) {
+                            } else if (isRecord(parsed) && Array.isArray(parsed.groups)) {
                                 for (const g of parsed.groups) {
-                                    const section = g.sectionPath || '';
-                                    const annos = Array.isArray(g.annotations) ? g.annotations : [];
+                                    const group = isRecord(g) ? g : {};
+                                    const section = typeof group.sectionPath === 'string' ? group.sectionPath : '';
+                                    const annos = Array.isArray(group.annotations) ? group.annotations : [];
                                     for (const a of annos) {
-                                        importedAnnotations.push(this.normalizeImportedAnnotation({ ...a, sectionPath: a.sectionPath || section }, section));
+                                        const record = isRecord(a) ? a : {};
+                                        const sectionPath = typeof record.sectionPath === 'string' ? record.sectionPath : section;
+                                        const merged = { ...record, sectionPath };
+                                        importedAnnotations.push(this.normalizeImportedAnnotation(merged, section));
                                     }
                                 }
                             } else {
@@ -325,21 +423,23 @@ function createCheckWritingDialog(): void {
                             this.applyImportedAnnotations(importedAnnotations);
 
                             const msg = this.$options.i18n.importSuccess || 'Imported annotations from file.';
-                            mw && mw.notify && mw.notify(msg, { tag: 'review-tool' });
-                        } catch (err) {
-                            console.error('[ReviewTool] failed to import annotations from file', err);
+                            if (mw && mw.notify) {
+                                mw.notify(msg, { tag: 'review-tool' });
+                            }
+                        } catch (error) {
+                            console.error('[ReviewTool] failed to import annotations from file', error);
                             const msg = this.$options.i18n.importInvalid || 'Invalid annotation file.';
                             this.reportAnnotationLoadFailure(msg);
                         }
                     };
-                    reader.onerror = (err) => {
-                        console.error('[ReviewTool] FileReader error', err);
+                    reader.onerror = (error) => {
+                        console.error('[ReviewTool] FileReader error', error);
                         const msg = this.$options.i18n.importError || 'Failed to read file.';
                         this.reportAnnotationLoadFailure(msg);
                     };
                     reader.readAsText(file, 'utf-8');
                 },
-                loadAnnotationsIntoForm() {
+                loadAnnotationsIntoForm(this: CheckWritingDialogVm) {
                     if (this.isLoadingAnnotations) {
                         return;
                     }
@@ -365,12 +465,14 @@ function createCheckWritingDialog(): void {
 
                         this.applyAnnotationChapters(nextChapters);
                         const successMsg = state.convByVar({hant: '已將批註載入表單，請檢查後繼續。', hans: '已将批注载入表单，请检查后继续。'});
-                        mw && mw.notify && mw.notify(successMsg, { tag: 'review-tool' });
+                        if (mw && mw.notify) {
+                            mw.notify(successMsg, { tag: 'review-tool' });
+                        }
                     } finally {
                         this.isLoadingAnnotations = false;
                     }
                 },
-                buildChaptersFromAnnotationGroups(groups: AnnotationGroup[]) {
+                buildChaptersFromAnnotationGroups(this: CheckWritingDialogVm, groups: AnnotationGroup[]) {
                     if (!groups.length) {
                         return [];
                     }
@@ -400,7 +502,7 @@ function createCheckWritingDialog(): void {
                     }).filter(group => Array.isArray(group.suggestions) && group.suggestions.length);
                     return mapped;
                 },
-                applyAnnotationChapters(nextChapters: Array<{ title: string; suggestions: { quote: string; suggestion: string }[] }>) {
+                applyAnnotationChapters(this: CheckWritingDialogVm, nextChapters: CheckWritingChapter[]) {
                     if (!nextChapters.length) {
                         return;
                     }
@@ -411,7 +513,7 @@ function createCheckWritingDialog(): void {
                         this.prepareDiffContent();
                     }
                 },
-                sortAnnotationsByPosition(list: Annotation[] | undefined): Annotation[] {
+                sortAnnotationsByPosition(this: CheckWritingDialogVm, list: Annotation[] | undefined): Annotation[] {
                     if (!Array.isArray(list)) return [];
                     return list.slice().sort((a, b) => {
                         const cmp = compareOrderKeys(a?.sentencePos, b?.sentencePos);
@@ -419,19 +521,23 @@ function createCheckWritingDialog(): void {
                         return (a.createdAt || 0) - (b.createdAt || 0);
                     });
                 },
-                groupAnnotationsBySection(list: Annotation[]): AnnotationGroup[] {
+                groupAnnotationsBySection(this: CheckWritingDialogVm, list: Annotation[]): AnnotationGroup[] {
                     const buckets = new Map<string, Annotation[]>();
                     list.forEach((anno) => {
                         const key = (anno.sectionPath || '').trim();
-                        if (!buckets.has(key)) buckets.set(key, []);
-                        buckets.get(key)!.push(anno);
+                        const bucket = buckets.get(key);
+                        if (bucket) {
+                            bucket.push(anno);
+                        } else {
+                            buckets.set(key, [anno]);
+                        }
                     });
                     return Array.from(buckets.entries()).map(([sectionPath, annotations]) => ({
                         sectionPath,
                         annotations
                     }));
                 },
-                applyImportedAnnotations(importedAnnotations: Annotation[]) {
+                applyImportedAnnotations(this: CheckWritingDialogVm, importedAnnotations: Annotation[]) {
                     if (!Array.isArray(importedAnnotations) || !importedAnnotations.length) {
                         throw new Error('empty-import');
                     }
@@ -442,16 +548,20 @@ function createCheckWritingDialog(): void {
                     }
                     this.applyAnnotationChapters(chapters);
                 },
-                reportAnnotationLoadFailure(message: string) {
-                    mw && mw.notify && mw.notify(message, { type: 'warn', title: '[ReviewTool]' });
+                reportAnnotationLoadFailure(this: CheckWritingDialogVm, message: string) {
+                    if (mw && mw.notify) {
+                        mw.notify(message, { type: 'warn', title: '[ReviewTool]' });
+                    }
                     alert(message);
                 },
-                saveCheckWriting() {
+                saveCheckWriting(this: CheckWritingDialogVm) {
                     this.isSaving = true;
                     const { sec, pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
                     if (!sec || sectionIdToUse == null) {
                         const msg = state.convByVar({hant: '無法識別文筆章節編號，請在討論頁的文筆章節附近點擊「檢查文筆」。', hans: '无法识别文笔章节编号，请在讨论页的文笔章节附近点击“检查文笔”。'});
-                        mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        if (mw && mw.notify) {
+                            mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        }
                         alert(msg);
                         this.isSaving = false;
                         return;
@@ -460,7 +570,9 @@ function createCheckWritingDialog(): void {
                     const bundle = this.buildPreviewBundle();
                     if (!bundle) {
                         const msg = state.convByVar({hant: '請先輸入文筆建議內容，再嘗試儲存。', hans: '请先输入文笔建议内容，再尝试保存。'});
-                        mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        if (mw && mw.notify) {
+                            mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                        }
                         alert(msg);
                         this.isSaving = false;
                         return;
@@ -468,34 +580,38 @@ function createCheckWritingDialog(): void {
 
                     appendTextToSection(
                         pageTitleToUse,
-                        sectionIdToUse as number,
+                        sectionIdToUse,
                         bundle.appendSuffix,
                         state.convByVar({hant: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文筆建議', hans: '使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文笔建议'})
                     )
-                        .then((resp: any) => {
-                            mw && mw.notify && mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' });
+                        .then(() => {
+                            if (mw && mw.notify) {
+                                mw.notify(state.convByVar({hant: '已成功新增文筆建議。', hans: '已成功新增文笔建议。'}), { tag: 'review-tool' });
+                            }
                             this.isSaving = false;
                             this.open = false;
-                            (state as any).pendingReviewHeading = null;
+                            state.pendingReviewHeading = null;
                             setTimeout(() => { removeDialogMount(); }, 200);
                         })
-                        .catch((err: any) => {
-                            console.error('[ReviewTool] appendTextToSection failed', err);
+                        .catch((error: unknown) => {
+                            console.error('[ReviewTool] appendTextToSection failed', error);
                             const msg = state.convByVar({hant: '新增文筆建議失敗，請稍後再試。', hans: '新增文笔建议失败，请稍后再试。'});
-                            mw && mw.notify && mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                            if (mw && mw.notify) {
+                                mw.notify(msg, { type: 'error', title: '[ReviewTool]' });
+                            }
                             alert(msg);
                             this.isSaving = false;
                         });
-                }, addChapter() {
+                }, addChapter(this: CheckWritingDialogVm) {
                     this.chapters.push({ title: '', suggestions: [{ quote: '', suggestion: '' }] });
-                }, removeChapter(idx: number) {
+                }, removeChapter(this: CheckWritingDialogVm, idx: number) {
                     if (this.chapters.length <= 1) {
                         return;
                     }
                     this.chapters.splice(idx, 1);
-                }, addSuggestion(chIdx: number) {
+                }, addSuggestion(this: CheckWritingDialogVm, chIdx: number) {
                     this.chapters[chIdx].suggestions.push({ quote: '', suggestion: '' });
-                }, removeSuggestion(chIdx: number, sIdx: number) {
+                }, removeSuggestion(this: CheckWritingDialogVm, chIdx: number, sIdx: number) {
                     const suggestions = this.chapters[chIdx].suggestions;
                     if (suggestions.length <= 1) {
                         return;
@@ -656,10 +772,12 @@ function createCheckWritingDialog(): void {
         mountApp(app);
     }).catch((error) => {
         console.error('[ReviewTool] 無法加載 Codex:', error);
-        mw.notify(state.convByVar({hant: '無法加載對話框組件。', hans: '无法加载对话框组件。'}), {
-            type: 'error',
-            title: '[ReviewTool]'
-        });
+        if (mw && mw.notify) {
+            mw.notify(state.convByVar({hant: '無法加載對話框組件。', hans: '无法加载对话框组件。'}), {
+                type: 'error',
+                title: '[ReviewTool]'
+            });
+        }
     });
 }
 

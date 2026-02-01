@@ -56,7 +56,7 @@ function deriveSubjectArticleTitle(pageName: string): string {
  * @returns {string | null} 評級類型或 null
  */
 function decideAssessmentType(articleTitle: string, sectionTitle: string): string | null {
-    let assessmentType = null;
+    let assessmentType: string | null = null;
     if (state.inTalkPage) {
         const sectionRegexes = getSectionRegexes();
         for (const [key, regex] of Object.entries(sectionRegexes)) {
@@ -86,7 +86,7 @@ function createReviewManagementButton(articleTitle: string, sectionTitle: string
 
     return createMwEditSectionButton(state.convByVar({
         hant: '管理評審', hans: '管理评审'
-    }), state.convByVar({hant: '使用 ReviewTool 小工具管理評審', hans: '使用 ReviewTool 小工具管理评审'}), (e) => {
+    }), state.convByVar({hant: '使用 ReviewTool 小工具管理評審', hans: '使用 ReviewTool 小工具管理评审'}), () => {
         state.articleTitle = articleTitle;
         state.assessmentType = assessmentType;
         openReviewManagementDialog();
@@ -104,7 +104,7 @@ function createCheckWritingButton(articleTitle: string, sectionTitle: string): H
 
     return createMwEditSectionButton(state.convByVar({
         hant: '檢查文筆', hans: '检查文笔'
-    }), state.convByVar({hant: '使用 ReviewTool 小工具檢查文筆', hans: '使用 ReviewTool 小工具检查文笔'}), (e) => {
+    }), state.convByVar({hant: '使用 ReviewTool 小工具檢查文筆', hans: '使用 ReviewTool 小工具检查文笔'}), () => {
         state.articleTitle = articleTitle;
         state.assessmentType = assessmentType;
         openCheckWritingDialog();

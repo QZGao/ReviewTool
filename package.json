@@ -1,16 +1,21 @@
 {
-  "name": "reviewtool",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Review articles and provide feedback on Chinese Wikipedia.",
-  "type": "module",
-  "scripts": {
-    "build": "node build.mjs",
-    "watch": "node build.mjs --watch"
-  },
-  "devDependencies": {
-    "@types/node": "^24.10.1",
-    "esbuild": "^0.21.5",
-    "types-mediawiki": "^1.9.1"
-  }
+	"name": "reviewtool",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Review articles and provide feedback on Chinese Wikipedia.",
+	"type": "module",
+	"scripts": {
+		"build": "node build.mjs",
+		"watch": "node build.mjs --watch",
+		"release": "node build.mjs --release",
+		"lint": "eslint \"src/**/*.{ts,tsx}\" --no-inline-config"
+	},
+	"devDependencies": {
+		"@types/node": "^24.10.1",
+		"@typescript-eslint/eslint-plugin": "^8.54.0",
+		"@typescript-eslint/parser": "^8.54.0",
+		"esbuild": "^0.21.5",
+		"eslint": "^9.39.2",
+		"types-mediawiki": "^1.9.1"
+	}
 }

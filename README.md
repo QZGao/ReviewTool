@@ -15,7 +15,9 @@
    - 在「檢查文筆」面板中，編輯文筆意見，或從已有批註（或備份JSON檔）匯入。儲存文筆意見到評審區。
 
 ## 使用方式
+
 ### 發行版本
+
 将如下程式碼复制至 [User:你的用戶名/common.js](https://zh.wikipedia.org/wiki/Special:MyPage/common.js) 頁面：
 
 ```js
@@ -29,16 +31,20 @@ importScript('User:SuperGrey/gadgets/ReviewTool/main.js');  // Backlink: [[User:
 
 2. **安裝依賴套件**
    - 在 ReviewTool 目錄下執行：
+
      ```sh
      npm install
      ```
 
 3. **建構 Bundled 版本**
    - 執行下列指令以產生 `dist/bundled.js`：
+
      ```sh
-     npm run build
+     npm run release
      ```
+
    - 若需持續監看檔案變動並自動重建，請執行：
+
      ```sh
      npm run watch
      ```
@@ -46,6 +52,7 @@ importScript('User:SuperGrey/gadgets/ReviewTool/main.js');  // Backlink: [[User:
 4. **安裝至維基**
    - 將 `dist/bundled.js` 上傳至你的維基用戶頁面，例如 [User:你的用戶名/ReviewTool.js](https://zh.wikipedia.org/wiki/Special:MyPage/ReviewTool.js)。
    - 在 [User:你的用戶名/common.js](https://zh.wikipedia.org/wiki/Special:MyPage/common.js) 頁面加入：
+
      ```js
      importScript('User:你的用戶名/ReviewTool.js');  // 修改為你的用戶名
      ```

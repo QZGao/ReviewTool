@@ -20,6 +20,40 @@ export type AnnotationEditorDialogResult =
     | { action: "delete" }
     | { action: "cancel" };
 
+type AnnotationEditorI18n = {
+    titleCreate: string;
+    titleEdit: string;
+    sectionLabel: string;
+    sentenceLabel: string;
+    opinionLabel: string;
+    opinionPlaceholder: string;
+    opinionRequired: string;
+    cancel: string;
+    save: string;
+    create: string;
+    delete: string;
+    deleteConfirm: string;
+};
+
+type AnnotationEditorDialogVm = {
+    open: boolean;
+    mode: "create" | "edit";
+    sectionPath: string;
+    sentenceText: string;
+    opinion: string;
+    allowDelete: boolean;
+    showValidationError: boolean;
+    dialogTitle: string;
+    primaryLabel: string;
+    canSave: boolean;
+    onPrimaryAction: () => void;
+    onCancelAction: () => void;
+    onDeleteClick: () => void;
+    onUpdateOpen: (newValue: boolean) => void;
+    closeDialog: () => void;
+    $options: { i18n: AnnotationEditorI18n };
+};
+
 export function openAnnotationEditorDialog(options: AnnotationEditorDialogOptions): JQuery.Promise<AnnotationEditorDialogResult> {
     const dialogOptions: Required<AnnotationEditorDialogOptions> = {
         sectionPath: options.sectionPath,
@@ -32,7 +66,7 @@ export function openAnnotationEditorDialog(options: AnnotationEditorDialogOption
     if (getMountedApp()) removeDialogMount();
 
     return loadCodexAndVue()
-        .then(({ Vue, Codex }: any) => {
+        .then(({ Vue, Codex }) => {
             return new Promise<AnnotationEditorDialogResult>((resolve) => {
                 let resolved = false;
                 const finalize = (result: AnnotationEditorDialogResult) => {
@@ -68,27 +102,27 @@ export function openAnnotationEditorDialog(options: AnnotationEditorDialogOption
                         };
                     },
                     computed: {
-                        dialogTitle() {
+                        dialogTitle(this: AnnotationEditorDialogVm) {
                             return this.mode === "edit"
                                 ? this.$options.i18n.titleEdit
                                 : this.$options.i18n.titleCreate;
                         },
-                        primaryLabel() {
+                        primaryLabel(this: AnnotationEditorDialogVm) {
                             return this.mode === "edit" ? this.$options.i18n.save : this.$options.i18n.create;
                         },
-                        canSave(): boolean {
+                        canSave(this: AnnotationEditorDialogVm): boolean {
                             return Boolean((this.opinion || "").trim());
                         }
                     },
                     watch: {
-                        opinion() {
+                        opinion(this: AnnotationEditorDialogVm) {
                             if (this.showValidationError && this.canSave) {
                                 this.showValidationError = false;
                             }
                         }
                     },
                     methods: {
-                        onPrimaryAction() {
+                        onPrimaryAction(this: AnnotationEditorDialogVm) {
                             if (!this.canSave) {
                                 this.showValidationError = true;
                                 return;
@@ -96,23 +130,23 @@ export function openAnnotationEditorDialog(options: AnnotationEditorDialogOption
                             finalize({ action: "save", opinion: this.opinion.trim() });
                             this.closeDialog();
                         },
-                        onCancelAction() {
+                        onCancelAction(this: AnnotationEditorDialogVm) {
                             finalize({ action: "cancel" });
                             this.closeDialog();
                         },
-                        onDeleteClick() {
+                        onDeleteClick(this: AnnotationEditorDialogVm) {
                             if (!this.allowDelete) return;
                             const ok = window.confirm(this.$options.i18n.deleteConfirm);
                             if (!ok) return;
                             finalize({ action: "delete" });
                             this.closeDialog();
                         },
-                        onUpdateOpen(newValue: boolean) {
+                        onUpdateOpen(this: AnnotationEditorDialogVm, newValue: boolean) {
                             if (!newValue) {
                                 this.onCancelAction();
                             }
                         },
-                        closeDialog() {
+                        closeDialog(this: AnnotationEditorDialogVm) {
                             this.open = false;
                             setTimeout(() => removeDialogMount(), 200);
                         }
@@ -185,10 +219,12 @@ export function openAnnotationEditorDialog(options: AnnotationEditorDialogOption
         })
         .catch((error) => {
             console.error("[ReviewTool] Failed to open annotation editor dialog", error);
-            mw && mw.notify && mw.notify(
-                state.convByVar({ hant: "無法開啟批註對話框。", hans: "无法开启批注对话框。" }),
-                { type: "error", title: "[ReviewTool]" }
-            );
+            if (mw && mw.notify) {
+                mw.notify(
+                    state.convByVar({ hant: "無法開啟批註對話框。", hans: "无法开启批注对话框。" }),
+                    { type: "error", title: "[ReviewTool]" }
+                );
+            }
             throw error;
         });
 }
