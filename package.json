@@ -1,6 +1,6 @@
 {
 	"name": "reviewtool",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"private": true,
 	"description": "Review articles and provide feedback on Chinese Wikipedia.",
 	"type": "module",
