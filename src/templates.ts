@@ -13,7 +13,7 @@ export function assessments(): Record<string, {
 	return {
 		'bplus': {
 			label: state.convByVar({ hant: '乙上級', hans: '乙上级' }),
-			section_regex: /乙上?[級级][評评][審审選选級级]/,
+			section_regex: /乙上?[級级]?(?:|[條条]目)[評评][審审選选級级]/,
 			suggested_criteria: [
 				state.convByVar({ hant: '來源', hans: '来源' }) + ' (B1)',
 				state.convByVar({ hant: '覆蓋面', hans: '覆盖面' }) + ' (B2)',
@@ -25,7 +25,7 @@ export function assessments(): Record<string, {
 			]
 		}, 'good': {
 			label: state.convByVar({ hant: '優良級', hans: '优良级' }),
-			section_regex: /[優优]良(?:[級级]|[條条]目)[評评][審审選选級级]/,
+			section_regex: /[優优]良[級级]?(?:|[條条]目)[評评][審审選选級级]/,
 			page_prefix: 'Wikipedia:優良條目評選',
 			suggested_criteria: [
 				state.convByVar({ hant: '文筆', hans: '文笔' }) + ' (GA1)',
@@ -41,7 +41,7 @@ export function assessments(): Record<string, {
 			]
 		}, 'a': {
 			label: state.convByVar({ hant: '甲級', hans: '甲级' }),
-			section_regex: /甲[級级][評评][審审選选級级]/,
+			section_regex: /甲[級级](?:|[條条]目)[評评][審审選选級级]/,
 			suggested_criteria: [
 				state.convByVar({ hant: '來源', hans: '来源' }) + ' (A1)',
 				state.convByVar({ hant: '覆蓋面', hans: '覆盖面' }) + ' (A2)',
@@ -53,7 +53,7 @@ export function assessments(): Record<string, {
 			]
 		}, 'featured': {
 			label: state.convByVar({ hant: '典範級', hans: '典范级' }),
-			section_regex: /典[範范](?:[級级]|[條条]目)[評评][審审選选級级]/,
+			section_regex: /典[範范][級级]?(?:|[條条]目)[評评][審审選选級级]/,
 			page_prefix: 'Wikipedia:典范条目评选',
 			suggested_criteria: [
 				state.convByVar({ hant: '文筆', hans: '文笔' }) + ' (FA1a)',
@@ -71,7 +71,7 @@ export function assessments(): Record<string, {
 			]
 		}, 'featured_list': {
 			label: state.convByVar({ hant: '特色列表級', hans: '特色列表级' }),
-			section_regex: /特色列表[評评][審审選选級级]/,
+			section_regex: /特色列表[級级]?(?:|[條条]目)[評评][審审選选級级]/,
 			page_prefix: 'Wikipedia:特色列表評选',
 			suggested_criteria: [
 				state.convByVar({ hant: '文筆', hans: '文笔' }) + ' (FL1)',
