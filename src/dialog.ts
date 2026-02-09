@@ -22,6 +22,8 @@ let _mountedApp: VueApp | null = null;
 let _mountedRoot: unknown = null;
 let _imeListenersInstalled = false;
 let _isImeComposing = false;
+let _imeResetTimer: number | null = null;
+let _lastCompositionAt = 0;
 
 /**
  * Helper to determine if an event target is an editable element that may be using IME, for the purpose of guarding Escape key behavior during composition.
@@ -40,26 +42,78 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
  * Mark IME composition as active.
  */
 function onCompositionStart(): void {
+	if (_imeResetTimer !== null) {
+		window.clearTimeout(_imeResetTimer);
+		_imeResetTimer = null;
+	}
 	_isImeComposing = true;
+	_lastCompositionAt = Date.now();
 }
 
 /**
  * Reset IME composition state when composition ends.
  */
 function onCompositionEnd(): void {
-	_isImeComposing = false;
+	_lastCompositionAt = Date.now();
+	// Keep composition active briefly to absorb Esc cancel timing differences across browsers/IMEs.
+	if (_imeResetTimer !== null) {
+		window.clearTimeout(_imeResetTimer);
+	}
+	_imeResetTimer = window.setTimeout(() => {
+		_isImeComposing = false;
+		_imeResetTimer = null;
+	}, 80);
+}
+
+/**
+ * Track composition-like input activity to handle browser/IME event-order differences.
+ * @param {InputEvent} event - The beforeinput/input event.
+ */
+function onCompositionInput(event: InputEvent): void {
+	const inputType = typeof event.inputType === 'string' ? event.inputType : '';
+	if (event.isComposing || inputType.indexOf('insertComposition') === 0) {
+		_lastCompositionAt = Date.now();
+		_isImeComposing = true;
+	}
+}
+
+/**
+ * Check if IME composition is currently active or was active very recently.
+ * @returns {boolean} True when composition should still suppress Escape-driven dialog close.
+ */
+function isCompositionLikelyActive(): boolean {
+	if (_isImeComposing) return true;
+	return Date.now() - _lastCompositionAt <= 500;
 }
 
 /**
  * Guard Escape key behavior during IME composition to prevent dialogs from closing when users intend to cancel IME input.
- * @param {KeyboardEvent} event - The keydown event to check.
+ * @param {KeyboardEvent} event - The key event to check.
  */
-function onEscapeKeydown(event: KeyboardEvent): void {
+function onEscapeKey(event: KeyboardEvent): void {
 	if (event.key !== 'Escape') return;
+	const isImeKeyEvent = event.isComposing || event.keyCode === 229;
+	const editableTarget = isEditableEventTarget(event.target) || isEditableEventTarget(document.activeElement);
 	// While IME composition is active, keep Escape for IME cancellation instead of dialog close.
-	if (event.isComposing || (_isImeComposing && isEditableEventTarget(event.target))) {
+	if (isImeKeyEvent || (editableTarget && isCompositionLikelyActive())) {
+		event.preventDefault();
+		event.stopImmediatePropagation();
 		event.stopPropagation();
 	}
+}
+
+/**
+ * Prevent native dialog cancel (Esc) while IME composition is active/recent.
+ * @param {Event} event - The cancel event dispatched by HTMLDialogElement.
+ */
+function onDialogCancel(event: Event): void {
+	const target = event.target as HTMLElement | null;
+	if (!target || target.tagName !== 'DIALOG') return;
+	if (!isCompositionLikelyActive()) return;
+	if (!isEditableEventTarget(document.activeElement)) return;
+	event.preventDefault();
+	event.stopImmediatePropagation();
+	event.stopPropagation();
 }
 
 /**
@@ -70,7 +124,11 @@ function installImeEscGuard(): void {
 	if (_imeListenersInstalled) return;
 	window.addEventListener('compositionstart', onCompositionStart, true);
 	window.addEventListener('compositionend', onCompositionEnd, true);
-	window.addEventListener('keydown', onEscapeKeydown, true);
+	window.addEventListener('beforeinput', onCompositionInput, true);
+	window.addEventListener('input', onCompositionInput, true);
+	window.addEventListener('keydown', onEscapeKey, true);
+	window.addEventListener('keyup', onEscapeKey, true);
+	window.addEventListener('cancel', onDialogCancel, true);
 	_imeListenersInstalled = true;
 }
 
@@ -82,9 +140,18 @@ function removeImeEscGuard(): void {
 	if (!_imeListenersInstalled) return;
 	window.removeEventListener('compositionstart', onCompositionStart, true);
 	window.removeEventListener('compositionend', onCompositionEnd, true);
-	window.removeEventListener('keydown', onEscapeKeydown, true);
+	window.removeEventListener('beforeinput', onCompositionInput, true);
+	window.removeEventListener('input', onCompositionInput, true);
+	window.removeEventListener('keydown', onEscapeKey, true);
+	window.removeEventListener('keyup', onEscapeKey, true);
+	window.removeEventListener('cancel', onDialogCancel, true);
+	if (_imeResetTimer !== null) {
+		window.clearTimeout(_imeResetTimer);
+		_imeResetTimer = null;
+	}
 	_imeListenersInstalled = false;
 	_isImeComposing = false;
+	_lastCompositionAt = 0;
 }
 
 /**
