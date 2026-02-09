@@ -20,7 +20,77 @@ type CodexModule = Partial<{
 
 let _mountedApp: VueApp | null = null;
 let _mountedRoot: unknown = null;
+let _imeListenersInstalled = false;
+let _isImeComposing = false;
 
+/**
+ * Helper to determine if an event target is an editable element that may be using IME, for the purpose of guarding Escape key behavior during composition.
+ * @param {EventTarget | null} target - The event target to check.
+ * @returns {boolean} True if the target is an editable element that may be using IME, false otherwise.
+ */
+function isEditableEventTarget(target: EventTarget | null): boolean {
+	if (!target || !(target instanceof HTMLElement)) return false;
+	if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+		return !target.disabled && !target.readOnly;
+	}
+	return target.isContentEditable;
+}
+
+/**
+ * Mark IME composition as active.
+ */
+function onCompositionStart(): void {
+	_isImeComposing = true;
+}
+
+/**
+ * Reset IME composition state when composition ends.
+ */
+function onCompositionEnd(): void {
+	_isImeComposing = false;
+}
+
+/**
+ * Guard Escape key behavior during IME composition to prevent dialogs from closing when users intend to cancel IME input.
+ * @param {KeyboardEvent} event - The keydown event to check.
+ */
+function onEscapeKeydown(event: KeyboardEvent): void {
+	if (event.key !== 'Escape') return;
+	// While IME composition is active, keep Escape for IME cancellation instead of dialog close.
+	if (event.isComposing || (_isImeComposing && isEditableEventTarget(event.target))) {
+		event.stopPropagation();
+	}
+}
+
+/**
+ * Install global event listeners to track IME composition state and guard Escape key behavior accordingly.
+ * This should be called when any dialog is opened to ensure proper handling of Escape key during IME input.
+ */
+function installImeEscGuard(): void {
+	if (_imeListenersInstalled) return;
+	window.addEventListener('compositionstart', onCompositionStart, true);
+	window.addEventListener('compositionend', onCompositionEnd, true);
+	window.addEventListener('keydown', onEscapeKeydown, true);
+	_imeListenersInstalled = true;
+}
+
+/**
+ * Remove global event listeners for IME composition tracking and Escape key guarding.
+ * This should be called when dialogs are closed to clean up event listeners.
+ */
+function removeImeEscGuard(): void {
+	if (!_imeListenersInstalled) return;
+	window.removeEventListener('compositionstart', onCompositionStart, true);
+	window.removeEventListener('compositionend', onCompositionEnd, true);
+	window.removeEventListener('keydown', onEscapeKeydown, true);
+	_imeListenersInstalled = false;
+	_isImeComposing = false;
+}
+
+/**
+ * Load Codex and Vue modules.
+ * @returns {JQuery.Promise<{ Vue: VueModule, Codex: CodexModule }>} A promise that resolves with the loaded modules.
+ */
 export function loadCodexAndVue(): JQuery.Promise<{ Vue: VueModule, Codex: CodexModule }> {
 	return mw.loader.using('@wikimedia/codex').then((requireFn: (name: string) => unknown) => {
 		const Vue = requireFn('vue') as VueModule;
@@ -32,6 +102,10 @@ export function loadCodexAndVue(): JQuery.Promise<{ Vue: VueModule, Codex: Codex
 	});
 }
 
+/**
+ * Create dialog mount point if it doesn't exist, and return the mount element.
+ * @returns {HTMLElement | null} The dialog mount element, or null if it cannot be created.
+ */
 export function createDialogMountIfNeeded(): HTMLElement | null {
 	if (!document.getElementById('review-tool-dialog-mount')) {
 		const mountPoint = document.createElement('div');
@@ -41,25 +115,43 @@ export function createDialogMountIfNeeded(): HTMLElement | null {
 	return document.getElementById('review-tool-dialog-mount');
 }
 
+/**
+ * Mount a Vue app to the dialog mount point, creating the mount if necessary, and set up IME Escape key guarding.
+ * @param {VueApp} app - The Vue app instance to mount.
+ * @returns {unknown} The result of the app's mount function, typically the root component instance.
+ */
 export function mountApp(app: VueApp): unknown {
 	createDialogMountIfNeeded();
+	installImeEscGuard();
 	_mountedApp = app;
 	_mountedRoot = app.mount('#review-tool-dialog-mount');
 	return _mountedRoot;
 }
 
+/**
+ * Get the currently mounted Vue app instance, if any.
+ * @returns {VueApp | null} The currently mounted Vue app instance, or null if no app is mounted.
+ */
 export function getMountedApp(): VueApp | null {
 	return _mountedApp;
 }
 
+/**
+ * Remove the dialog mount element from the DOM, clean up IME Escape key guarding, and clear internal app references.
+ */
 export function removeDialogMount() {
 	const mountPoint = document.getElementById('review-tool-dialog-mount');
 	if (mountPoint) mountPoint.remove();
+	removeImeEscGuard();
 	_mountedApp = null;
 	_mountedRoot = null;
 }
 
-// Convenience helper to register commonly-used Codex components on a Vue app
+/**
+ * Convenience helper to register commonly-used Codex components on a Vue app.
+ * @param {VueApp} app - The Vue app instance to register components on.
+ * @param {CodexModule} Codex - The loaded Codex module containing components to register.
+ */
 export function registerCodexComponents(app: VueApp, Codex: CodexModule) {
 	if (!app || !app.component || !Codex) return;
 	try {
@@ -75,7 +167,11 @@ export function registerCodexComponents(app: VueApp, Codex: CodexModule) {
 	}
 }
 
-// Show a simple, styled overlay for preview/diff HTML when inserting into the dialog body fails.
+/**
+ * Show a simple, styled overlay for preview/diff HTML when inserting into the dialog body fails.
+ * @param {string} html - The HTML content to display inside the overlay.
+ * @param {string} [title] - Optional title to display at the top of the overlay.
+ */
 export function showPreviewOverlay(html: string, title?: string) {
 	try {
 		let backdrop = document.getElementById('rt-preview-backdrop');
@@ -142,13 +238,13 @@ export function showPreviewOverlay(html: string, title?: string) {
 		const content = backdrop.querySelector<HTMLElement>('.rt-preview-overlay-content');
 		if (content) {
 			content.innerHTML = html || '';
-				try {
-					if (typeof mw !== 'undefined' && mw && mw.hook && typeof mw.hook === 'function') {
-						const $ = (mw as unknown as { $?: JQueryStatic }).$ || (window as Window & { jQuery?: JQueryStatic }).jQuery;
-						if ($) {
-							mw.hook('wikipage.content').fire($(content));
-						}
+			try {
+				if (typeof mw !== 'undefined' && mw && mw.hook && typeof mw.hook === 'function') {
+					const $ = (mw as unknown as { $?: JQueryStatic }).$ || (window as Window & { jQuery?: JQueryStatic }).jQuery;
+					if ($) {
+						mw.hook('wikipage.content').fire($(content));
 					}
+				}
 				// If diff HTML is present, ensure diff CSS is loaded
 				if (html && html.indexOf('class="diff') !== -1 && mw && mw.loader && mw.loader.load) {
 					mw.loader.load('mediawiki.diff.styles');
