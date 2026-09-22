@@ -8,7 +8,12 @@
 		"build": "node build.mjs",
 		"watch": "node build.mjs --watch",
 		"release": "node build.mjs --release",
-		"lint": "eslint \"src/**/*.{ts,tsx,vue}\" --no-inline-config"
+		"lint": "eslint \"src/**/*.{ts,tsx,vue}\" --no-inline-config",
+		"test:annotation": "node tests/annotation/build.mjs && node --test tests/annotation/*.test.mjs",
+		"check:annotation": "tsc --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck --target ES2017 --module ESNext --moduleResolution node --lib ES2017,DOM src/annotation/index.ts && eslint \"src/annotation/**/*.ts\" --no-inline-config",
+		"demo:annotation": "node tests/annotation/build.mjs && node tests/annotation/serve.mjs",
+		"prepare:annotation-articles": "node tests/annotation/fetch-articles.mjs",
+		"test:annotation:articles": "npm run prepare:annotation-articles && node tests/annotation/build.mjs && node --test tests/annotation/articles.check.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "^24.10.1",
@@ -19,8 +24,13 @@
 		"esbuild": "^0.21.5",
 		"eslint": "^9.39.2",
 		"eslint-plugin-vue": "^10.7.0",
+		"playwright": "^1.56.1",
 		"types-mediawiki": "^1.9.1",
+		"typescript": "^5.9.3",
 		"vue": "^3.4.27",
 		"vue-eslint-parser": "^10.2.0"
+	},
+	"dependencies": {
+		"entities": "^8.0.0"
 	}
 }
