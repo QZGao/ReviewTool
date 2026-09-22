@@ -4,7 +4,7 @@ import type { MappedSelection, SourceAnchor } from './types';
 const highlightName = 'reviewtool-annotation-selection';
 
 /** Retain this view's selection independently of the document's native selection. */
-export function trackSelection(doc: Document, root: HTMLElement, readRange: (range: Range) => MappedSelection | null, restoreRange: (anchor: SourceAnchor) => Range | null, onChange?: (selection: MappedSelection | null) => void) {
+export function trackSelection(doc: Document, root: HTMLElement, readRange: (range: Range) => MappedSelection | null, restoreRange: (anchor: SourceAnchor) => Range | null, onChange?: (selection: MappedSelection | null) => void, onCapture?: (selection: MappedSelection) => void) {
   const controller = new AbortController();
   const options = { signal: controller.signal };
   const win = doc.defaultView;
@@ -17,7 +17,7 @@ export function trackSelection(doc: Document, root: HTMLElement, readRange: (ran
   const inContent = (node: Node | null): boolean => {
     if (!node || !root.contains(node)) return false;
     const element = node.nodeType === 1 ? node as Element : node.parentElement;
-    return element?.closest('.annotation-document') === root && !element.closest('[data-annotation-popup], [data-annotation-image]');
+    return element?.closest('.annotation-document') === root && !element.closest('[data-annotation-popup], [data-annotation-image], [data-annotation-ui]');
   };
   const targetInContent = (target: EventTarget | null): boolean => Boolean(target && 'nodeType' in target && inContent(target as Node));
   const paint = () => {
@@ -27,6 +27,7 @@ export function trackSelection(doc: Document, root: HTMLElement, readRange: (ran
     painted = selected && gesture !== 'content' ? restoreRange(selected.anchor) : null;
     if (painted) {
       if (!highlight) highlight = new win.Highlight();
+      highlight.priority = 2147483647;
       highlight.add(painted); registry.set(highlightName, highlight);
     } else if (highlight?.size === 0) registry.delete(highlightName);
   };
@@ -41,7 +42,7 @@ export function trackSelection(doc: Document, root: HTMLElement, readRange: (ran
     if (!native || native.rangeCount !== 1) return;
     const range = native.getRangeAt(0);
     const next = readRange(range);
-    if (next) commit(next);
+    if (next) { commit(next); onCapture?.(next); }
     else if (range.collapsed && canClear && inContent(range.startContainer)) commit(null);
   };
   doc.addEventListener('selectionchange', capture, options);

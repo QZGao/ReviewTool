@@ -1,0 +1,20 @@
+.annotation-page-tools {
+  margin-block: 1rem;
+  padding: .8rem 1rem;
+  border: 1px solid var(--border-color-subtle, #c8ccd1);
+  border-radius: 4px;
+  background: var(--background-color-neutral-subtle, #f8f9fa);
+  color: var(--color-base, #202122);
+  font: 14px/1.5 system-ui, sans-serif;
+}
+.annotation-page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem 1.2rem; }
+.annotation-page-actions label { display: flex; align-items: center; gap: .5rem; }
+.annotation-page-tools :is(button, select) { font: inherit; padding: .3rem .65rem; border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 3px; background: var(--background-color-base, #fff); color: var(--color-base, #202122); }
+.annotation-page-tools :is(button, select):focus-visible { outline: 2px solid var(--border-color-progressive--focus, #36c); outline-offset: 2px; }
+.annotation-page-tools button { cursor: pointer; }
+.annotation-page-tools button:disabled { opacity: .6; cursor: default; }
+.annotation-page-tools summary { cursor: pointer; }
+.annotation-page-tools details { margin-top: .65rem; }
+.annotation-page-tools p { margin-block: .7rem; }
+.annotation-page-tools pre { margin-block: .5rem; padding: .6rem; border: 1px solid var(--border-color-subtle, #c8ccd1); background: var(--background-color-base, #fff); color: var(--color-base, #202122); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, monospace; }
+.annotation-page-tools[data-error] { color: var(--color-destructive, #bf3c2c); }

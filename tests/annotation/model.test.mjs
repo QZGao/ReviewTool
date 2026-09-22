@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProjection, renderToHtml, SourceIndex, selectionFromView, selectionFromSource } from '../../.cache/annotation-rnd/index.mjs';
+import { headingAnchors } from './section-anchors.mjs';
 
 const bytes = value => Buffer.byteLength(value, 'utf8');
 const anchorFor = (source, selected) => {
@@ -18,12 +19,25 @@ test('heading, paragraph, emphasis and piped links hide only recognized syntax',
   const source = "==背景==\n第一句。第二句含'''重点'''和[[地球半径|平均半径]]。第三句。";
   const view = createProjection(source);
   assert.equal(view.text, '背景\n第一句。第二句含重点和平均半径。第三句。');
-  assert.match(renderToHtml(view), /<h2>/);
+  assert.match(renderToHtml(view), /<h2 data-heading-start="0">/);
   assert.match(renderToHtml(view), /<strong>/);
   const selected = choose(view, '半径');
   // The target appears twice in wikitext; the visible label's exact position wins.
   const label = source.lastIndexOf('半径');
   assert.deepEqual(selected.anchor, { unit: 'utf8-byte', start: bytes(source.slice(0, label)), end: bytes(source.slice(0, label + 2)) });
+});
+
+test('heading navigation metadata converts API codepoints into exact UTF-8 source starts', () => {
+  const source = '前😀\r\n== A &amp; B ==\r\n正文\r\n== A &amp; B ==';
+  const starts = [source.indexOf('=='), source.lastIndexOf('== A')];
+  const sections = starts.map((start, i) => ({ fromTitle: 'Page_name', codepointOffset: [...source.slice(0, start)].length, hLevel: 2, anchor: i ? 'A_&_B_2' : 'A_&_B' }));
+  const anchors = headingAnchors(source, { title: 'Page name', tocdata: { sections: [...sections, { fromTitle: 'Template:Other', codepointOffset: 0, hLevel: 2, anchor: 'Generated' }, { fromTitle: 'Page_name', codepointOffset: null, hLevel: 2, anchor: 'Literal_HTML' }] } });
+  assert.deepEqual(anchors, starts.map((start, i) => ({ unit: 'utf8-byte', start: bytes(source.slice(0, start)), level: 2, id: i ? 'A_&_B_2' : 'A_&_B' })));
+  const projection = createProjection(source);
+  const html = renderToHtml(projection);
+  for (const anchor of anchors) assert.ok(html.includes(`data-heading-start="${anchor.start}"`));
+  assert.equal(projection.source, source);
+  assert.throws(() => headingAnchors(source, { title: 'Page name', tocdata: { sections: [{ ...sections[0], codepointOffset: 9999 }] } }), /outside the source/);
 });
 
 test('one sentence inside a long paragraph and repeated phrases get distinct coordinates', () => {

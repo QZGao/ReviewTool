@@ -20,7 +20,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
       // Mapping tests are offline; image loading is inspected separately in the running demo.
       await page.route('**/*', route => route.request().url().startsWith(server.url) ? route.continue() : route.abort());
       await page.goto(`${server.url}/?article=${article.key}`);
-      await page.waitForFunction(key => annotationLab.loadedArticle?.key === key, article.key);
+      await page.waitForFunction(key => window.annotationPageLab?.fixture.key === key, article.key);
       const linkExample = {
         earth: { invocation: '{{tsl|en|Biogenic substance|生源物质|生源}}', label: '生源', target: '生源物质' },
         javascript: { invocation: '{{le|膠水語言|glue code}}', label: '膠水語言', target: '膠水語言' },
@@ -28,8 +28,8 @@ test('pinned real article source and ordinary rendered HTML load into the visual
         'sun-yat-sen': { invocation: '[[博濟醫學堂|博濟醫院附設醫科學校]]', label: '博濟醫院附設醫科學校', target: '博濟醫學堂' },
       }[article.key];
       const result = await page.evaluate(example => {
-        const view = annotationLab.view;
-        const source = document.getElementById('source').value;
+        const view = annotationPageLab.view;
+        const source = annotationPageLab.fixture.wikitext;
         const encoder = new TextEncoder();
         const candidate = view.projection.runs.find(run => {
           const node = view.element.querySelector(`[data-source-run="${run.id}"]`);
@@ -60,7 +60,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
         if (invocationAt < 0) throw new Error('Expected link source missing from fixture.');
         const labelAt = invocationAt + example.invocation.lastIndexOf(example.label);
         const expectedLinkAnchor = { unit: 'utf8-byte', start: encoder.encode(source.slice(0, labelAt)).length, end: encoder.encode(source.slice(0, labelAt + example.label.length)).length };
-        const templatePattern = annotationLab.loadedArticle.key === 'liyue' ? /\{\{r\|[^{}]*\}\}/g : /\{\{rp\|[^{}<>\[\]]*\}\}/gi;
+        const templatePattern = annotationPageLab.fixture.key === 'liyue' ? /\{\{r\|[^{}]*\}\}/g : /\{\{rp\|[^{}<>\[\]]*\}\}/gi;
         // Gallery bodies are deliberately source-only, and rich/dynamic locators are not collapsed.
         const galleries = [...source.matchAll(/<gallery\b[^>]*>[\s\S]*?<\/gallery>/gi)];
         const referenceTemplates = {
@@ -74,7 +74,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
         let videoList = null;
         let fileCaption = null;
         let conversionFiles = null;
-        if (annotationLab.loadedArticle.key === 'earth') {
+        if (annotationPageLab.fixture.key === 'earth') {
           const file = [...view.element.querySelectorAll('[data-raw-kind="file"]')].find(node => node.textContent.startsWith('[[File:Earth2014shape SouthAmerica small-zh.jpg|'));
           if (!file?.querySelector('[data-file-caption]')) throw new Error('Earth2014 image caption was not parsed.');
           const captionLink = [...file.querySelectorAll('[data-inspect="link"]')].find(link => link.textContent === '安第斯山脉');
@@ -103,7 +103,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
           });
         }
         return {
-          article: annotationLab.loadedArticle,
+          article: { key: annotationPageLab.fixture.key, title: annotationPageLab.fixture.title, revisionId: annotationPageLab.fixture.revisionId },
           inputSourceUnchanged: view.projection.source === source,
           sourceBytes: encoder.encode(source).length,
           runs: view.projection.runs.length,
@@ -120,9 +120,9 @@ test('pinned real article source and ordinary rendered HTML load into the visual
           selected,
           expected,
           restored: view.readRange(view.restoreRange(selected.anchor)),
-          error: document.getElementById('error').textContent,
+          error: document.querySelector('.annotation-page-tools[data-error]')?.textContent ?? '',
           overflow: document.documentElement.scrollWidth > innerWidth,
-          parsoidDataPresent: document.getElementById('reference').value.includes('data-parsoid'),
+          parsoidDataPresent: annotationPageLab.original.innerHTML.includes('data-parsoid'),
         };
       }, linkExample);
       assert.equal(result.article.revisionId, article.revisionId);

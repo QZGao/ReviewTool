@@ -42,6 +42,10 @@ The two inputs have different responsibilities:
 
 `view.projection` is the same immutable input model. Image previews do not enter its text stream or change its coordinates. Only source-backed text, including each file invocation, is annotatable.
 
+For a Wikipedia page, `mountWikipediaAnnotation(document, model, options)` locates the single direct `#mw-content-text > .mw-parser-output`, uses its HTML for image reuse, inserts the view as its next sibling, and sets that original element to `display: none !important`. It returns `{ original, view, destroy }`. Call the mount's `destroy()` to remove the annotation view and restore the original display value/priority on the same DOM node. Title indicators and nested parser-output elements are not separate mount targets. Missing/ambiguous roots and duplicate mounts are rejected; unrelated inline-style changes and original event listeners survive restoration.
+
+Pass `headingAnchors` to preserve Wikipedia section navigation. Each entry is `{ unit: 'utf8-byte', start, level, id }` for a heading in this exact source revision. Rendered headings expose their byte start as temporary `data-heading-start` metadata. The adapter transfers an existing original heading ID only when the source start and heading level match; it removes that ID from the hidden original while mounted and restores it on exit. Duplicate metadata is rejected. IDs with ambiguous ownership or no matching rendered source heading are not guessed. This navigation metadata does not change annotation anchors or projection text.
+
 `renderToHtml(model)` also provides a DOM-free serialization of the source-only projection. To inspect the mounted output and any open popup, use `view.element.outerHTML`.
 
 ## First-version presentation policy
@@ -91,6 +95,8 @@ Article links have no active `href`. Hovering or focusing a link opens a source 
 
 Reference markers open the same popup with the exact original `ref` occurrence or reference-template invocation, including its body/parameters when present. Clicking a marker or activating it with Enter/Space selects the complete reference source slice. A self-closing named reference shows its own source; no definition lookup or network request is performed. Links and reference markers use the ordinary text-selection cursor (`text`).
 
+Colors follow the host Wikipedia theme through its CSS variables: base/emphasized/subtle text, link colors and their interaction states, surfaces, borders and focus outlines. Native and retained annotation selections use the progressive-subtle surface and preserve each passage's own text color, including links, through `currentColor`. Light-color fallbacks support hosts without these variables. On Wikipedia, both explicit night mode and automatic OS-following mode update the colors through the skin's variables without remounting the view or changing source selection.
+
 Popup text is normally selectable and copyable while remaining excluded from the annotation map. Its native selection does not change the saved article selection or highlight. Reference markers select the whole underlying reference. Popups are non-modal dialogs with a label and a focusable container: Tab from an open trigger enters the popup, and Escape closes it and returns focus to that trigger. They remain open during hover or focus, including while selecting text or moving the pointer to another trigger during popup interaction. Outside clicks, leaving popup focus, and article scrolling dismiss them. Long source remains locally scrollable. Source is inserted as text, never executed as HTML.
 
 The mounted view uses one lazily attached popup and delegated trigger events. Call `view.destroy()` before unmounting to release document/window listeners and timers. The standalone demo does this on every remount. `renderToHtml` produces the same non-navigating labels/markers; interactive popups require `createAnnotationView`.
@@ -134,6 +140,22 @@ Headings show a decorative `#` just before the text on hover (or focus within a 
 
 Selecting only a popup image or its preview wrapper returns no annotation. Selecting file source produces ordinary source coordinates, and larger text selections can pass through that inline source without invented block separators. Restoring an image-related source interval selects the code.
 
+## Highlight annotations
+
+Pass `highlighting: { initial, onChange }` to `createAnnotationView` or `mountWikipediaAnnotation` to enable markers. `initial` is optional; each annotation is `{ id, anchor: { unit: 'utf8-byte', start, end }, color: 'red' | 'yellow' | 'green' | 'blue' }`. `view.highlighting.annotations` is an immutable snapshot. `view.highlighting.replace(snapshot)` validates and restores a new snapshot without emitting a user action; invalid or duplicate records leave the previous state intact. Revision identity belongs to the host, which must supply highlights for this exact source.
+
+Selecting article text opens a compact four-color bar. Hovering or clicking an existing marker opens its color choices and a delete button, with the current color checked. The marker base colors are red `#F2CEB6`, yellow `#EEDAA8`, green `#C9DBCD` and blue `#BED9F6`. These are unblended RGB values; 50% opacity is applied once, preserving the passage's own text and underline colors, including links. The bar follows Wikipedia's light/dark surface, border and focus colors. Escape dismisses it, Tab enters it from the article, and arrow keys move between its buttons. Outside interaction, scrolling and resizing dismiss the bar without clearing the retained source selection.
+
+Selecting the same source range edits its existing marker. Partially overlapping ranges can coexist; the most recently added marker is painted on top and is the one edited at the overlap. Recoloring keeps its ID, anchor and ordering. Deleting it reveals any underlying marker. These are current frontend behaviors, not a collaboration conflict policy.
+
+`onChange(snapshot, action)` receives the next immutable snapshot plus `add-highlight`, `recolor-highlight` or `delete-highlight`. This is a local action boundary for future persistence; there is no network save, action queue, author model or synchronization yet. The Wikipedia demo retains the snapshot while toggling article views; a page reload or article navigation clears it. The separate `/lab` source-parser playground does not enable the highlight UI.
+
+Markers use the browser's CSS Custom Highlight API and restored source ranges. They never wrap, split or rewrite article text nodes. Hover detection uses text rectangles, excluding blank space between blocks. The saved active selection is painted above markers while choosing a color. Toolbar elements and source popups remain outside annotation coordinates.
+
+Source/image tooltips and the color bar can remain open together, including on marked links and references. Shared positioning normally places the color bar above its passage and the tooltip below its trigger. Near viewport edges, the tooltip uses the available space without overlapping the bar; long content scrolls within that space, and image loading recalculates placement. A source tooltip on its own retains its above-first preference. Moving between the popups, focusing either one, selecting tooltip text or scrolling inside the tooltip keeps the other controls available and preserves the article selection. The four color buttons have solid borders in their unblended base colors, with translucent fills.
+
+This opt-in feature requires `CSS.highlights` and `Highlight`; enabling it on an unsupported browser throws a clear error before the Wikipedia adapter hides the original article. Destroying the view removes only its own marker registrations, stylesheet and listeners.
+
 ## Files
 
 | File | Responsibility |
@@ -148,10 +170,14 @@ Selecting only a popup image or its preview wrapper returns no annotation. Selec
 | `projection.ts` | Immutable model, source coverage checks, readable text, escaped HTML serialization |
 | `source-index.ts`, `mapping.ts` | Exact coordinate conversion, selection mapping, restoration policy |
 | `selection-state.ts` | Per-view selection persistence, gesture boundaries, and persistent highlights |
+| `highlights.ts` | Source-anchored color markers, selection/hover toolbar, local actions and cleanup |
 | `reference-html.ts` | Filename matching and copying reusable images |
 | `image-preview.ts` | Lazy, batched and cached 250px thumbnail lookup for unmatched files |
 | `render.ts` | DOM construction and native `Range` translation |
+| `wikipedia-view.ts` | Reversible mounting beside the original article parser-output root |
+| `heading-anchors.ts` | Exact source-start heading correspondence, unique ID transfer, and current-fragment restoration |
 | `source-popups.ts` | Hover/focus/tap source inspection, positioning, and lifecycle cleanup |
+| `popup-layout.ts` | Shared placement for source/image tooltips and the color bar, with viewport and collision handling |
 | `style.css` | Scoped typography and raw-code presentation |
 
 ## Verification and playground
@@ -167,12 +193,12 @@ npm run demo:annotation
 
 Tests use Node's test runner and Playwright. They use installed Google Chrome on macOS when available; otherwise install Playwright Chromium with `npx playwright install chromium`. `ANNOTATION_BROWSER_CHANNEL` can select another installed Playwright-supported channel.
 
-The standalone lab runs at `http://127.0.0.1:4178` by default; override `PORT` if needed. It accepts wikitext and supplied HTML, displays the resulting view, and shows a selected passage's readable quotation, UTF-8 anchor, source slice, and generated HTML. It does not write anything to Wikipedia.
+The main local environment runs at `http://127.0.0.1:4178` by default; override `PORT` if needed. It serves downloaded Wikipedia pages with their Vector 2022 HTML, styles, logo and indicator assets. 孫中山 is the default article. The local toolbar switches articles, toggles between Annotation View and the original article, and exposes a collapsible selection inspector. Its Theme selector offers Light, Dark and Automatic by setting Wikipedia's `skin-theme-clientpref-day`, `-night` or `-os` class. `&theme=dark` opens a reproducible dark preview; the setting persists in the URL and when switching articles. This local control replaces the disabled upstream JavaScript theme control for testing only. It does not write anything to Wikipedia. The small editable sample remains at `/lab` for isolated synthetic regression tests.
 
 To load the real article fixtures, run:
 
 ```sh
-npm run prepare:annotation-articles
+npm run prepare:annotation-pages
 npm run test:annotation:articles
 npm run demo:annotation
 ```
@@ -186,9 +212,15 @@ The article selector provides these pinned Chinese Wikipedia snapshots:
 | 璃月 | `94264832` | [Open](http://127.0.0.1:4178/?article=liyue) |
 | 孫中山 | `94447348` | [Open](http://127.0.0.1:4178/?article=sun-yat-sen) |
 
-Each fixture pairs the exact revision's raw wikitext with ordinary `action=parse` HTML and includes a link to the original article and its license. Use “Jump to image source”, then hover the dotted-underlined code to inspect the image preview. 孫中山 adds a larger reference-heavy article with 26 explicit file invocations and 592 collapsed page locators; four galleries and a rich locator containing a wikilink retain their source presentation.
+Each fixture pairs the exact revision's raw wikitext with ordinary `action=parse` HTML, and the downloaded full page is verified against the same `wgRevisionId`. Use “Show original article” to restore the retained original DOM, or add `&view=original` to start in that mode. Hover dotted-underlined file source to inspect an image preview. 孫中山 adds a larger reference-heavy article with 26 explicit file invocations and 592 collapsed page locators; four galleries and a rich locator containing a wikilink retain their source presentation.
 
-Downloads are cached in ignored `.cache/annotation-articles/`; entire article snapshots are not committed. Existing fixtures are reused without requests. To explicitly refresh them, run `node tests/annotation/fetch-articles.mjs --refresh`. Source revisions stay pinned, although rerendered template/image output can change. The renderer and mapping do not consume Parsoid metadata. The standard test suite uses local synthetic inputs; the separate article checks use the downloaded fixtures and block external image requests while checking selection behavior.
+Downloads are cached in ignored `.cache/annotation-articles/` and `.cache/annotation-pages/`; full snapshots/assets are not committed. `fetch-pages.mjs` retains the original download, creates a local copy, and caches styles plus their URL dependencies and skin images. It preserves article media URLs. Existing downloads are reused without requests. To explicitly refresh, run `node tests/annotation/fetch-articles.mjs --refresh` and `node tests/annotation/fetch-pages.mjs --refresh`. Source revisions stay pinned, although newly captured styles, templates and image output can change.
+
+This is the agreed HTML-and-styles environment. The local copy removes Wikipedia scripts and inline event handlers, keeps the no-JavaScript skin state, and loads only the local demo module. Wikipedia's JavaScript/gadgets are not replayed. Article media and missing-image thumbnail lookup can still use the network; the page/skin styles and shell assets load locally. The integration tests block external requests to verify mapping, lifecycle and CSS without relying on those media requests.
+
+Wikipedia's existing contents links now target the visible annotation headings. Initial fragment URLs, repeated same-fragment clicks and browser back/forward work through the native IDs. Toggling views transfers the IDs back and reveals the current section after layout settles. The fixture loader requests `tocdata` alongside rendered HTML; existing cached fixtures receive one metadata-only backfill. MediaWiki's Unicode-codepoint section offsets are converted to UTF-8 byte positions. Only sections belonging to the article with exact source locations are included; generated/transcluded sections without such locations are not matched by heading text or order. The source renderer still uses no Parsoid HTML/DSR mapping.
+
+`npm run test:annotation` runs synthetic module regressions through `/lab`. `npm run test:annotation:articles` (also available as `test:annotation:pages`) runs exact-source checks, section-navigation checks, reversible-mount/skin checks, and light/dark/automatic color checks on all four downloaded Wikipedia pages. Color tests compare against actual original-article styles, check text contrast on the relevant surfaces, and retain the same selection/view through theme changes. Heading tests cover duplicate/formatted titles, Unicode offsets, unique IDs, native contents clicks, fragment history and restoration.
 
 Tests are in `tests/annotation/`. Build output and screenshots go under `.cache/annotation-rnd/`. There is no nested package, package manifest, dependency directory, or project configuration inside this source module.
 

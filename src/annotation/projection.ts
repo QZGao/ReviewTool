@@ -1,5 +1,6 @@
 import { parseSource } from './parse';
 import { SourceIndex } from './source-index';
+import { headingSourceStart } from './heading-anchors';
 import type { Fallback, HiddenSource, Projection, ProjectionOptions, TextRun, ViewNode } from './types';
 
 function leaves(node: ViewNode): (TextRun | HiddenSource)[] {
@@ -95,15 +96,18 @@ export function escapeHtml(text: string): string {
 
 /** Core HTML only. Cached presentation previews are handled by createAnnotationView. */
 export function renderToHtml(projection: Projection): string {
+  const sourceIndex = new SourceIndex(projection.source);
   const emit = (node: ViewNode): string => {
     if (node.kind === 'hidden') return '';
     if (node.kind === 'text') return `<span data-source-run="${node.id}"${node.referenceGap ? ' data-reference-gap=""' : ''}${node.lineBreak ? ' data-line-break=""' : ''}>${escapeHtml(node.text)}</span>`;
     const attrs = `${node.href ? ` data-target-url="${escapeHtml(node.href)}"` : ''}${node.rawKind ? ` data-raw-kind="${escapeHtml(node.rawKind)}" aria-label="Raw wikitext: ${escapeHtml(node.rawKind)}"` : ''}${node.template ? ' data-template=""' : ''}${node.lineBreak ? ' data-line-break=""' : ''}${node.sourceKind ? ` data-source-kind="${node.sourceKind}"` : ''}${node.inspection && node.inspection.kind !== 'image' ? ` data-inspect="${node.inspection.kind}" role="button" tabindex="0" aria-expanded="false"` : ''}`;
+    const headingStart = headingSourceStart(node);
+    const heading = headingStart === undefined ? '' : ` data-heading-start="${sourceIndex.toByte(headingStart)}"`;
     const presentation = Object.entries(node.attributes ?? {}).map(([key, value]) => ` ${key}="${escapeHtml(value)}"`).join('');
     const spacing = node.flowBreak ? ` data-break-before="${node.flowBreak}"` : '';
     const caption = node.fileCaption ? ' data-file-caption=""' : '';
     if (node.tag === 'hr') return `<hr${attrs}${presentation}${spacing}>`;
-    return `<${node.tag}${attrs}${presentation}${spacing}${caption}>${node.children.map(emit).join('')}</${node.tag}>`;
+    return `<${node.tag}${heading}${attrs}${presentation}${spacing}${caption}>${node.children.map(emit).join('')}</${node.tag}>`;
   };
   return `<article class="annotation-document" aria-label="Annotation reading view">${projection.blocks.map(emit).join('')}</article>`;
 }

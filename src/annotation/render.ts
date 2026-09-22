@@ -2,6 +2,9 @@ import { selectionFromSource, selectionFromView } from './mapping';
 import { referenceImages } from './reference-html';
 import { sourcePopups } from './source-popups';
 import { trackSelection } from './selection-state';
+import { createHighlighting } from './highlights';
+import { popupLayout } from './popup-layout';
+import { headingSourceStart } from './heading-anchors';
 import { SourceIndex } from './source-index';
 import type { ElementNode, Projection, RenderedView, RenderOptions, TextRun, ViewNode } from './types';
 
@@ -27,6 +30,8 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
       return span;
     }
     const element = doc.createElement(model.tag);
+    const headingStart = headingSourceStart(model);
+    if (headingStart !== undefined) element.dataset.headingStart = String(sourceIndex.toByte(headingStart));
     for (const [name, value] of Object.entries(model.attributes ?? {})) element.setAttribute(name, value);
     if (model.href) element.dataset.targetUrl = model.href;
     if (model.rawKind) { element.dataset.rawKind = model.rawKind; element.setAttribute('aria-label', `Raw wikitext: ${model.rawKind}`); }
@@ -58,7 +63,9 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     const selection = doc.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
     selectionState.capture();
   };
-  const stopPopups = sourcePopups(doc, root, projection.source, inspections, previews, selectTrigger);
+  let highlighting: ReturnType<typeof createHighlighting> | null = null;
+  const layout = popupLayout(doc);
+  const popups = sourcePopups(doc, root, projection.source, inspections, previews, selectTrigger, layout);
 
   function descendant(node: Node, side: 'first' | 'last'): TextRun | null {
     const own = records.get(node); if (own) return own;
@@ -71,7 +78,7 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
   function point(node: Node, offset: number, side: 'start' | 'end'): number | null {
     if (!root.contains(node) && node !== root) return null;
     const el = node.nodeType === 1 ? node as Element : node.parentElement;
-    if (el?.closest('[data-annotation-image], [data-annotation-popup]')) return null;
+    if (el?.closest('[data-annotation-image], [data-annotation-popup], [data-annotation-ui]')) return null;
     const own = records.get(node);
     if (own) return offset >= 0 && offset <= own.text.length ? own.viewFrom + offset : null;
     if (offset < 0 || offset > node.childNodes.length) return null;
@@ -84,8 +91,9 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     element: root,
     projection,
     get selection() { return selectionState.current; },
+    get highlighting() { return highlighting; },
     clearSelection() { selectionState.clear(); },
-    destroy() { stopPopups(); selectionState.destroy(); },
+    destroy() { highlighting?.destroy(); popups.destroy(); selectionState.destroy(); },
     readRange(range) {
       if (range.collapsed) return null;
       const from = point(range.startContainer, range.startOffset, 'start');
@@ -122,6 +130,13 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
       return range;
     },
   };
-  const selectionState = trackSelection(doc, root, range => view.readRange(range), anchor => view.restoreRange(anchor), options.onSelectionChange);
+  const selectionState = trackSelection(doc, root, range => view.readRange(range), anchor => view.restoreRange(anchor), selection => {
+    if (!selection) highlighting?.selectionChanged(null);
+    options.onSelectionChange?.(selection);
+  }, selection => highlighting?.selectionChanged(selection));
+  if (options.highlighting) {
+    try { highlighting = createHighlighting(doc, view, options.highlighting, layout); }
+    catch (error) { popups.destroy(); selectionState.destroy(); throw error; }
+  }
   return view;
 }

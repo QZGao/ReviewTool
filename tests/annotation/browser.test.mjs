@@ -19,7 +19,7 @@ async function inPage(callback) {
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => route.request().url().startsWith(server.url) ? route.continue() : route.abort());
   try {
-    await page.goto(server.url);
+    await page.goto(server.url + '/lab');
     await page.waitForFunction(() => Boolean(window.annotationLab));
     await callback(page);
     assert.deepEqual(errors, []);
@@ -272,6 +272,111 @@ test('Shift-click extends an existing internal selection', async () => {
     await page.keyboard.down('Shift'); await page.mouse.click(end.x, end.y); await page.keyboard.up('Shift');
     await page.waitForFunction(() => annotationLab.view.selection?.quote === 'BCDEFGH');
     assert.deepEqual(await page.evaluate(() => [...CSS.highlights.get('reviewtool-annotation-selection')].map(range => range.toString())), ['BCDEFGH']);
+  });
+});
+
+test('Wikipedia mount preserves display priority, unrelated styles, original nodes and listeners', async () => {
+  await inPage(async page => {
+    const result = await page.evaluate(() => {
+      const host = document.createElement('section');
+      host.innerHTML = '<aside class="mw-parser-output" id="fixture-indicator">Indicator</aside><div id="mw-content-text"><div class="mw-parser-output" style="display:inline-block!important">Original <span>content</span><div class="mw-parser-output">Nested template output</div></div></div>';
+      document.body.append(host);
+      const api = annotationLab.annotation;
+      const original = host.querySelector('#mw-content-text > .mw-parser-output');
+      const nested = original.lastElementChild;
+      let events = 0; original.addEventListener('fixture-event', () => events++);
+      const model = api.createProjection('甲[[页|标签]]乙');
+      const mount = api.mountWikipediaAnnotation(document, model);
+      let duplicateRejected = false;
+      try { api.mountWikipediaAnnotation(document, model); } catch { duplicateRejected = true; }
+      const active = { sibling: original.nextElementSibling === mount.view.element, display: original.style.display, priority: original.style.getPropertyPriority('display'), indicator: host.querySelector('aside').getAttribute('style'), nested: nested.getAttribute('style') };
+      original.style.color = 'red'; // Independent changes made while hidden must survive exit.
+      mount.destroy(); original.dispatchEvent(new Event('fixture-event'));
+      const restored = { display: original.style.display, priority: original.style.getPropertyPriority('display'), color: original.style.color, sameNode: host.querySelector('#mw-content-text').firstElementChild === original, sameChild: original.lastElementChild === nested, events, removed: !mount.view.element.isConnected };
+      original.style.display = 'flex'; mount.destroy();
+      const idempotent = original.style.display;
+      host.remove();
+      return { active, restored, duplicateRejected, idempotent };
+    });
+    assert.deepEqual(result.active, { sibling: true, display: 'none', priority: 'important', indicator: null, nested: null });
+    assert.deepEqual(result.restored, { display: 'inline-block', priority: 'important', color: 'red', sameNode: true, sameChild: true, events: 1, removed: true });
+    assert.equal(result.duplicateRejected, true);
+    assert.equal(result.idempotent, 'flex');
+  });
+});
+
+test('Wikipedia mount refuses absent or ambiguous targets and leaves the original visible on construction failure', async () => {
+  await inPage(async page => {
+    const result = await page.evaluate(() => {
+      const api = annotationLab.annotation, model = api.createProjection('正常');
+      const doc = document.implementation.createHTMLDocument('Fixture');
+      let absent = false, ambiguous = false, failed = false;
+      try { api.mountWikipediaAnnotation(doc, model); } catch { absent = true; }
+      doc.body.innerHTML = '<div id="mw-content-text"><div class="mw-parser-output">First</div><div class="mw-parser-output">Second</div></div>';
+      try { api.mountWikipediaAnnotation(doc, model); } catch { ambiguous = true; }
+      doc.querySelector('#mw-content-text').lastElementChild.remove();
+      try { api.mountWikipediaAnnotation(doc, { ...model, source: '\uD800' }); } catch { failed = true; }
+      return { absent, ambiguous, failed, style: doc.querySelector('.mw-parser-output').getAttribute('style'), views: doc.querySelectorAll('.annotation-document').length };
+    });
+    assert.deepEqual(result, { absent: true, ambiguous: true, failed: true, style: null, views: 0 });
+  });
+});
+
+test('Wikipedia heading IDs follow exact source starts through duplicates, markup and Unicode', async () => {
+  await inPage(async page => {
+    const result = await page.evaluate(() => {
+      const source = '前😀\r\n== Same ==\r\n文字\r\n== Same ==\r\n文字\r\n=== A &amp; [[页|B]] ===\r\n尾';
+      const host = document.createElement('div');
+      host.innerHTML = '<nav><a href="#Same">First</a><a href="#Same_2">Second</a><a href="#A_%26_B">Formatted</a></nav><div id="mw-content-text"><div class="mw-parser-output"><h2 id="Same">Same</h2><h2 id="Same_2">Same</h2><h3><span class="mw-headline" id="A_&amp;_B">A &amp; B</span></h3></div></div>';
+      document.body.append(host);
+      const original = host.querySelector('.mw-parser-output');
+      const owners = [...original.querySelectorAll('[id]')];
+      const html = original.innerHTML;
+      const ids = ['Same', 'Same_2', 'A_&_B'];
+      const starts = [source.indexOf('== Same'), source.lastIndexOf('== Same'), source.indexOf('=== A')];
+      const anchors = starts.map((at, i) => ({ unit: 'utf8-byte', start: new TextEncoder().encode(source.slice(0, at)).length, level: i === 2 ? 3 : 2, id: ids[i] }));
+      const mount = annotationLab.annotation.mountWikipediaAnnotation(document, annotationLab.annotation.createProjection(source), { headingAnchors: anchors });
+      const headings = [...mount.view.element.querySelectorAll('[data-heading-start]')];
+      const assigned = ids.map((id, i) => ({ id, count: [...document.querySelectorAll('[id]')].filter(node => node.id === id).length, target: document.getElementById(id) === headings[i], start: Number(headings[i].dataset.headingStart), oldIdRemoved: !owners[i].hasAttribute('id') }));
+      const range = document.createRange(); range.selectNodeContents(headings[2]);
+      const selected = mount.view.readRange(range);
+      const restored = mount.view.readRange(mount.view.restoreRange(selected.anchor));
+      mount.destroy();
+      const back = ids.every((id, i) => document.getElementById(id) === owners[i]);
+      const htmlPreserved = original.innerHTML === html;
+      host.remove();
+      return { assigned, anchors, selected, restored, back, htmlPreserved };
+    });
+    for (const [i, item] of result.assigned.entries()) {
+      assert.equal(item.count, 1);
+      assert.equal(item.target, true);
+      assert.equal(item.oldIdRemoved, true);
+      assert.equal(item.start, result.anchors[i].start);
+    }
+    assert.deepEqual(result.restored, result.selected);
+    assert.equal(result.selected.quote, ' A & B ');
+    assert.equal(result.selected.sourceText, ' A &amp; [[页|B]] ');
+    assert.equal(result.back, true);
+    assert.equal(result.htmlPreserved, true);
+  });
+});
+
+test('ambiguous heading metadata fails before hiding the article and unmatched headings are not guessed', async () => {
+  await inPage(async page => {
+    const result = await page.evaluate(() => {
+      const host = document.createElement('div'); host.id = 'mw-content-text'; host.innerHTML = '<div class="mw-parser-output"><h2 id="Exact">Exact</h2></div>'; document.body.append(host);
+      const original = host.firstElementChild;
+      const api = annotationLab.annotation, projection = api.createProjection('== Exact ==');
+      const anchor = { unit: 'utf8-byte', start: 0, level: 2, id: 'Exact' };
+      let failed = false;
+      try { api.mountWikipediaAnnotation(document, projection, { headingAnchors: [anchor, anchor] }); } catch { failed = true; }
+      const untouched = original.style.display === '' && original.querySelector('h2').id === 'Exact' && !host.querySelector('.annotation-document');
+      const mount = api.mountWikipediaAnnotation(document, projection, { headingAnchors: [{ ...anchor, start: 1 }] });
+      const noGuess = !mount.view.element.querySelector('h2').id && original.querySelector('h2').id === 'Exact';
+      mount.destroy(); host.remove();
+      return { failed, untouched, noGuess };
+    });
+    assert.deepEqual(result, { failed: true, untouched: true, noGuess: true });
   });
 });
 

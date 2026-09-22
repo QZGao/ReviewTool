@@ -68,11 +68,37 @@ export interface MappedSelection {
   viewTo: number;
 }
 
+export type HighlightColor = 'red' | 'yellow' | 'green' | 'blue';
+
+export interface HighlightAnnotation {
+  readonly id: string;
+  readonly anchor: Readonly<SourceAnchor>;
+  readonly color: HighlightColor;
+}
+
+/** Local user actions; persistence and revision identity belong to the caller. */
+export type HighlightAction =
+  | { type: 'add-highlight'; highlight: HighlightAnnotation }
+  | { type: 'recolor-highlight'; id: string; color: HighlightColor }
+  | { type: 'delete-highlight'; id: string };
+
+export interface HighlightOptions {
+  initial?: readonly HighlightAnnotation[];
+  onChange?: (annotations: readonly HighlightAnnotation[], action: HighlightAction) => void;
+}
+
+export interface HighlightingView {
+  readonly annotations: readonly HighlightAnnotation[];
+  /** Replace a committed snapshot without generating a user action. Invalid anchors throw. */
+  replace(annotations: readonly HighlightAnnotation[]): void;
+}
+
 export interface RenderedView {
   element: HTMLElement;
   projection: Projection;
   /** Last selection made in this view; outside selections and popups do not clear it. */
   readonly selection: MappedSelection | null;
+  readonly highlighting: HighlightingView | null;
   clearSelection(): void;
   readRange(range: Range): MappedSelection | null;
   restoreRange(anchor: SourceAnchor): Range | null;
@@ -86,4 +112,18 @@ export interface RenderOptions {
   referenceBaseUrl?: string;
   /** Only notified when this view's source selection changes or is explicitly cleared. */
   onSelectionChange?: (selection: MappedSelection | null) => void;
+  /** Opt in to source-anchored markers and the selection/hover color bar. */
+  highlighting?: HighlightOptions;
+}
+
+/** Temporary navigation metadata for a heading in this exact source revision. */
+export interface WikipediaHeadingAnchor {
+  unit: 'utf8-byte';
+  start: number;
+  level: number;
+  id: string;
+}
+
+export interface WikipediaViewOptions extends RenderOptions {
+  headingAnchors?: readonly WikipediaHeadingAnchor[];
 }

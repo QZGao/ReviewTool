@@ -1,10 +1,11 @@
 import type { ElementNode } from './types';
 import { imagePreviews } from './image-preview';
+import type { PopupLayout } from './popup-layout';
 
 let nextPopup = 0;
 
 /** One interactive source popup per mounted view; its contents are excluded from annotation mapping. */
-export function sourcePopups(doc: Document, root: HTMLElement, source: string, entries: WeakMap<HTMLElement, ElementNode>, images: WeakMap<HTMLElement, HTMLImageElement>, selectTrigger: (element: HTMLElement) => void): () => void {
+export function sourcePopups(doc: Document, root: HTMLElement, source: string, entries: WeakMap<HTMLElement, ElementNode>, images: WeakMap<HTMLElement, HTMLImageElement>, selectTrigger: (element: HTMLElement) => void, layout: PopupLayout) {
   const controller = new AbortController();
   const options = { signal: controller.signal };
   const thumbnail = imagePreviews(controller.signal);
@@ -31,7 +32,7 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   const hide = (restoreFocus = false) => {
     const previous = active;
     const popupFocused = popup.contains(doc.activeElement);
-    cancel(); popup.hidden = true;
+    cancel(); popup.hidden = true; layout.hide('source');
     active?.setAttribute('aria-expanded', 'false');
     active?.removeAttribute('aria-describedby');
     active = null;
@@ -46,16 +47,8 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   const inside = (target: EventTarget | null, element: HTMLElement | null): boolean => Boolean(target && 'nodeType' in target && element?.contains(target as Node));
   const position = () => {
     if (!active || popup.hidden) return;
-    const viewport = doc.documentElement;
-    popup.style.maxWidth = `${Math.max(0, viewport.clientWidth - 24)}px`;
-    popup.style.maxHeight = `${Math.max(0, Math.min(360, viewport.clientHeight - 24))}px`;
-    const anchor = active.getBoundingClientRect();
-    const box = popup.getBoundingClientRect();
-    const left = Math.max(12, Math.min(anchor.left, viewport.clientWidth - box.width - 12));
-    const below = anchor.bottom + 8;
-    const above = anchor.top - box.height - 8;
-    const top = above >= 12 ? above : Math.min(below, Math.max(12, viewport.clientHeight - box.height - 12));
-    popup.style.left = `${left}px`; popup.style.top = `${top}px`;
+    const trigger = active;
+    layout.show('source', popup, () => trigger.getBoundingClientRect());
   };
   const displayImage = (image: HTMLImageElement) => {
     preview.replaceChildren(image);
@@ -97,23 +90,23 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   const later = () => {
     cancel();
     timer = setTimeout(() => {
-      if (doc.activeElement !== active && !inside(doc.activeElement, popup)) hide();
+      if (doc.activeElement !== active && !layout.contains(doc.activeElement)) hide();
     }, 140);
   };
   root.addEventListener('pointerover', event => {
     if (event.buttons) return;
-    if (inside(doc.activeElement, popup)) { cancel(); return; }
     const element = trigger(event.target);
+    if (inside(doc.activeElement, popup)) { cancel(); return; }
     if (element && element !== active) show(element);
-    else if (element || inside(event.target, popup)) cancel();
+    else if (element || layout.contains(event.target)) cancel();
   }, options);
   root.addEventListener('pointerout', event => {
-    if (inside(event.relatedTarget, active) || inside(event.relatedTarget, popup)) return;
-    if (trigger(event.target) || inside(event.target, popup)) later();
+    if (inside(event.relatedTarget, active) || layout.contains(event.relatedTarget)) return;
+    if (trigger(event.target) || layout.contains(event.target)) later();
   }, options);
   root.addEventListener('focusin', event => { const element = trigger(event.target); if (element && !restoringFocus) show(element); }, options);
   root.addEventListener('focusout', event => {
-    if (inside(event.relatedTarget, popup)) return;
+    if (layout.contains(event.relatedTarget)) return;
     if (trigger(event.target) || (inside(event.target, popup) && event.relatedTarget && event.relatedTarget !== active)) hide();
   }, options);
   root.addEventListener('click', event => {
@@ -145,9 +138,9 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   }, { ...options, capture: true });
   doc.addEventListener('keydown', event => { if (event.key === 'Escape') hide(true); }, options);
   doc.addEventListener('pointerdown', event => {
-    if (!inside(event.target, active) && !inside(event.target, popup)) hide();
+    if (!inside(event.target, active) && !layout.contains(event.target)) hide();
   }, options);
-  doc.addEventListener('scroll', event => { if (!inside(event.target, popup)) hide(); }, { ...options, capture: true });
+  doc.addEventListener('scroll', event => { if (!layout.contains(event.target)) hide(); }, { ...options, capture: true });
   doc.defaultView?.addEventListener('resize', () => hide(), options);
-  return () => { hide(); controller.abort(); popup.remove(); };
+  return { hide: () => hide(), destroy: () => { hide(); controller.abort(); popup.remove(); } };
 }
