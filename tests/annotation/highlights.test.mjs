@@ -365,6 +365,7 @@ test('Wikipedia markers and selections preserve text colors in light/dark modes 
     }
     const original = await page.evaluate(() => annotationPageLab.view.highlighting.annotations);
     for (const theme of ['light', 'dark']) {
+      await page.evaluate(() => document.activeElement?.blur());
       await page.keyboard.press('Escape');
       await page.evaluate(theme => annotationPageLab.setTheme(theme), theme);
       const point = await page.locator('#求學').boundingBox();

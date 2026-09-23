@@ -70,17 +70,35 @@ export interface MappedSelection {
 
 export type HighlightColor = 'red' | 'yellow' | 'green' | 'blue';
 
+export interface AnnotationComment {
+  readonly id: string;
+  readonly text: string;
+  readonly author: string;
+  /** Posting time as a UTC ISO 8601 string ending in Z. Display formatting belongs to the view. */
+  readonly createdAt: string;
+  readonly replies: readonly AnnotationComment[];
+}
+
+/** Unsent UI state, kept separately from committed annotation/comment data. */
+export type CommentDraft = { annotationId: string; text: string } & (
+  { kind: 'new' } | { kind: 'reply' | 'edit'; commentId: string }
+);
+
 export interface HighlightAnnotation {
   readonly id: string;
   readonly anchor: Readonly<SourceAnchor>;
   readonly color: HighlightColor;
+  readonly comment?: AnnotationComment;
 }
 
 /** Local user actions; persistence and revision identity belong to the caller. */
 export type HighlightAction =
   | { type: 'add-highlight'; highlight: HighlightAnnotation }
   | { type: 'recolor-highlight'; id: string; color: HighlightColor }
-  | { type: 'delete-highlight'; id: string };
+  | { type: 'delete-highlight'; id: string }
+  | { type: 'add-comment'; id: string; comment: AnnotationComment; parentId?: string }
+  | { type: 'edit-comment'; id: string; commentId: string; text: string }
+  | { type: 'resolve-comment'; id: string; commentId: string };
 
 export interface HighlightOptions {
   initial?: readonly HighlightAnnotation[];
@@ -91,6 +109,8 @@ export interface HighlightingView {
   readonly annotations: readonly HighlightAnnotation[];
   /** Replace a committed snapshot without generating a user action. Invalid anchors throw. */
   replace(annotations: readonly HighlightAnnotation[]): void;
+  dispatch(action: HighlightAction): void;
+  subscribe(listener: (annotations: readonly HighlightAnnotation[], action?: HighlightAction) => void): () => void;
 }
 
 export interface RenderedView {
@@ -99,6 +119,7 @@ export interface RenderedView {
   /** Last selection made in this view; outside selections and popups do not clear it. */
   readonly selection: MappedSelection | null;
   readonly highlighting: HighlightingView | null;
+  readonly comments: { element: HTMLElement; readonly drafts: readonly CommentDraft[] } | null;
   clearSelection(): void;
   readRange(range: Range): MappedSelection | null;
   restoreRange(anchor: SourceAnchor): Range | null;
@@ -114,6 +135,11 @@ export interface RenderOptions {
   onSelectionChange?: (selection: MappedSelection | null) => void;
   /** Opt in to source-anchored markers and the selection/hover color bar. */
   highlighting?: HighlightOptions;
+  /** Optional host for comment threads, outside the article's selectable source. */
+  commentContainer?: HTMLElement;
+  /** Name recorded on new comments/replies; required when a comment panel is enabled. */
+  commentAuthor?: string;
+  commentDrafts?: readonly CommentDraft[];
 }
 
 /** Temporary navigation metadata for a heading in this exact source revision. */
@@ -126,4 +152,6 @@ export interface WikipediaHeadingAnchor {
 
 export interface WikipediaViewOptions extends RenderOptions {
   headingAnchors?: readonly WikipediaHeadingAnchor[];
+  /** Mount comment threads in Vector's existing right column. Requires highlighting. */
+  comments?: boolean;
 }

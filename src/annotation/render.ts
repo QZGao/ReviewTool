@@ -4,6 +4,7 @@ import { sourcePopups } from './source-popups';
 import { trackSelection } from './selection-state';
 import { createHighlighting } from './highlights';
 import { popupLayout } from './popup-layout';
+import { createCommentPanel } from './comments';
 import { headingSourceStart } from './heading-anchors';
 import { SourceIndex } from './source-index';
 import type { ElementNode, Projection, RenderedView, RenderOptions, TextRun, ViewNode } from './types';
@@ -64,6 +65,7 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     selectionState.capture();
   };
   let highlighting: ReturnType<typeof createHighlighting> | null = null;
+  let comments: ReturnType<typeof createCommentPanel> | null = null;
   const layout = popupLayout(doc);
   const popups = sourcePopups(doc, root, projection.source, inspections, previews, selectTrigger, layout);
 
@@ -92,8 +94,9 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     projection,
     get selection() { return selectionState.current; },
     get highlighting() { return highlighting; },
+    get comments() { return comments; },
     clearSelection() { selectionState.clear(); },
-    destroy() { highlighting?.destroy(); popups.destroy(); selectionState.destroy(); },
+    destroy() { comments?.destroy(); highlighting?.destroy(); popups.destroy(); selectionState.destroy(); },
     readRange(range) {
       if (range.collapsed) return null;
       const from = point(range.startContainer, range.startOffset, 'start');
@@ -137,6 +140,13 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
   if (options.highlighting) {
     try { highlighting = createHighlighting(doc, view, options.highlighting, layout); }
     catch (error) { popups.destroy(); selectionState.destroy(); throw error; }
+  }
+  if (options.commentContainer) {
+    try {
+      if (typeof options.commentAuthor !== 'string' || !options.commentAuthor.trim()) throw new Error('A comment author is required when enabling comments.');
+      comments = createCommentPanel(doc, view, options.commentContainer, layout, options.commentAuthor, options.commentDrafts);
+      highlighting?.onHover((id, anchor) => comments?.activate(id, anchor));
+    } catch (error) { view.destroy(); throw error; }
   }
   return view;
 }

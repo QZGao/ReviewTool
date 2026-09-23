@@ -1,10 +1,12 @@
-.annotation-document {
-  --annotation-code-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --annotation-paragraph-gap: 1.35rem;
+.annotation-document, .annotation-comments {
   --annotation-marker-red: rgb(242 206 182 / 50%); /* #F2CEB6 */
   --annotation-marker-yellow: rgb(238 218 168 / 50%); /* #EEDAA8 */
   --annotation-marker-green: rgb(201 219 205 / 50%); /* #C9DBCD */
   --annotation-marker-blue: rgb(190 217 246 / 50%); /* #BED9F6 */
+}
+.annotation-document {
+  --annotation-code-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --annotation-paragraph-gap: 1.35rem;
   /* max-width: 48rem; */
   margin-inline: auto;
   color: var(--color-base, #202122);
@@ -98,6 +100,14 @@
   -webkit-user-select: text;
 }
 .annotation-document .annotation-source-popup[hidden] { display: none; }
+/* Manual popovers use the browser's top layer; placement still comes from our layout. */
+.annotation-document [data-annotation-popup][popover],
+.annotation-document [data-annotation-toolbar][popover],
+.annotation-comments[popover] { inset: auto; margin: 0; }
+.annotation-comments[popover] { padding: 0; border: 0; }
+.annotation-document [data-annotation-popup]::backdrop,
+.annotation-document [data-annotation-toolbar]::backdrop,
+.annotation-comments::backdrop { background: transparent; pointer-events: none; }
 .annotation-popup-heading { margin-bottom: 10px; color: var(--color-subtle, #54595d); font-weight: 650; }
 .annotation-popup-image img { max-width: 100%; height: auto; max-height: min(24rem, 60vh); object-fit: contain; vertical-align: middle; }
 .annotation-document .annotation-source-popup pre { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; font-family: var(--annotation-code-font); }
@@ -144,3 +154,42 @@
 .annotation-highlight-bar [data-color][aria-pressed="false"] svg { visibility: hidden; }
 .annotation-highlight-bar .annotation-highlight-divider { width: 1px; height: 22px; background: var(--border-color-subtle, #c8ccd1); }
 .annotation-highlight-bar [data-delete-highlight] { color: var(--color-base, #202122); background: transparent; border-color: transparent; }
+
+.annotation-comments-host { position: relative; }
+.annotation-comments { position: relative; width: 100%; color: var(--color-base, #202122); font: 14px/1.5 system-ui, sans-serif; }
+.annotation-comments[hidden], .annotation-comments [hidden] { display: none !important; }
+.annotation-comment-thread { position: absolute; inset-inline: 0; box-sizing: border-box; min-width: 0; border: 1px solid var(--comment-border); background: var(--comment-background); border-radius: 7px; overflow-wrap: anywhere; z-index: 2; }
+.annotation-comment-thread[data-color="red"] { --comment-border: #F2CEB6; --comment-background: var(--annotation-marker-red); }
+.annotation-comment-thread[data-color="yellow"] { --comment-border: #EEDAA8; --comment-background: var(--annotation-marker-yellow); }
+.annotation-comment-thread[data-color="green"] { --comment-border: #C9DBCD; --comment-background: var(--annotation-marker-green); }
+.annotation-comment-thread[data-color="blue"] { --comment-border: #BED9F6; --comment-background: var(--annotation-marker-blue); }
+.annotation-comments button { font: inherit; font-size: 11px; line-height: 1.5; border: 0; border-radius: 3px; padding: 1px 4px; color: inherit; background: transparent; cursor: pointer; }
+.annotation-comments button:enabled:hover { text-decoration: underline; }
+.annotation-comments button:focus-visible, .annotation-comment-text:focus-visible { outline: 2px solid var(--border-color-progressive--focus, #36c); outline-offset: 2px; }
+.annotation-comments button:disabled { color: var(--color-disabled, #72777d); opacity: .65; cursor: default; text-decoration: none; }
+.annotation-comment-body { display: flex; flex-direction: column; min-width: 0; padding: 12px 10px; }
+.annotation-comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 6px; font-size: 11px; line-height: 1.4; }
+.annotation-comment-author { font-weight: 600; overflow-wrap: anywhere; }
+.annotation-comment-date { color: var(--color-subtle, #54595d); }
+.annotation-comment-text { white-space: pre-wrap; min-height: 21px; cursor: text; }
+.annotation-comment-thread[data-crowded]:not(:hover):not(:has(:focus-visible)) .annotation-comment-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.annotation-comment-actions { order: -1; display: none; justify-content: flex-end; gap: 2px; margin-bottom: 6px; opacity: 0; pointer-events: none; }
+.annotation-comment-reply { display: none; align-self: flex-end; margin-top: 6px; opacity: 0; pointer-events: none; }
+.annotation-comment-body:hover > :is(.annotation-comment-actions, .annotation-comment-reply),
+.annotation-comment-body:has(:focus-visible) > :is(.annotation-comment-actions, .annotation-comment-reply) { display: flex; opacity: 1; pointer-events: auto; }
+.annotation-comment-replies { margin: 0 4px 6px 12px; padding-left: 3px; border-left: 1px solid var(--border-color-base, #a2a9b1); min-width: 0; }
+.annotation-comments .annotation-comment-editor { margin: 0; padding-bottom: 8px; }
+.annotation-comment-editor textarea { display: block; box-sizing: border-box; width: 100%; min-height: 21px; padding: 0; margin: 0; resize: none; border: 0; border-radius: 0; outline: none; background: transparent; box-shadow: none; color: inherit; font: inherit; line-height: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.annotation-comment-editor-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 6px; }
+.annotation-comments .annotation-comment-placeholder { display: block; padding: 12px 10px; width: 100%; text-align: left; color: var(--color-subtle, #54595d); font-size: inherit; }
+.annotation-comment-connectors { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; z-index: 1; }
+.annotation-comment-connectors path { fill: none; stroke-width: 1.5; }
+.annotation-comments[data-layout="floating"] { position: fixed; width: 280px; min-height: 0; z-index: 1002; overflow: auto; overscroll-behavior: contain; background: var(--background-color-base, #fff); border-radius: 7px; box-shadow: 0 4px 16px #0002; }
+.annotation-comments[data-layout="floating"] .annotation-comment-thread { position: relative; top: auto; }
+.annotation-comment-measure { position: fixed; left: -10000px; top: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+.annotation-comment-measuring .annotation-comment-text { white-space: pre-wrap !important; overflow: visible !important; text-overflow: clip !important; }
+.annotation-comment-measuring :is(.annotation-comment-actions, .annotation-comment-reply) { display: none !important; }
+@media (hover: none) {
+  .annotation-comment-body > :is(.annotation-comment-actions, .annotation-comment-reply) { display: flex; opacity: 1; pointer-events: auto; }
+  .annotation-comment-thread[data-crowded] .annotation-comment-text { white-space: pre-wrap; overflow: visible; text-overflow: clip; }
+}

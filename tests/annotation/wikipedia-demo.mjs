@@ -32,7 +32,7 @@ function setTheme(theme) {
 const initialTheme = Object.entries(themes).find(([, value]) => document.documentElement.classList.contains('skin-theme-clientpref-' + value))?.[0] ?? 'light';
 setTheme(new URL(location.href).searchParams.get('theme') ?? initialTheme);
 $('theme').addEventListener('change', () => setTheme($('theme').value));
-let fixture, projection, mount = null, selected = null, highlights = [];
+let fixture, projection, mount = null, selected = null, highlights = [], commentDrafts = [];
 function updateStatus() {
   $('status').textContent = `${fixture.title} · revision ${revisionId} · ${mount ? 'Annotation View' : 'Original article'} · ${highlights.length} highlights (this session)`;
 }
@@ -46,10 +46,10 @@ function show(selection) {
 function setEnabled(enabled) {
   if (!projection) return;
   if (enabled && !mount) mount = annotation.mountWikipediaAnnotation(document, projection, {
-    onSelectionChange: show, headingAnchors: fixture.headingAnchors,
+    onSelectionChange: show, headingAnchors: fixture.headingAnchors, comments: true, commentAuthor: 'Example', commentDrafts,
     highlighting: { initial: highlights, onChange: snapshot => { highlights = snapshot; updateStatus(); } },
   });
-  else if (!enabled && mount) { mount.destroy(); mount = null; show(null); }
+  else if (!enabled && mount) { commentDrafts = mount.view.comments?.drafts ?? []; mount.destroy(); mount = null; show(null); }
   $('toggle').textContent = mount ? 'Show original article' : 'Show Annotation View';
   $('toggle').setAttribute('aria-pressed', String(Boolean(mount)));
   updateStatus();

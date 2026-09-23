@@ -1,6 +1,6 @@
 # Annotation visual model
 
-An isolated R&D module inside the existing ReviewTool source tree. It imports no other ReviewTool TypeScript modules, has no MediaWiki globals, and does not implement comments, storage, revision navigation, or article editing.
+An isolated R&D module inside the existing ReviewTool source tree. It includes the source-based reading view, highlights and local comment threads. It imports no other ReviewTool TypeScript modules, has no MediaWiki globals, and does not implement wiki-backed storage, revision navigation, or article editing.
 
 ## Inputs and output
 
@@ -148,13 +148,35 @@ Selecting article text opens a compact four-color bar. Hovering or clicking an e
 
 Selecting the same source range edits its existing marker. Partially overlapping ranges can coexist; the most recently added marker is painted on top and is the one edited at the overlap. Recoloring keeps its ID, anchor and ordering. Deleting it reveals any underlying marker. These are current frontend behaviors, not a collaboration conflict policy.
 
-`onChange(snapshot, action)` receives the next immutable snapshot plus `add-highlight`, `recolor-highlight` or `delete-highlight`. This is a local action boundary for future persistence; there is no network save, action queue, author model or synchronization yet. The Wikipedia demo retains the snapshot while toggling article views; a page reload or article navigation clears it. The separate `/lab` source-parser playground does not enable the highlight UI.
+`onChange(snapshot, action)` receives the next immutable snapshot plus highlight or comment actions. `view.highlighting.dispatch(action)` applies a local action; `subscribe(listener)` observes replacements and actions and returns an unsubscribe function. This is a local action boundary for future persistence; there is no network save, action queue, authentication or synchronization yet. The Wikipedia demo retains the snapshot while toggling article views; a page reload or article navigation clears it. The separate `/lab` source-parser playground does not enable the highlight UI.
 
 Markers use the browser's CSS Custom Highlight API and restored source ranges. They never wrap, split or rewrite article text nodes. Hover detection uses text rectangles, excluding blank space between blocks. The saved active selection is painted above markers while choosing a color. Toolbar elements and source popups remain outside annotation coordinates.
 
 Source/image tooltips and the color bar can remain open together, including on marked links and references. Shared positioning normally places the color bar above its passage and the tooltip below its trigger. Near viewport edges, the tooltip uses the available space without overlapping the bar; long content scrolls within that space, and image loading recalculates placement. A source tooltip on its own retains its above-first preference. Moving between the popups, focusing either one, selecting tooltip text or scrolling inside the tooltip keeps the other controls available and preserves the article selection. The four color buttons have solid borders in their unblended base colors, with translucent fills.
 
+Source/image tooltips, the color bar and floating comment threads use native manual popovers. They paint in the browser's top layer above Wikipedia's article/sidebar stacking contexts and connector lines. Their DOM parents stay the same, preserving theme inheritance and event delegation. Positioning and dismissal remain controlled by the module, and multiple popups can coexist without modal backdrops. Returning a floating comment to the desktop sidebar removes its popover role. The floating UI requires the [Popover API](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/popover), alongside the Highlight API used by markers.
+
 This opt-in feature requires `CSS.highlights` and `Highlight`; enabling it on an unsupported browser throws a clear error before the Wikipedia adapter hides the original article. Destroying the view removes only its own marker registrations, stylesheet and listeners.
+
+## Comment threads
+
+Enable `comments: true` alongside `highlighting` and supply `commentAuthor` in `mountWikipediaAnnotation`. The demo passes `commentAuthor: 'Example'`. It appends the comment area inside the existing `div.vector-column-end.no-font-mode-scale`, preserving that column's other children. For another host, `createAnnotationView` accepts `commentContainer` and the same author option. The panel appears as `view.comments.element` and is removed on destruction.
+
+A new highlight shows an Add a comment placeholder without opening a textbox or moving focus into the comment area. Clicking that placeholder opens and focuses the new-comment editor. Reply and Edit continue opening their editors immediately, and saved drafts restore as editors. The card uses the marker's solid base color for the border and the 50% color for the background. Its preferred top matches the first selected text line. Cards are ordered by source position and pushed down with a 12px gap when needed; expansion, replies, typing and article reflow recalculate the layout. Pointer-transparent SVG lines connect highlights to cards. Potentially overlapping connectors use up to three small lanes, separated by 3px; additional lines may reuse a lane.
+
+Threads with enough space display their full text. Only groups whose full text heights would overlap at their source positions collapse to one line per message. Hovering a crowded thread expands it; leaving collapses it again. Keyboard-visible focus also keeps the thread expanded. Clicking text no longer toggles its state. Full heights are measured in inert copies and cached by content revision and width, so hover controls and temporary expansion do not make crowding fluctuate. Floating threads show full text inside their scrollable popup.
+
+Each message has hover/focus controls: Resolve and Edit form a row above the text, aligned right; Reply forms a row below, also aligned right. These rows take no space while hidden and push the text/following content when shown, so controls do not cover comment text. Replies are nested with indentation and gray guide lines. Textboxes are unframed and transparent, using the same text styling. New comments/replies show Send and Discard; existing-comment edits show Save changes and Cancel. Editor actions are always visible. Save changes is disabled and gray until the text is nonblank and differs from the saved comment, including after a draft is restored. Reverting to the original text disables it again; textarea line-ending normalization alone does not count as a change. Cancel restores the saved message. Discard removes an unsent reply or leaves an Add a comment placeholder for a new thread. Resolving a reply removes that reply and its descendants. Resolving the root removes the entire annotation, including its highlight. Deleting a highlight also removes its thread. Recoloring updates the card and connector without changing its text.
+
+On narrow screens the sidebar is hidden. Hovering or clicking a highlight opens its floating thread; newly created threads also wait for that interaction. The floating thread stays open while the pointer or focus is inside it and participates in the shared popup layout. Long expanded content scrolls, leaving room for the source tooltip and color bar. No bottom panel is used.
+
+Each highlight can have `comment: { id, text, author, createdAt, replies }`, where replies recursively contain the same message shape. Comment text and author names are plain text. Send records the configured author and a UTC ISO timestamp (`createdAt`, ending in `Z`); edits preserve that original author and posting time. Imported timestamps must be valid UTC ISO strings with seconds or milliseconds and are stored canonically with milliseconds. Missing/invalid metadata is rejected rather than invented.
+
+The compact metadata row shows the author and posting date/time in the browser's locale and system timezone, using `Intl.DateTimeFormat` without a fixed timezone override. The `<time datetime>` value remains UTC; its title includes seconds and the local timezone name. New drafts show the author without a posting time until sent. Existing-comment editors retain the saved metadata.
+
+`add-comment` takes the annotation `id`, a `comment` record and an optional `parentId`; `edit-comment` takes the annotation `id`, `commentId` and `text`; `resolve-comment` takes the annotation `id` and `commentId`. Snapshots and published action payloads are immutable. Invalid, duplicate or missing message targets are rejected without replacing valid state. Source text nodes and UTF-8 coordinates are unchanged by comment actions, and comment/editor selections are outside annotation coordinates.
+
+Unsent work is separate from saved comments. `view.comments.drafts` exports draft UI state, which a host can pass back as `commentDrafts` when remounting. The Wikipedia demo retains both saved threads and drafts across original/annotation view toggles, in page memory only. Reloading or navigating away still clears this local session. Collaboration, real account integration and server persistence remain subsequent work.
 
 ## Files
 
@@ -171,6 +193,9 @@ This opt-in feature requires `CSS.highlights` and `Highlight`; enabling it on an
 | `source-index.ts`, `mapping.ts` | Exact coordinate conversion, selection mapping, restoration policy |
 | `selection-state.ts` | Per-view selection persistence, gesture boundaries, and persistent highlights |
 | `highlights.ts` | Source-anchored color markers, selection/hover toolbar, local actions and cleanup |
+| `annotation-state.ts` | Immutable annotation/comment snapshots, validation and action dispatch |
+| `comments.ts`, `comment-layout.ts` | Thread controls, drafts, collision spacing, connectors and narrow-screen floating comments |
+| `range-rects.ts` | Text-only range geometry shared by marker hit testing and comment positioning |
 | `reference-html.ts` | Filename matching and copying reusable images |
 | `image-preview.ts` | Lazy, batched and cached 250px thumbnail lookup for unmatched files |
 | `render.ts` | DOM construction and native `Range` translation |

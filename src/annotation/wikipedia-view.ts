@@ -13,7 +13,9 @@ export function mountWikipediaAnnotation(doc: Document, projection: Projection, 
   const display = original.style.getPropertyValue('display');
   const priority = original.style.getPropertyPriority('display');
   const hadStyle = original.hasAttribute('style');
-  const view = createAnnotationView(doc, projection, { referenceHtml: original.outerHTML, referenceBaseUrl: 'https://zh.wikipedia.org/wiki/', ...options });
+  const column = options.comments ? doc.querySelector<HTMLElement>('div.vector-column-end.no-font-mode-scale') : null;
+  if (options.comments && !column) throw new Error('Expected the Vector right column for annotation comments.');
+  const view = createAnnotationView(doc, projection, { referenceHtml: original.outerHTML, referenceBaseUrl: 'https://zh.wikipedia.org/wiki/', ...options, ...(column ? { commentContainer: column } : {}) });
   let headings: ReturnType<typeof bindHeadingAnchors>;
   try { headings = bindHeadingAnchors(original, view.element, options.headingAnchors ?? []); }
   catch (error) { view.destroy(); throw error; }
