@@ -26,7 +26,8 @@ export function createApi(options?: mw.Api.Options): mw.Api {
       let aborted = false;
       const abort = () => { aborted = true; deferred.reject('http', { textStatus: 'abort', exception: 'abort' }); };
       this.pending.add(abort);
-      const signal = (ajaxOptions as JQuery.AjaxSettings & { signal?: AbortSignal } | undefined)?.signal;
+      // mw.Api.makeAbortablePromise also supplies its own minimal signal, without removeEventListener.
+      const signal = (ajaxOptions as JQuery.AjaxSettings & { signal?: Pick<AbortSignal, 'aborted' | 'addEventListener'> & Partial<Pick<AbortSignal, 'removeEventListener'>> } | undefined)?.signal;
       if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
       const network = (request: UnknownApiParams): Promise<ApiResponse> => new Promise((resolve, reject) => {
         super.ajax(request, ajaxOptions).done(resolve).fail((code: unknown) => reject(new LocalApiError(typeof code === 'string' ? code : 'http', 'MediaWiki read failed.')));
@@ -110,7 +111,7 @@ export function createApi(options?: mw.Api.Options): mw.Api {
         const code = error instanceof LocalApiError ? error.code : 'dryrun-storage';
         const response = { error: { code, info: error instanceof Error ? error.message : 'Local API request failed.' } };
         deferred.reject(code, response, response);
-      }).finally(() => { this.pending.delete(abort); signal?.removeEventListener('abort', abort); });
+      }).finally(() => { this.pending.delete(abort); signal?.removeEventListener?.('abort', abort); });
       return deferred.promise({ abort }) as mw.Api.AbortablePromise;
     }
   }

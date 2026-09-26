@@ -16,14 +16,6 @@
 
 ## 使用方式
 
-### 在 Chrome 測試即時頁面
-
-執行 `npm run dev:chrome`，以 Playwright 啟動 Chrome 並載入本機建構的擴充功能；預設使用正常模式及真正的 MediaWiki API。
-
-執行 `npm run dev:chrome:dry` 可使用乾跑模式：讀取維基資料，但修改只存於該測試瀏覽器的本機資料庫。JavaScript 內含 source map，可在 DevTools 中除錯 TypeScript。
-
-完整指令、模式差異及驗證方式見 [Live Chrome development](tests/live/README.md)。
-
 ### 發行版本
 
 将如下程式碼复制至 [User:你的用戶名/common.js](https://zh.wikipedia.org/wiki/Special:MyPage/common.js) 頁面：

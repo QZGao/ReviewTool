@@ -19,6 +19,10 @@ export async function launch({ dryRun = false, headless = false, profile } = {})
   try {
     const cdp = await context.browser().newBrowserCDPSession();
     const { id } = await cdp.send('Extensions.loadUnpacked', { path: directory });
+    // Playwright otherwise captures downloads as temporary GUID-named artifacts.
+    // Interactive Chrome should use its normal download location, names and UI.
+    if (!headless) await cdp.send('Browser.setDownloadBehavior', { behavior: 'default', eventsEnabled: true });
+    await cdp.detach();
     if (dryRun) {
       // Defense in depth for this testing profile, including requests outside ReviewTool.
       await context.route('https://**.wikipedia.org/**', route => {

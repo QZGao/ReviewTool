@@ -49,15 +49,6 @@ class State {
 	// dialogs can determine which section to operate on.
 	pendingReviewHeading: Element | null = null;
 
-	// 批註模式狀態
-	private annotationModeState: { [headingTitle: string]: boolean } = {};
-	isAnnotationModeActive(headingTitle: string): boolean {
-		return !!this.annotationModeState[headingTitle];
-	}
-	toggleAnnotationModeState(headingTitle: string): void {
-		const currentState = this.isAnnotationModeActive(headingTitle);
-		this.annotationModeState[headingTitle] = !currentState;
-	}
 }
 
 export const state = new State();
