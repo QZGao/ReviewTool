@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { readSnapshot } from './record-test-api.mjs';
 import { launch, root } from './launch.mjs';
 
 const url = 'https://zh.wikipedia.org/wiki/孫中山?reviewtool_annotation_view=1&oldid=94447348';
@@ -21,14 +22,12 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
   const blockedOptions = [];
   try {
     const page = context.pages()[0]; page.setDefaultTimeout(15000);
-    let simulatedName = null;
-    // Simulate a group only in this isolated dry-run response; no account rights or wiki edits change.
-    await context.route(new URL(url).href, async route => {
-      const response = await route.fetch();
-      const html = await response.text();
-      assert.match(html, /"wgUserGroups":\[[^\]]*\]/);
-      await route.fulfill({ response, body: html.replace(/"wgUserGroups":\[[^\]]*\]/, '"wgUserGroups":["*","user","sysop"]')
-        .replace(/"wgUserName":(?:null|"(?:\\.|[^"\\])*")/, '"wgUserName":' + JSON.stringify(simulatedName)) });
+    await context.addInitScript(() => {
+      let config;
+      Object.defineProperty(window, 'RLCONF', {
+        configurable: true, get: () => config,
+        set: value => { config = value; if (value && typeof value === 'object') { value.wgUserName = localStorage.getItem('reviewtool-test-actor'); value.wgUserGroups = ['*', 'user', 'sysop']; } },
+      });
     });
     await page.setViewportSize({ width: 1440, height: 1000 });
     const errors = []; page.on('pageerror', error => { if (error.message.includes('ReviewTool')) errors.push(error.message); });
@@ -65,16 +64,17 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     await page.locator('.annotation-comments').getByRole('button', { name: 'Send', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
     assert.equal(await page.locator('.annotation-highlight-attribution').count(), 0);
-    const originalHighlight = await page.evaluate(async () => {
+    const originalText = await page.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();
       const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
       const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'content', formatversion: 2 });
       const raw = result.query.pages[0].revisions[0].slots.main.content;
-      return JSON.parse(raw.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/)[1]).annotations[0];
+      return raw;
     });
+    const originalHighlight = (await readSnapshot(originalText))[0];
     assert.match(originalHighlight.createdAt, /^\d{4}-\d{2}-\d{2}T.*Z$/);
     assert.equal(originalHighlight.editedAt, undefined); assert.equal(originalHighlight.editedBy, undefined);
-    simulatedName = 'Example2';
+    await page.evaluate(() => localStorage.setItem('reviewtool-test-actor', 'Example2'));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await waitForAnnotation(page);
     assert.equal(await page.evaluate(() => mw.config.get('wgUserName')), 'Example2');
@@ -125,9 +125,9 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     const stored = data.page.revisions[0].slots.main.content;
     assert.ok(stored.startsWith('{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">'));
     assert.match(stored, /A local-only live Wikipedia test/);
-    assert.equal(data.page.revisions[0].comment, '修正引用，保留原作者');
-    const savedHighlight = JSON.parse(stored.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/)[1]).annotations[0];
-    const savedComment = savedHighlight.comment;
+    assert.match(data.page.revisions[0].comment, /^(?:\/\* ReviewTool \*\/ )?修正引用，保留原作者$/);
+    const savedHighlight = (await readSnapshot(stored))[0];
+    const savedComment = savedHighlight.threads[0];
     assert.equal(savedHighlight.author, 'Example');
     assert.equal(savedHighlight.createdAt, originalHighlight.createdAt);
     assert.equal(savedHighlight.editedAt, undefined, 'editing a comment does not edit its highlight');
@@ -153,6 +153,7 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     assert.equal(blockedOptions.length, blockedWrites.filter(action => action === 'options').length, 'Wikipedia preference writes for the simulated identity are blocked');
     assert.deepEqual(errors, []);
     await page.screenshot({ path: path.join(root, '.cache/live-dry-run.png') });
+    await page.evaluate(() => localStorage.removeItem('reviewtool-test-actor'));
     await context.close();
     context = (await launch({ dryRun: true, headless: true, profile })).context;
     const reopened = context.pages()[0]; await reopened.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -169,16 +170,17 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     await reopened.locator('[data-annotation-toolbar]').getByRole('button', { name: 'Blue highlight', exact: true }).click();
     await reopened.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
     await reopened.reload({ waitUntil: 'domcontentloaded' }); await waitForAnnotation(reopened);
-    const recolored = await reopened.evaluate(async () => {
+    const recoloredText = await reopened.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();
       const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
       const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'content', formatversion: 2 });
-      return JSON.parse(result.query.pages[0].revisions[0].slots.main.content.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/)[1]).annotations[0];
+      return result.query.pages[0].revisions[0].slots.main.content;
     });
+    const recolored = (await readSnapshot(recoloredText))[0];
     assert.equal(recolored.id, originalHighlight.id); assert.equal(recolored.createdAt, originalHighlight.createdAt);
     assert.equal(recolored.color, 'blue'); assert.equal(recolored.editedBy, 'Example');
     assert.match(recolored.editedAt, /^\d{4}-\d{2}-\d{2}T.*Z$/);
-    assert.deepEqual(recolored.comment, savedComment);
+    assert.deepEqual(recolored.threads?.[0], savedComment);
   } catch (error) { console.error(error); throw error; }
   finally { await context.close(); }
 });

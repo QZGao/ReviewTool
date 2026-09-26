@@ -143,7 +143,7 @@ test('hover permits recoloring and deletion, including crossing the gap to the b
     assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations[0]), recolored, 'choosing the same color is not an edit');
     await hover(page);
     await toolbar(page).getByRole('button', { name: 'Delete highlight' }).click();
-    assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations), []);
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations[0].deleted.by), 'Example');
     assert.deepEqual(await page.evaluate(() => markerActions.map(action => action.type)), ['add-highlight', 'recolor-highlight', 'delete-highlight']);
     assert.equal(await page.evaluate(() => [...CSS.highlights.keys()].some(name => name.startsWith('reviewtool-marker-'))), false);
   });

@@ -80,8 +80,11 @@ export interface AnnotationComment {
   readonly editedAt?: string;
   /** Author of the most recent edit; original comment authorship remains unchanged. */
   readonly editedBy?: string;
+  readonly resolved?: AnnotationRemoval;
   readonly replies: readonly AnnotationComment[];
 }
+
+export interface AnnotationRemoval { readonly by: string; readonly at: string; readonly reason?: string }
 
 /** Unsent UI state, kept separately from committed annotation/comment data. */
 export type CommentDraft = { annotationId: string; text: string; reason?: string } & (
@@ -99,17 +102,20 @@ export interface HighlightAnnotation {
   /** Latest change to the highlight itself, independently of comment/reply edits. */
   readonly editedAt?: string;
   readonly editedBy?: string;
+  readonly threads?: readonly AnnotationComment[];
+  /** Schema-1 import only; normalized snapshots use threads. */
   readonly comment?: AnnotationComment;
+  readonly deleted?: AnnotationRemoval;
 }
 
 /** Local user actions; persistence and revision identity belong to the caller. */
 export type HighlightAction =
   | { type: 'add-highlight'; highlight: HighlightAnnotation }
   | { type: 'recolor-highlight'; id: string; color: HighlightColor; editedAt: string }
-  | { type: 'delete-highlight'; id: string; reason?: string }
+  | { type: 'delete-highlight'; id: string; at?: string; reason?: string }
   | { type: 'add-comment'; id: string; comment: AnnotationComment; parentId?: string }
   | { type: 'edit-comment'; id: string; commentId: string; text: string; editedAt: string; reason?: string }
-  | { type: 'resolve-comment'; id: string; commentId: string; reason?: string };
+  | { type: 'resolve-comment'; id: string; commentId: string; at?: string; reason?: string };
 
 export interface HighlightOptions {
   initial?: readonly HighlightAnnotation[];

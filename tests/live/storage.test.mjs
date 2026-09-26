@@ -3,231 +3,260 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { root } from './launch.mjs';
-
-let storage;
+let api;
 before(async () => {
-  const file = path.join(root, '.cache/live-storage-test.mjs');
-  await build({ entryPoints: [path.join(root, 'src/annotation/live-storage.ts')], outfile: file, bundle: true, format: 'esm', platform: 'node' });
-  storage = await import(pathToFileURL(file));
+  const file = path.join(root, '.cache/records-storage-test.mjs');
+  await build({ stdin: { contents: ['record-document', 'record-json', 'live-storage', 'sync', 'wiki-source'].map(name => `export * from './src/annotation/${name}.ts';`).join('\n'), resolveDir: root }, outfile: file, bundle: true, format: 'esm', platform: 'node' });
+  api = await import(pathToFileURL(file));
 });
-const identity = { wiki: 'zhwiki', pageId: 123, revisionId: 456 };
-const marker = { id: 'a', anchor: { unit: 'utf8-byte', start: 0, end: 4 }, color: 'blue', createdAt: '2026-09-23T00:00:00.000Z' };
-const comment = { id: 'message', text: 'Original', author: 'Example', createdAt: '2026-09-23T00:00:00.000Z', replies: [] };
-const editedAt = '2026-09-24T00:00:00.000Z';
+const identity = { wiki: 'zhwiki', pageId: 123, revisionId: 456 }, actor = { name: 'Alice' };
+const time = '2026-09-26T00:00:00.000Z';
+const marker = { id: 'highlight', color: 'yellow', anchor: { unit: 'utf8-byte', start: 0, end: 6 }, author: 'Alice', createdAt: time };
+const message = (id, author = 'Alice') => ({ id, text: id, author, createdAt: time, replies: [] });
+const rootComment = message('root');
+const valid = anchor => anchor?.unit === 'utf8-byte' && anchor.start >= 0 && anchor.end > anchor.start && anchor.end <= 100;
+const seed = (annotations = [{ ...marker, threads: [rootComment] }]) => api.AnnotationDocument.seed('shared', annotations, valid);
+const shell = { baseline: 0, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>\n' };
+const encoded = doc => api.encodePage(identity, shell, doc);
+function memoryJournal() { const records = new Map(); return { records, load: async () => [...records.values()].map(value => structuredClone(value)), put: async value => { records.set(value.id, structuredClone(value)); }, remove: async id => { records.delete(id); } }; }
+function wiki(initial) {
+  let serial = 0, pages = [], writes = [], failAfterWrite = false;
+  const commit = (text, summary = '/* ReviewTool */', tags = []) => { const page = { revision: ++serial, parentId: pages.at(-1)?.revision ?? 0, timestamp: time, tags, summary, text }; pages.push(page); return page; };
+  if (initial !== undefined) commit(initial);
+  const source = {
+    head: async () => pages.at(-1) ?? null,
+    read: async id => { const page = pages.find(page => page.revision === id); if (!page) throw new Error('missing history'); return page; },
+    history: async (head, stop) => { const at = pages.findIndex(page => page.revision === head), end = stop === undefined ? -1 : pages.findIndex(page => page.revision === stop); if (stop !== undefined && end < 0) throw new Error('history gap'); return pages.slice(end + 1, at + 1).reverse(); },
+    write: async (text, base, reason) => { if ((base?.revision ?? 0) !== (pages.at(-1)?.revision ?? 0)) throw new Error(base ? 'editconflict' : 'articleexists'); commit(text, '/* ReviewTool */' + (reason ? ' ' + reason : '')); writes.push({ text, reason }); if (failAfterWrite) { failAfterWrite = false; throw new Error('connection lost'); } },
+  };
+  return { source, commit, pages, writes, loseAcknowledgement() { failAfterWrite = true; } };
+}
+async function client(server, name = 'Alice', journal = memoryJournal(), groups = []) {
+  let snapshots = [], statuses = [];
+  const sync = api.annotationSync({ identity, actor: { name, groups }, source: server.source, journal, validate: valid, canWrite: true, changed: value => snapshots.push(value), status: (text, error) => statuses.push({ text, error }) });
+  await sync.start(); return { sync, journal, snapshots, statuses };
+}
+function snapshot(server) { const stored = api.decodePage(server.pages.at(-1), identity, valid); const value = stored.document.snapshot(); stored.document.destroy(); return value; }
+function mutate(text, change) { const match = /<syntaxhighlight lang="json">\n([\s\S]*?)\n<\/syntaxhighlight>/.exec(text); const value = JSON.parse(match[1]); change(value); return text.replace(match[1], JSON.stringify(value)); }
 
-test('moderator groups can edit/remove other users’ content only with a valid reason; regular edits require authorship', () => {
-  const thread = { ...marker, comment }, before = [thread];
-  const edit = { type: 'edit-comment', id: marker.id, commentId: comment.id, text: 'Corrected', editedAt, reason: 'Remove personal information' };
-  const resolve = { type: 'resolve-comment', id: marker.id, commentId: comment.id, reason: 'Discussion completed' };
-  const remove = { type: 'delete-highlight', id: marker.id, reason: 'Duplicate thread' };
-  for (const group of ['patroller', 'sysop', 'bureaucrat']) {
-    const actor = { name: 'Moderator', groups: [group] };
-    const edited = storage.replay(before, [{ action: edit, before }], () => true, actor);
-    assert.equal(edited[0].comment.text, 'Corrected'); assert.equal(edited[0].comment.author, 'Example');
-    assert.equal(edited[0].comment.createdAt, comment.createdAt); assert.equal(edited[0].comment.editedAt, editedAt); assert.equal(edited[0].comment.editedBy, 'Moderator');
-    assert.deepEqual(storage.replay(edited, [{ action: edit, before }], () => true, actor), edited);
-    for (const action of [resolve, remove]) assert.deepEqual(storage.replay(before, [{ action, before }], () => true, actor), []);
-    for (const action of [edit, resolve, remove]) {
-      for (const reason of [undefined, '  ', '😀'.repeat(501)]) {
-        assert.throws(() => storage.replay(before, [{ action: { ...action, reason }, before }], () => true, actor), /reason/);
-      }
-      const ownResult = storage.replay(before, [{ action: { ...action, reason: undefined }, before }], () => true, { ...actor, name: 'Example' });
-      assert.equal(action.type === 'edit-comment' ? ownResult[0].comment.text : ownResult.length, action.type === 'edit-comment' ? 'Corrected' : 0);
-    }
-    assert.throws(() => storage.replay(before, [{ action: { ...resolve, commentId: 'reply' }, before }], () => true, actor), /Only the first/);
+test('independent roots and replies converge under reverse/duplicate update delivery', () => {
+  const initial = seed(), a = initial.clone(), b = initial.clone();
+  const ua = a.dispatch({ type: 'add-comment', id: marker.id, comment: message('Alice root') }, actor, 'op-a');
+  const ub = b.dispatch({ type: 'add-comment', id: marker.id, parentId: 'root', comment: message('Bob reply', 'Bob') }, { name: 'Bob' }, 'op-b');
+  a.merge(ub); a.merge(ub); b.merge(ua);
+  assert.deepEqual(a.snapshot(), b.snapshot()); assert.equal(a.snapshot()[0].threads.length, 2); assert.equal(a.snapshot()[0].threads.find(root => root.id === 'root').replies[0].id, 'Bob reply');
+  const c = initial.clone(); c.merge(ub); c.merge(ua); assert.deepEqual(c.snapshot(), a.snapshot());
+  for (const doc of [initial, a, b, c]) doc.destroy();
+});
+
+test('competing text and color changes converge with the winning edit metadata intact', () => {
+  const initial = seed(), a = initial.clone(), b = initial.clone();
+  const ua = a.dispatch({ type: 'edit-comment', id: marker.id, commentId: 'root', text: 'Alice edit', editedAt: time }, actor, 'edit-a');
+  const later = '2026-09-26T00:00:01.000Z';
+  const ub = b.dispatch({ type: 'edit-comment', id: marker.id, commentId: 'root', text: 'Moderator edit', editedAt: later, reason: 'Correction' }, { name: 'Bob', groups: ['sysop'] }, 'edit-b');
+  a.merge(ub); b.merge(ua); assert.deepEqual(a.snapshot(), b.snapshot());
+  const comment = a.snapshot()[0].threads[0]; assert.equal(comment.editedBy, comment.text === 'Alice edit' ? 'Alice' : 'Bob'); assert.equal(comment.editedAt, comment.editedBy === 'Alice' ? time : later);
+  const ca = a.dispatch({ type: 'recolor-highlight', id: marker.id, color: 'red', editedAt: time }, actor, 'color-a');
+  const cb = b.dispatch({ type: 'recolor-highlight', id: marker.id, color: 'green', editedAt: later }, { name: 'Bob' }, 'color-b');
+  a.merge(cb); b.merge(ca); assert.deepEqual(a.snapshot(), b.snapshot()); assert.equal(a.snapshot()[0].editedBy, a.snapshot()[0].color === 'red' ? 'Alice' : 'Bob');
+  for (const doc of [initial, a, b]) doc.destroy();
+});
+
+test('resolution retains late replies and permissions belong to each root author', () => {
+  const initial = seed([{ ...marker, threads: [rootComment, message('second', 'Bob')] }]), a = initial.clone(), b = initial.clone();
+  assert.throws(() => a.dispatch({ type: 'resolve-comment', id: marker.id, commentId: 'second', at: time }, actor, 'bad'), /author/);
+  assert.throws(() => a.dispatch({ type: 'delete-highlight', id: marker.id, at: time }, actor, 'bad-delete'), /author/);
+  const ua = a.dispatch({ type: 'resolve-comment', id: marker.id, commentId: 'root', at: time }, actor, 'resolve');
+  const ub = b.dispatch({ type: 'add-comment', id: marker.id, parentId: 'root', comment: message('late', 'Bob') }, { name: 'Bob' }, 'late');
+  a.merge(ub); b.merge(ua); assert.deepEqual(a.snapshot(), b.snapshot());
+  const [first, second] = a.snapshot()[0].threads; assert.equal(first.resolved.by, 'Alice'); assert.equal(first.replies[0].id, 'late'); assert.equal(second.resolved, undefined);
+  for (const doc of [initial, a, b]) doc.destroy();
+});
+
+test('two clients publish concurrently, receive remote roots, and recognize lost acknowledgements', async () => {
+  const doc = seed(), server = wiki(encoded(doc)), a = await client(server), b = await client(server, 'Bob'); doc.destroy();
+  try {
+    a.sync.add({ type: 'add-comment', id: marker.id, comment: message('a') });
+    b.sync.add({ type: 'add-comment', id: marker.id, comment: message('b', 'Bob') });
+    await Promise.all([a.sync.sync(), b.sync.sync()]); await Promise.all([a.sync.sync(), b.sync.sync()]);
+    assert.equal(snapshot(server)[0].threads.length, 3); assert.deepEqual(a.sync.annotations, b.sync.annotations); assert.equal(a.sync.dirty || b.sync.dirty, false);
+    server.loseAcknowledgement(); a.sync.add({ type: 'add-comment', id: marker.id, parentId: 'root', comment: message('once') }); await a.sync.sync(); assert.equal(a.sync.dirty, true);
+    await a.sync.sync(); assert.equal(a.sync.dirty, false); assert.equal(snapshot(server)[0].threads[0].replies.length, 1);
+    const writes = server.writes.length; await b.sync.sync(); await a.sync.sync(); assert.equal(server.writes.length, writes, 'polls never echo remote changes');
+  } finally { a.sync.destroy(); b.sync.destroy(); }
+});
+
+test('fresh record baselines preserve IDs and unknown dates and support concurrent initial page creation', async () => {
+  const imported = api.AnnotationDocument.seed('shared', [{ id: 'old', color: 'blue', anchor: marker.anchor, comment: rootComment }], valid);
+  assert.equal(imported.snapshot()[0].createdAt, undefined); assert.equal(imported.snapshot()[0].threads[0].id, 'root'); imported.destroy();
+  const server = wiki(), [a, b] = await Promise.all([client(server), client(server, 'Bob')]);
+  try {
+    a.sync.add({ type: 'add-highlight', highlight: marker });
+    b.sync.add({ type: 'add-highlight', highlight: { ...marker, id: 'bob-highlight', author: 'Bob' } });
+    await Promise.all([a.sync.sync(), b.sync.sync()]); assert.equal(snapshot(server).length, 2);
+  } finally { a.sync.destroy(); b.sync.destroy(); }
+});
+
+test('reasoned moderation has its own publication and own actions need no reason', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const c = await client(server, 'Mod', memoryJournal(), ['sysop']);
+  try {
+    assert.throws(() => c.sync.add({ type: 'edit-comment', id: marker.id, commentId: 'root', text: 'change', editedAt: time }), /reason/);
+    c.sync.add({ type: 'add-comment', id: marker.id, comment: message('my root', 'Mod') });
+    c.sync.add({ type: 'edit-comment', id: marker.id, commentId: 'root', text: 'change', editedAt: time, reason: 'Correct quote' });
+    c.sync.add({ type: 'resolve-comment', id: marker.id, commentId: 'my root', at: time });
+    await c.sync.sync(); assert.deepEqual(server.writes.map(item => item.reason), [undefined, 'Correct quote', undefined]);
+    assert.equal(snapshot(server)[0].threads.find(item => item.id === 'root').editedBy, 'Mod');
+  } finally { c.sync.destroy(); }
+});
+
+test('manual snapshot changes reset the generation and retain old pending work without resurrection', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const c = await client(server);
+  try {
+    c.sync.add({ type: 'edit-comment', id: marker.id, commentId: 'root', text: 'Local pending edit', editedAt: time });
+    server.commit(mutate(server.pages.at(-1).text, value => { delete value.records['c/root']; }), 'Manual removal');
+    await c.sync.sync(); assert.equal(snapshot(server)[0].threads, undefined); assert.equal(c.sync.retained.length, 1); assert.equal(c.sync.retained[0].action.text, 'Local pending edit');
+    const writes = server.writes.length; await c.sync.sync(); assert.equal(server.writes.length, writes); assert.equal(c.sync.dirty, true);
+    await c.sync.discardRetained(); assert.equal(c.sync.dirty, false);
+  } finally { c.sync.destroy(); }
+});
+
+test('malformed manual content is repaired from the latest valid manual revision, not stale local data', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const c = await client(server);
+  try {
+    const corrected = mutate(server.pages.at(-1).text, value => { value.records['c/root'].body.text = 'Valid manual correction'; });
+    server.commit(corrected, 'Manual correction'); server.commit('broken JSON', 'Accidental damage');
+    await c.sync.sync(); assert.equal(snapshot(server)[0].threads[0].text, 'Valid manual correction');
+    assert.equal(server.writes.length, 1);
+  } finally { c.sync.destroy(); }
+});
+
+test('concurrent repair adopts the winning recovery document and unsupported schemas are never overwritten', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const a = await client(server), b = await client(server, 'Bob');
+  try {
+    server.commit('broken', 'Manual damage'); await Promise.all([a.sync.sync(), b.sync.sync()]); assert.equal(server.writes.length, 1); assert.equal(snapshot(server)[0].threads[0].text, 'root');
+    server.commit(mutate(server.pages.at(-1).text, value => { value.format = 'reviewtool.annotation-records/999'; }), 'New tool format'); const writes = server.writes.length;
+    await a.sync.sync(); assert.equal(server.writes.length, writes); assert.match(a.statuses.at(-1).text, /Unsupported/);
+  } finally { a.sync.destroy(); b.sync.destroy(); }
+});
+
+test('pending submissions survive reload and cannot be claimed by another actor', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const journal = memoryJournal(), first = await client(server, 'Alice', journal);
+  first.sync.add({ type: 'add-comment', id: marker.id, comment: message('reload') }); await new Promise(resolve => setTimeout(resolve, 0)); first.sync.destroy();
+  const other = await client(server, 'Bob', journal); assert.equal(snapshot(server)[0].threads.length, 1); other.sync.destroy();
+  const reloaded = await client(server, 'Alice', journal);
+  try { assert.equal(snapshot(server)[0].threads.length, 2); assert.equal(reloaded.sync.dirty, false); } finally { reloaded.sync.destroy(); }
+});
+
+test('tag availability is checked once and summary fallback stays recognizable after activation', async () => {
+  for (const active of [false, true]) {
+    const calls = []; let reject = active;
+    const source = api.wikiSource(async (params, write) => {
+      calls.push(params);
+      if (!write) return { query: { tags: [{ name: 'ReviewTool', ...(active ? { active: true } : {}), source: ['manual'] }] } };
+      if (reject) { reject = false; throw new Error('badtags'); }
+      return { edit: { result: 'Success' } };
+    }, 'Talk:Page/ReviewTool/456');
+    await source.write('data', null); await source.write('data2', { revision: 12 }, 'Moderator reason');
+    assert.equal(calls.filter(call => call.list === 'tags').length, 1);
+    assert.equal(calls.at(-1).summary, '/* ReviewTool */ Moderator reason'); assert.equal(calls.at(-1).baserevid, 12); assert.equal(calls.at(-1).basetimestamp, undefined);
   }
-  for (const actor of [{ name: 'Other' }, { name: 'Other', groups: ['autopatrolled', 'rollbacker'] }, {}]) {
-    assert.throws(() => storage.replay(before, [{ action: edit, before }], () => true, actor), /Only the comment author/);
+  for (const summary of ['/* ReviewTool */', '/* ReviewTool */ Reason']) assert.equal(api.recognizedEdit({ tags: [], summary }), true);
+  assert.equal(api.recognizedEdit({ tags: ['ReviewTool'], summary: 'Other' }), true);
+  assert.equal(api.recognizedEdit({ tags: [], summary: 'Mention /* ReviewTool */ later' }), false);
+});
+
+test('intervening manual edits are noticed even when the head is tagged, and formatting-only edits are preserved', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const c = await client(server);
+  try {
+    server.commit(server.pages.at(-1).text + '\n<!-- manual notice -->', 'Manual formatting');
+    await c.sync.sync(); assert.equal(server.writes.length, 0);
+    c.sync.add({ type: 'recolor-highlight', id: marker.id, color: 'green', editedAt: time }); await c.sync.sync(); assert.ok(server.pages.at(-1).text.endsWith('<!-- manual notice -->'));
+    const before = server.pages.at(-1).text;
+    server.commit(mutate(before, value => { value.records['c/root'].body.text = 'Manual correction between polls'; }), 'Manual edit');
+    server.commit(before, '/* ReviewTool */');
+    await c.sync.sync(); assert.equal(snapshot(server)[0].threads[0].text, 'Manual correction between polls');
+  } finally { c.sync.destroy(); }
+});
+
+test('repair rereads a new valid head instead of overwriting an intervening correction', async () => {
+  const doc = seed(), initial = encoded(doc), server = wiki(initial); doc.destroy(); const c = await client(server);
+  const originalWrite = server.source.write; let raced = false;
+  try {
+    server.commit('broken', 'Manual damage');
+    server.source.write = async (...args) => {
+      if (!raced) { raced = true; server.commit(mutate(initial, value => { value.records['c/root'].body.text = 'Newer manual fix'; }), 'Fixed manually'); }
+      return originalWrite(...args);
+    };
+    await c.sync.sync(); assert.equal(snapshot(server)[0].threads[0].text, 'Newer manual fix');
+  } finally { c.sync.destroy(); }
+});
+
+test('same-account tabs merge independent publications without suppressing self-conflicts', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const a = await client(server), b = await client(server);
+  try {
+    a.sync.add({ type: 'add-comment', id: marker.id, comment: message('tab one') }); b.sync.add({ type: 'add-comment', id: marker.id, comment: message('tab two') });
+    await Promise.all([a.sync.sync(), b.sync.sync()]); await Promise.all([a.sync.sync(), b.sync.sync()]);
+    assert.deepEqual(a.sync.annotations, b.sync.annotations); assert.equal(snapshot(server)[0].threads.length, 3);
+  } finally { a.sync.destroy(); b.sync.destroy(); }
+});
+
+test('missing required fields are repaired, while a valid foreign document identity is protected', async () => {
+  const doc = seed(), initial = encoded(doc); doc.destroy();
+  for (const change of [value => { delete value.format; }, value => { value.records = null; }]) {
+    const server = wiki(initial), c = await client(server);
+    try { server.commit(mutate(initial, change), 'Malformed manual edit'); await c.sync.sync(); assert.equal(server.writes.length, 1); assert.equal(snapshot(server)[0].id, marker.id); }
+    finally { c.sync.destroy(); }
   }
-  assert.equal(storage.replay(before, [{ action: { ...edit, reason: undefined }, before }], () => true, { name: 'Example' })[0].comment.editedAt, editedAt);
+  const server = wiki(initial), c = await client(server);
+  try { server.commit(mutate(initial, value => { value.document.pageId = 999; }), 'Different document'); await c.sync.sync(); assert.equal(server.writes.length, 0); assert.match(c.statuses.at(-1).text, /another wiki/); }
+  finally { c.sync.destroy(); }
 });
 
-test('moderators can resolve their own root without a reason, including saves/retries, but fresh foreign ownership still requires one', async () => {
-  const thread = { ...marker, author: 'Different highlight creator', comment };
-  const action = { type: 'resolve-comment', id: marker.id, commentId: comment.id };
-  const pending = [{ action, before: [thread] }];
-  for (const group of ['patroller', 'sysop', 'bureaucrat']) {
-    const actor = { name: 'Example', groups: [group] };
-    assert.deepEqual(storage.replay([thread], pending, () => true, actor), []);
-    assert.deepEqual(storage.replay([], pending, () => true, actor), [], 'a successful submission remains retryable without a reason');
-    assert.throws(() => storage.replay([{ ...thread, comment: { ...comment, author: 'Other' } }], pending, () => true, actor), /reason/);
-    let written, summary;
-    const queue = storage.saveQueue({ identity, actor, validate: () => true,
-      read: async () => ({ text: storage.encodeData(identity, [thread]), revision: 1 }),
-      write: async (text, base, editSummary) => { written = storage.decodeData(text, identity); summary = editSummary; },
-      saved: () => {}, status: () => {},
-    });
-    queue.add(action, [thread]); await queue.flush();
-    assert.equal(queue.dirty, false); assert.deepEqual(written, []);
-    assert.equal(summary, 'ReviewTool: update revision annotations'); queue.destroy();
-  }
+test('closing a view during a read prevents subsequent publication', async () => {
+  const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const c = await client(server);
+  let release; const original = server.source.head;
+  server.source.head = async () => { await new Promise(resolve => { release = resolve; }); return original(); };
+  c.sync.add({ type: 'add-comment', id: marker.id, comment: message('pending during close') });
+  const saving = c.sync.sync();
+  while (!release) await new Promise(resolve => setTimeout(resolve, 0));
+  c.sync.destroy(); release(); await saving; assert.equal(server.writes.length, 0); assert.equal(c.journal.records.size, 1);
 });
 
-test('reasoned actions get individual wiki edits and retain their exact summaries and edit times on conflict retry', async () => {
-  const thread = { ...marker, comment }, bare = { ...marker, id: 'bare', author: 'Other' };
-  const edited = { ...thread, comment: { ...comment, text: 'Corrected', editedAt, editedBy: 'Moderator' } };
-  let page = { text: storage.encodeData(identity, [thread]), revision: 1 }, conflict = true, saved;
-  const attempts = [], writes = [];
-  const queue = storage.saveQueue({ identity, actor: { name: 'Moderator', groups: ['sysop'] }, validate: () => true, read: async () => page,
-    write: async (text, base, summary) => {
-      attempts.push(summary);
-      if (summary === 'Correct inaccurate quotation' && conflict) { conflict = false; throw new Error('editconflict'); }
-      assert.equal(base.revision, page.revision);
-      page = { text, revision: page.revision + 1 }; writes.push({ summary, data: storage.decodeData(text, identity) });
-    }, saved: annotations => { saved = annotations; }, status: () => {},
-  });
-  queue.add({ type: 'add-highlight', highlight: bare }, [thread]);
-  queue.add({ type: 'edit-comment', id: marker.id, commentId: comment.id, text: 'Corrected', editedAt, reason: 'Correct inaccurate quotation' }, [thread, bare]);
-  queue.add({ type: 'resolve-comment', id: marker.id, commentId: comment.id, reason: 'Question answered' }, [edited, bare]);
-  queue.add({ type: 'delete-highlight', id: bare.id, reason: 'Stray marker' }, [bare]);
-  await queue.flush();
-  assert.equal(queue.dirty, false); assert.deepEqual(saved, []);
-  assert.deepEqual(writes.map(write => write.summary), ['ReviewTool: update revision annotations', 'Correct inaccurate quotation', 'Question answered', 'Stray marker']);
-  assert.deepEqual(attempts, ['ReviewTool: update revision annotations', 'Correct inaccurate quotation', 'Correct inaccurate quotation', 'Question answered', 'Stray marker']);
-  assert.equal(writes[0].data[0].comment.editedAt, undefined);
-  assert.equal(writes[1].data[0].comment.editedAt, editedAt);
-  assert.deepEqual(writes[2].data, [bare]);
-  queue.destroy();
+test('already-published journal entries and no-op actions clear without another write', async () => {
+  const doc=seed(), action={type:'edit-comment',id:marker.id,commentId:'root',text:'Accepted earlier',editedAt:time};
+  const update=doc.dispatch(action,actor), server=wiki(encoded(doc)), journal=memoryJournal();
+  await journal.put({id:'cached-ack',sequence:1,generation:doc.generation,baseline:0,update,action,actor});
+  journal.checkpoint=async value=>value??{generation:doc.generation,baseline:0,base:doc.toJSON(),local:doc.toJSON(),revision:server.pages[0],prefix:shell.prefix,suffix:shell.suffix};
+  const c=await client(server,'Alice',journal);
+  try { assert.equal(c.sync.dirty,false);assert.equal(server.writes.length,0);c.sync.add({type:'recolor-highlight',id:marker.id,color:'yellow',editedAt:time});await c.sync.sync();assert.equal(server.writes.length,0);assert.equal(c.sync.dirty,false); }
+  finally {c.sync.destroy();doc.destroy();}
 });
 
-test('own edits and highlight/thread deletions use ordinary saves even for moderators', async () => {
-  for (const group of ['patroller', 'sysop', 'bureaucrat']) {
-    const actor = { name: 'Example', groups: [group] };
-    const ownBare = { ...marker, author: 'Example' }, ownThread = { ...ownBare, comment };
-    const edit = { type: 'edit-comment', id: marker.id, commentId: comment.id, text: 'My revision', editedAt };
-    const remove = { type: 'delete-highlight', id: marker.id };
-    for (const [initial, action] of [[ownThread, edit], [ownBare, remove], [ownThread, remove]]) {
-      let written, summary;
-      const queue = storage.saveQueue({ identity, actor, validate: () => true,
-        read: async () => ({ text: storage.encodeData(identity, [initial]), revision: 1 }),
-        write: async (text, base, editSummary) => { written = storage.decodeData(text, identity); summary = editSummary; },
-        saved: () => {}, status: () => {},
-      });
-      queue.add(action, [initial]); await queue.flush();
-      assert.equal(queue.dirty, false); assert.equal(summary, 'ReviewTool: update revision annotations');
-      assert.equal(action.type === 'edit-comment' ? written[0].comment.text : written.length, action.type === 'edit-comment' ? 'My revision' : 0);
-      queue.destroy();
-    }
-    const ownReply = { ...comment, id: 'my-reply' };
-    const foreignThread = { ...ownBare, comment: { ...comment, author: 'Other', replies: [ownReply] } };
-    assert.equal(storage.replay([foreignThread], [{ action: { ...edit, commentId: 'my-reply' }, before: [foreignThread] }], () => true, actor)[0].comment.replies[0].text, 'My revision');
-    assert.throws(() => storage.replay([foreignThread], [{ action: remove, before: [foreignThread] }], () => true, actor), /reason/, 'own highlight does not confer ownership of someone else’s thread');
-    const foreignBare = { ...ownBare, author: 'Other' };
-    assert.throws(() => storage.replay([foreignBare], [{ action: remove, before: [ownBare] }], () => true, actor), /reason/);
-    assert.throws(() => storage.replay([foreignBare], [{ action: remove, before: [foreignBare] }], () => true, { name: 'Example' }), /Only the highlight creator/);
-  }
-});
 
-test('storage envelope safely round-trips comment text and rejects malformed or mismatched pages', () => {
-  const data = [{ ...marker, author: 'Highlight creator', comment: { ...comment, text: '</syntaxhighlight>{{unsafe}}' } }];
-  const encoded = storage.encodeData(identity, data);
-  assert.ok(encoded.startsWith('{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">'));
-  assert.equal(encoded.match(/<\/syntaxhighlight>/g).length, 1);
-  assert.deepEqual(storage.decodeData(encoded, identity), data);
-  assert.throws(() => storage.decodeData(encoded, { ...identity, revisionId: 999 }));
-  assert.throws(() => storage.decodeData('corrupt', identity));
-});
-
-test('highlight authors survive replay and retries independently of comment authors', () => {
-  const highlight = { ...marker, author: 'Highlight creator' };
-  const creation = { action: { type: 'add-highlight', highlight }, before: [] };
-  const result = storage.replay([], [creation, { action: { type: 'add-comment', id: marker.id, comment }, before: [highlight] }], () => true, { name: 'Example' });
-  assert.equal(result[0].author, 'Highlight creator'); assert.equal(result[0].comment.author, 'Example');
-  assert.deepEqual(storage.replay(result, [creation], () => true), result);
-  assert.throws(() => storage.replay([{ ...result[0], author: 'Someone else' }], [creation], () => true), /Another edit/);
-  const recolored = storage.replay(result, [{ action: { type: 'recolor-highlight', id: marker.id, color: 'red', editedAt }, before: result }], () => true, { name: 'Example' });
-  assert.equal(recolored[0].author, 'Highlight creator');
-  assert.deepEqual(storage.decodeData(storage.encodeData(identity, recolored), identity), recolored);
-});
-
-test('highlight timestamps and editor survive saves/retries without changing comment metadata or inventing legacy dates', async () => {
-  const created = { ...marker, author: 'Creator' };
-  const firstComment = { action: { type: 'add-comment', id: marker.id, comment }, before: [created] };
-  const withComment = storage.replay([created], [firstComment], () => true, { name: 'Example' });
-  assert.equal(withComment[0].createdAt, created.createdAt); assert.equal(withComment[0].editedAt, undefined);
-  const editedComment = storage.replay(withComment, [{ action: { type: 'edit-comment', id: marker.id, commentId: comment.id, text: 'Comment edit', editedAt }, before: withComment }], () => true, { name: 'Example' });
-  assert.equal(editedComment[0].editedAt, undefined); assert.equal(editedComment[0].editedBy, undefined);
-  const action = { type: 'recolor-highlight', id: marker.id, color: 'red', editedAt };
-  const pending = [{ action, before: editedComment }], actor = { name: 'Painter' };
-  const colored = storage.replay(editedComment, pending, () => true, actor);
-  assert.equal(colored[0].author, 'Creator'); assert.equal(colored[0].createdAt, created.createdAt);
-  assert.equal(colored[0].editedAt, editedAt); assert.equal(colored[0].editedBy, 'Painter');
-  assert.deepEqual(colored[0].comment, editedComment[0].comment);
-  assert.deepEqual(storage.replay(colored, pending, () => true, actor), colored);
-  assert.deepEqual(storage.decodeData(storage.encodeData(identity, colored), identity), colored);
-  assert.throws(() => storage.replay(editedComment, pending, () => true), /current user/);
-  const intervening = { ...editedComment[0], editedAt: '2026-09-24T01:00:00.000Z', editedBy: 'Another painter' };
-  assert.throws(() => storage.replay([intervening], pending, () => true, actor), /Another edit/);
-  const alreadySameColor = { ...intervening, color: 'red' };
-  assert.deepEqual(storage.replay([alreadySameColor], pending, () => true, actor), [alreadySameColor], 'an already-matching color keeps the actual editor/time');
-  const { createdAt, ...legacy } = created;
-  const legacyEdited = storage.replay([legacy], [{ action, before: [legacy] }], () => true, actor);
-  assert.equal(legacyEdited[0].createdAt, undefined); assert.equal(legacyEdited[0].editedAt, editedAt);
-  assert.throws(() => storage.replay([], [{ action: { type: 'add-highlight', highlight: legacy }, before: [] }], () => true, actor), /creation time/);
-  assert.throws(() => storage.replay([created], [{ action: { type: 'add-highlight', highlight: { ...created, createdAt: editedAt } }, before: [] }], () => true, actor), /Another edit/);
-
-  const attempts = []; let committed;
-  const queue = storage.saveQueue({ identity, actor, validate: () => true,
-    read: async () => ({ text: storage.encodeData(identity, editedComment), revision: 1 }),
-    write: async text => { attempts.push(storage.decodeData(text, identity)); if (attempts.length === 1) throw new Error('editconflict'); },
-    saved: data => { committed = data; }, status: () => {},
-  });
-  queue.add(action, editedComment); await queue.flush();
-  assert.equal(queue.dirty, false); assert.deepEqual(attempts, [colored, colored]); assert.deepEqual(committed, colored);
-  queue.destroy();
-});
-
-test('replay preserves independent remote additions, recognizes successful retries, and rejects conflicting edits', () => {
-  const remote = { ...marker, id: 'remote' };
-  const batch = [{ action: { type: 'add-highlight', highlight: marker }, before: [] }, { action: { type: 'add-comment', id: 'a', comment }, before: [marker] }];
-  const result = storage.replay([remote], batch, () => true);
-  assert.deepEqual(result, [remote, { ...marker, comment }]);
-  assert.deepEqual(storage.replay(result, batch, () => true), result);
-  const edit = { action: { type: 'edit-comment', id: 'a', commentId: 'message', text: 'Local edit', editedAt: '2026-09-24T00:00:00.000Z' }, before: [{ ...marker, comment }] };
-  assert.throws(() => storage.replay([{ ...marker, comment: { ...comment, text: 'Remote edit' } }], [edit], () => true, { name: 'Example' }), /Another edit/);
-  const resolution = { action: { type: 'resolve-comment', id: 'a', commentId: 'message' }, before: [{ ...marker, comment }] };
-  assert.deepEqual(storage.replay([], [resolution], () => true, { name: 'Example' }), []);
-  assert.throws(() => storage.replay([{ ...marker, comment: { ...comment, replies: [{ ...comment, id: 'reply' }] } }], [resolution], () => true, { name: 'Example' }));
-});
-
-test('thread removal checks the root author against fresh data and rejects reply resolution, including retries', async () => {
-  const thread = { ...marker, comment: { ...comment, replies: [{ ...comment, id: 'reply', author: 'Other' }] } };
-  const resolution = { action: { type: 'resolve-comment', id: marker.id, commentId: comment.id }, before: [thread] };
-  assert.deepEqual(storage.replay([thread], [resolution], () => true, { name: 'Example' }), []);
-  for (const author of ['Other', undefined]) {
-    assert.throws(() => storage.replay([thread], [resolution], () => true, { name: author }), /Only the author/);
-    assert.throws(() => storage.replay([], [resolution], () => true, { name: author }), /Only the author/);
-    assert.throws(() => storage.replay([thread], [{ ...resolution, action: { type: 'delete-highlight', id: marker.id } }], () => true, { name: author }), /Only the author/);
-  }
-  const reply = { ...resolution, action: { ...resolution.action, commentId: 'reply' } };
-  assert.throws(() => storage.replay([thread], [reply], () => true, { name: 'Example' }), /Only the first comment/);
-  assert.throws(() => storage.replay([], [reply], () => true, { name: 'Other' }), /Only the first comment/);
-  const changedOwner = { ...thread, comment: { ...thread.comment, author: 'Other' } };
-  assert.throws(() => storage.replay([changedOwner], [resolution], () => true, { name: 'Example' }), /Only the author/);
-  let writes = 0, status;
-  const queue = storage.saveQueue({ identity, actor: { name: 'Example' }, validate: () => true,
-    read: async () => ({ text: storage.encodeData(identity, [changedOwner]), revision: 2 }),
-    write: async () => { writes++; }, saved: () => {}, status: message => { status = message; },
-  });
-  queue.add(resolution.action, resolution.before); await queue.flush();
-  assert.equal(writes, 0); assert.equal(queue.dirty, true); assert.match(status, /Only the author/);
-  queue.destroy();
-});
-
-test('the save queue retries CAS conflicts, bundles actions, and retains changes after a failed save', async () => {
-  let page = null, writes = 0, saved;
-  const queue = storage.saveQueue({ identity, actor: { name: 'Example' }, validate: () => true, read: async () => page,
-    write: async text => { if (++writes === 1) { page = { text: storage.encodeData(identity, [{ ...marker, id: 'remote' }]), revision: 1 }; throw new Error('editconflict'); } page = { text, revision: 2 }; },
-    saved: annotations => { saved = annotations; }, status: () => {},
-  });
-  queue.add({ type: 'add-highlight', highlight: marker }, []);
-  queue.add({ type: 'add-comment', id: 'a', comment }, [marker]);
-  await queue.flush();
-  assert.equal(queue.dirty, false); assert.equal(writes, 2); assert.equal(saved.length, 2);
-  queue.destroy();
-  let failing = true;
-  const retry = storage.saveQueue({ identity, actor: { name: 'Example' }, validate: () => true, read: async () => null, write: async () => { if (failing) throw new Error('offline'); }, saved: () => {}, status: () => {} });
-  retry.add({ type: 'add-highlight', highlight: marker }, []); await retry.flush(); assert.equal(retry.dirty, true);
-  failing = false; await retry.flush(); assert.equal(retry.dirty, false); retry.destroy();
+test('a server-side text merge of stale independent submissions is validated and acknowledged', async () => {
+  const doc=seed([{...marker,threads:[rootComment]},{...marker,id:'other',threads:[message('other-root')]}]);
+  const server=wiki(encoded(doc));doc.destroy();const a=await client(server),b=await client(server);
+  let merged=0;const write=server.source.write;
+  server.source.write=async(text,base,reason)=>{
+    const current=server.pages.at(-1);
+    if(base?.revision===current.revision)return write(text,base,reason);
+    const ancestor=server.pages.find(page=>page.revision===base?.revision);
+    if(!ancestor)throw new Error('editconflict');
+    const directory=await mkdtemp(path.resolve('.cache/native-record-merge-'));
+    const files=['ours','base','theirs'].map(name=>path.join(directory,name));
+    await Promise.all([text,ancestor.text,current.text].map((value,i)=>writeFile(files[i],value)));
+    const result=spawnSync('/usr/bin/diff3',['-m',...files],{encoding:'utf8'});
+    if(result.status!==0||server.pages.at(-1).revision!==current.revision)throw new Error('editconflict');
+    merged++;return write(result.stdout,current,reason);
+  };
+  try {
+    a.sync.add({type:'edit-comment',id:marker.id,commentId:'root',text:'Independent A',editedAt:time});
+    b.sync.add({type:'edit-comment',id:'other',commentId:'other-root',text:'Independent B',editedAt:time});
+    await Promise.all([a.sync.sync(),b.sync.sync()]);await a.sync.sync();
+    assert.equal(merged,1);assert.equal(a.sync.dirty||b.sync.dirty,false);assert.deepEqual(a.sync.annotations,b.sync.annotations);
+    assert.deepEqual(snapshot(server).flatMap(h=>h.threads.map(c=>c.text)),['Independent A','Independent B']);
+  } finally {a.sync.destroy();b.sync.destroy();}
 });

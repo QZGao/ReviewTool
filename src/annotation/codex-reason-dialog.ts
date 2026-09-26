@@ -47,7 +47,7 @@ export async function createCodexReasonPrompt(doc: Document): Promise<Moderation
               status: value.value && error ? 'error' : 'default', 'aria-describedby': inputId + '-help', autofocus: true,
             }),
             runtime.h('p', { id: inputId + '-help', 'aria-live': 'polite', style: 'font-size:0.875em;color:var(--color-subtle,#54595d)' },
-              value.value && error ? error : 'Required · Maximum 500 characters'),
+              value.value && error ? error : 'Required · Maximum 483 characters'),
           ] });
         },
       }) as ReturnType<typeof Vue.createMwApp> & { unmount(): void };

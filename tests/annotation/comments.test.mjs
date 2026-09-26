@@ -53,8 +53,8 @@ async function mark(page, text, color = 'Yellow') {
   return thread;
 }
 async function send(thread, text, label = 'Send') {
-  const placeholder = thread.getByRole('button', { name: 'Add a comment…' });
-  if (await placeholder.count()) await placeholder.click();
+  const placeholder = thread.getByRole('button', { name: /^Add a (?:separate )?comment…$/ });
+  if (!await thread.getByRole('textbox').count()) { await thread.hover(); await placeholder.click(); }
   await thread.getByRole('textbox').fill(text);
   await thread.getByRole('button', { name: label, exact: true }).click();
   await thread.getByRole('textbox').waitFor({ state: 'hidden' });
@@ -103,13 +103,13 @@ test('highlight attribution follows the original root author, preserves creation
     assert.equal(await thread.locator('.annotation-highlight-attribution').count(), 0);
     await page.evaluate(() => {
       const state = commentView.highlighting, annotation = state.annotations[0];
-      state.replace([{ ...annotation, comment: { ...annotation.comment, author: 'Other', editedBy: 'Example', editedAt: '2026-09-24T00:00:00Z' } }]);
+      state.replace([{ ...annotation, comment: { ...annotation.threads?.[0], author: 'Other', editedBy: 'Example', editedAt: '2026-09-24T00:00:00Z' } }]);
     });
     assert.equal(await thread.locator('.annotation-highlight-attribution').textContent(), 'Highlighted by Example');
     assert.equal(await thread.locator('.annotation-comment-author').textContent(), 'Other (edited by Example)');
     await page.evaluate(() => {
       const state = commentView.highlighting, annotation = state.annotations[0];
-      state.replace([{ ...annotation, comment: { ...annotation.comment, author: 'Example', editedBy: 'Moderator' } }]);
+      state.replace([{ ...annotation, comment: { ...annotation.threads?.[0], author: 'Example', editedBy: 'Moderator' } }]);
     });
     assert.equal(await thread.locator('.annotation-highlight-attribution').count(), 0, 'latest editor does not change the thread author comparison');
     await page.evaluate(() => {
@@ -125,7 +125,7 @@ test('highlight attribution follows the original root author, preserves creation
       catch { return state.annotations === previous; }
     }), true);
     await page.evaluate(() => {
-      const { author, comment, ...legacy } = commentView.highlighting.annotations[0];
+      const { author, threads, ...legacy } = commentView.highlighting.annotations[0];
       commentView.highlighting.replace([legacy]);
     });
     assert.equal(await thread.locator('.annotation-highlight-attribution').count(), 0);
@@ -222,17 +222,17 @@ test('overlapping connectors use three small offsets and allow additional lines 
 test('comments support nested replies and editing, but only the first comment can resolve the whole thread', async () => {
   await inPage(async page => {
     const thread = await mark(page, 'First passage'); await send(thread, 'Root comment');
-    const root = await page.evaluate(() => commentView.highlighting.annotations[0].comment.id);
+    const root = await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].id);
     await act(page, root, 'Reply'); await send(thread, 'First reply');
-    const reply = await page.evaluate(() => commentView.highlighting.annotations[0].comment.replies[0].id);
+    const reply = await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].replies[0].id);
     await act(page, reply, 'Reply'); await send(thread, 'Nested reply');
     await act(page, root, 'Reply'); await send(thread, 'Sibling reply');
     const indent = await thread.locator('.annotation-comment-replies').first().evaluate(element => ({ width: getComputedStyle(element).borderLeftWidth, left: element.getBoundingClientRect().left, parent: element.parentElement.getBoundingClientRect().left }));
     assert.equal(indent.width, '1px'); assert.ok(indent.left > indent.parent);
     await act(page, root, 'Edit'); await thread.getByRole('textbox').fill('Discard this'); await thread.getByRole('button', { name: 'Cancel' }).click();
-    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.text), 'Root comment');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].text), 'Root comment');
     await act(page, root, 'Edit'); await send(thread, 'Edited root', 'Save changes');
-    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.replies.length), 2);
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].replies.length), 2);
     assert.equal(await thread.getByRole('button', { name: 'Resolve', exact: true, includeHidden: true }).count(), 1);
     assert.equal(await body(page, reply).getByRole('button', { name: 'Resolve', exact: true, includeHidden: true }).count(), 0);
     assert.equal(await page.evaluate(reply => {
@@ -241,7 +241,7 @@ test('comments support nested replies and editing, but only the first comment ca
       catch (error) { return error.message === 'Only the first comment can resolve a thread.' && state.annotations === before && commentEvents.length === events; }
     }, reply), true, 'reply resolution is rejected transactionally even when called directly');
     await act(page, root, 'Resolve');
-    assert.equal(await thread.count(), 0); assert.equal(await page.evaluate(() => commentView.highlighting.annotations.length), 0);
+    assert.equal(await thread.count(), 0); assert.equal(await page.evaluate(() => commentView.highlighting.annotations.filter(item => !item.deleted && !(item.threads?.length && item.threads.every(root => root.resolved))).length), 0);
     assert.equal(await page.evaluate(() => [...CSS.highlights.keys()].some(key => key.startsWith('reviewtool-marker-'))), false);
     assert.equal(await page.locator('.annotation-comment-connectors path').count(), 0);
   });
@@ -290,13 +290,13 @@ test('moderators resolve their own threads without a prompt, using root authorsh
       const thread = await mark(page, 'First passage'); await send(thread, 'My thread');
       const root = await page.evaluate(() => {
         const state = commentView.highlighting, annotation = state.annotations[0];
-        state.replace([{ ...annotation, author: 'Other highlight creator', comment: { ...annotation.comment, editedBy: 'Other moderator', editedAt: '2026-09-24T00:00:00Z' } }]);
-        return annotation.comment.id;
+        state.replace([{ ...annotation, author: 'Other highlight creator', comment: { ...annotation.threads?.[0], editedBy: 'Other moderator', editedAt: '2026-09-24T00:00:00Z' } }]);
+        return annotation.threads?.[0].id;
       });
       await act(page, root, 'Resolve'); await thread.waitFor({ state: 'detached' });
       assert.deepEqual(await page.evaluate(() => reasonRequests), []);
       assert.equal(await page.evaluate(() => commentEvents.at(-1).action.reason), undefined);
-      assert.equal(await page.evaluate(() => commentView.highlighting.annotations.length), 0);
+      assert.equal(await page.evaluate(() => commentView.highlighting.annotations.filter(item => !item.deleted && !(item.threads?.length && item.threads.every(root => root.resolved))).length), 0);
     }, false, source, {}, [group]);
   }
 });
@@ -323,7 +323,7 @@ test('moderator reasons precede editing/removal, survive the draft, and record t
       assert.equal(await thread.getByRole('textbox').count(), 0, 'reason is requested before the editor exists');
       await answer(null);
       assert.equal(await thread.getByRole('textbox').count(), 0);
-      assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.text), 'Other author’s comment');
+      assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].text), 'Other author’s comment');
       await act(page, 'moderated-root', 'Edit'); await answer('Correct the quotation');
       await thread.getByRole('textbox').waitFor({ state: 'visible' });
       assert.equal(await page.evaluate(() => commentView.comments.drafts[0].reason), 'Correct the quotation');
@@ -331,7 +331,7 @@ test('moderator reasons precede editing/removal, survive the draft, and record t
       const promptsBeforeSave = await page.evaluate(() => reasonRequests.length);
       await send(thread, 'Corrected quotation', 'Save changes');
       assert.equal(await page.evaluate(() => reasonRequests.length), promptsBeforeSave, 'Save does not ask again');
-      const saved = await page.evaluate(() => commentView.highlighting.annotations[0].comment);
+      const saved = await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0]);
       assert.equal(saved.author, 'Other'); assert.equal(saved.editedBy, 'Example'); assert.equal(saved.editedAt, '2026-09-24T01:02:03.000Z');
       assert.equal(await body(page, 'moderated-root').locator('.annotation-comment-author').textContent(), 'Other (edited by Example)');
       assert.match(await body(page, 'moderated-root').locator('time').textContent(), /\(edited\)$/);
@@ -365,7 +365,7 @@ test('moderators edit their own comments and delete their own highlights/threads
     await inPage(async page => {
       const remove = async thread => {
         await page.evaluate(() => {
-          const range = commentView.restoreRange(commentView.highlighting.annotations[0].anchor);
+          const range = commentView.restoreRange(commentView.highlighting.annotations.filter(item => !item.deleted)[0].anchor);
           getSelection().removeAllRanges(); getSelection().addRange(range);
         });
         await page.locator('[data-annotation-toolbar]').getByRole('button', { name: 'Delete highlight', exact: true }).click();
@@ -373,7 +373,7 @@ test('moderators edit their own comments and delete their own highlights/threads
       };
       await remove(await mark(page, 'First passage'));
       const thread = await mark(page, 'First passage'); await send(thread, 'My comment');
-      const root = await page.evaluate(() => commentView.highlighting.annotations[0].comment.id);
+      const root = await page.evaluate(() => commentView.highlighting.annotations.filter(item => !item.deleted)[0].threads?.[0].id);
       await act(page, root, 'Edit'); await thread.getByRole('textbox').fill('My restored edit');
       await page.evaluate(group => {
         const api = annotationLab.annotation, source = commentView.projection.source;
@@ -388,7 +388,7 @@ test('moderators edit their own comments and delete their own highlights/threads
       }, group);
       assert.equal(await thread.getByRole('textbox').inputValue(), 'My restored edit');
       await send(thread, 'My restored edit', 'Save changes');
-      assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.text), 'My restored edit');
+      assert.equal(await page.evaluate(() => commentView.highlighting.annotations.filter(item => !item.deleted)[0].threads?.[0].text), 'My restored edit');
       await remove(thread);
       assert.deepEqual(await page.evaluate(() => reasonRequests), []);
       assert.equal(await page.evaluate(() => commentEvents.some(event => event.action.reason)), false);
@@ -412,7 +412,7 @@ test('saved actions appear on hover, editor actions stay visible, and comment te
     assert.ok(hovered.height > resting.height + 20);
     assert.equal(await thread.locator('.annotation-comment-actions').evaluate(element => getComputedStyle(element).opacity), '1');
     assert.equal(await thread.locator('script').count(), 0);
-    const root = await page.evaluate(() => commentView.highlighting.annotations[0].comment.id);
+    const root = await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].id);
     await act(page, root, 'Edit'); await page.mouse.move(0, 0);
     assert.equal(await thread.getByRole('button', { name: 'Save changes' }).evaluate(element => getComputedStyle(element.parentElement).opacity), '1');
     const selection = await page.evaluate(() => {
@@ -424,7 +424,7 @@ test('saved actions appear on hover, editor actions stay visible, and comment te
     const initial = await page.evaluate(() => commentView.highlighting.annotations);
     await page.evaluate(() => { const state = commentView.highlighting; state.dispatch({ type: 'recolor-highlight', id: state.annotations[0].id, color: 'Blue'.toLowerCase(), editedAt: new Date().toISOString() }); });
     assert.equal(await thread.getAttribute('data-color'), 'blue');
-    assert.deepEqual(await page.evaluate(() => commentView.highlighting.annotations[0].comment), initial[0].comment);
+    assert.deepEqual(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0]), initial[0].threads?.[0]);
   });
 });
 
@@ -434,8 +434,8 @@ test('editing uses Save changes/Cancel and a gray disabled button until the save
     const root = await page.evaluate(() => {
       const annotation = commentView.highlighting.annotations[0];
       // A textarea normalizes line endings; opening imported CRLF text is not an edit.
-      commentView.highlighting.dispatch({ type: 'edit-comment', id: annotation.id, commentId: annotation.comment.id, text: 'Original\r\nsecond line', editedAt: new Date().toISOString() });
-      return annotation.comment.id;
+      commentView.highlighting.dispatch({ type: 'edit-comment', id: annotation.id, commentId: annotation.threads?.[0].id, text: 'Original\r\nsecond line', editedAt: new Date().toISOString() });
+      return annotation.threads?.[0].id;
     });
     await act(page, root, 'Edit');
     const input = thread.getByRole('textbox'), save = thread.getByRole('button', { name: 'Save changes', exact: true }), cancel = thread.getByRole('button', { name: 'Cancel', exact: true });
@@ -454,9 +454,9 @@ test('editing uses Save changes/Cancel and a gray disabled button until the save
     await input.fill('Original\nsecond line'); assert.equal(await save.isDisabled(), true);
     await input.fill(' \n '); assert.equal(await save.isDisabled(), true);
     await input.fill('Not saved'); await cancel.click();
-    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.text), 'Original\r\nsecond line');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].text), 'Original\r\nsecond line');
     await act(page, root, 'Edit'); await send(thread, 'Saved change', 'Save changes');
-    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.text), 'Saved change');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].text), 'Saved change');
     assert.equal(await page.evaluate(() => commentEvents.length), actions + 1);
   });
 });
@@ -491,7 +491,7 @@ test('narrow screens hide the sidebar and show a floating thread only when its h
     const beforeUpdate = await readingPosition();
     await page.evaluate(() => {
       const state = commentView.highlighting, annotation = state.annotations[0];
-      state.replace([{ ...annotation, comment: { ...annotation.comment, replies: [{ id: 'incoming-reply', text: 'An incoming reply', author: 'Other', createdAt: '2026-09-24T00:00:00Z', replies: [] }] } }]);
+      state.replace([{ ...annotation, comment: { ...annotation.threads?.[0], replies: [{ id: 'incoming-reply', text: 'An incoming reply', author: 'Other', createdAt: '2026-09-24T00:00:00Z', replies: [] }] } }]);
     });
     await frames(page);
     assert.ok(Math.abs(await readingPosition() - beforeUpdate) <= 1, 'a thread update preserves the visible text position');
@@ -516,7 +516,7 @@ test('real Wikipedia comments survive view toggles, preserve the sidebar, and cl
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => annotationPageLab.setTheme(theme), theme); await frames(page);
       await page.screenshot({ path: `.cache/annotation-rnd/comments-${theme}.png` });
-      await act(page, saved[0].comment.id, 'Edit');
+      await act(page, saved[0].threads?.[0].id, 'Edit');
       assert.equal(await thread.getByRole('button', { name: 'Save changes' }).isDisabled(), true);
       const colors = await thread.locator('.annotation-comment-editor-actions button').evaluateAll(buttons => buttons.map(button => getComputedStyle(button).color));
       assert.notEqual(colors[0], colors[1], `${theme}: disabled save has a distinct gray color`);
@@ -529,7 +529,7 @@ test('real Wikipedia comments survive view toggles, preserve the sidebar, and cl
     await page.evaluate(() => { annotationPageLab.setEnabled(true); window.commentView = annotationPageLab.view; });
     assert.deepEqual(await page.evaluate(() => commentView.highlighting.annotations), saved);
     assert.equal(await page.locator('.annotation-comment-text').textContent(), 'Check the date and source.');
-    await act(page, saved[0].comment.id, 'Edit');
+    await act(page, saved[0].threads?.[0].id, 'Edit');
     await page.locator('.annotation-comments textarea').fill('Unsent revision');
     await page.evaluate(() => { annotationPageLab.setEnabled(false); annotationPageLab.setEnabled(true); window.commentView = annotationPageLab.view; });
     assert.equal(await page.locator('.annotation-comments textarea').inputValue(), 'Unsent revision');
@@ -622,7 +622,7 @@ test('comment actions are immutable and invalid comment updates cannot replace a
   await inPage(async page => {
     const thread = await mark(page, 'First passage'); await send(thread, 'Original');
     const result = await page.evaluate(() => {
-      const state = commentView.highlighting, original = state.annotations, root = original[0].comment;
+      const state = commentView.highlighting, original = state.annotations, root = original[0].threads?.[0];
       const incoming = { id: 'test-reply', text: 'Reply', author: 'Example', createdAt: '2026-01-01T00:30:00.000Z', replies: [] };
       state.dispatch({ type: 'add-comment', id: original[0].id, parentId: root.id, comment: incoming });
       incoming.text = 'Mutated outside';
@@ -638,9 +638,9 @@ test('comment actions are immutable and invalid comment updates cannot replace a
         () => state.replace([{ ...committed[0], comment: { ...root, editedAt: '2026-01-01T00:30:00' } }]),
         () => state.dispatch({ type: 'edit-comment', id: original[0].id, commentId: root.id, text: 'Invalid date', editedAt: '2026-02-30T00:30:00Z' }),
       ]) { try { run(); } catch { rejected++; } }
-      return { rejected, unchanged: state.annotations === committed, original: original[0].comment.text,
-        reply: committed[0].comment.replies[0].text, action: action.comment.text,
-        frozen: Object.isFrozen(committed[0].comment.replies) && Object.isFrozen(committed[0].comment.replies[0]) && Object.isFrozen(action.comment) };
+      return { rejected, unchanged: state.annotations === committed, original: original[0].threads?.[0].text,
+        reply: committed[0].threads?.[0].replies[0].text, action: action.comment.text,
+        frozen: Object.isFrozen(committed[0].threads?.[0].replies) && Object.isFrozen(committed[0].threads?.[0].replies[0]) && Object.isFrozen(action.comment) };
     });
     assert.deepEqual(result, { rejected: 8, unchanged: true, original: 'Original', reply: 'Reply', action: 'Reply', frozen: true });
   });
@@ -655,14 +655,14 @@ test('editing preserves the original author/posting time and displays the latest
     assert.equal(await thread.locator('time').count(), 0, 'an unsent draft has no posting date');
     await page.clock.setFixedTime('2026-01-01T00:45:00Z');
     await send(thread, 'Root comment');
-    let saved = await page.evaluate(() => commentView.highlighting.annotations[0].comment);
+    let saved = await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0]);
     assert.equal(saved.author, 'Example'); assert.equal(saved.createdAt, '2026-01-01T00:45:00.000Z');
     const root = saved.id;
     await page.clock.setFixedTime('2026-01-02T01:15:00Z');
     await act(page, root, 'Reply');
     assert.equal(await thread.locator('.annotation-comment-editor time').count(), 0);
     await send(thread, 'Reply comment');
-    saved = await page.evaluate(() => commentView.highlighting.annotations[0].comment);
+    saved = await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0]);
     assert.equal(saved.replies[0].author, 'Example'); assert.equal(saved.replies[0].createdAt, '2026-01-02T01:15:00.000Z');
     assert.equal(saved.createdAt, '2026-01-01T00:45:00.000Z');
     await page.clock.setFixedTime('2026-02-03T04:00:00Z');
@@ -670,7 +670,7 @@ test('editing preserves the original author/posting time and displays the latest
     assert.equal(await thread.locator('.annotation-comment-editor .annotation-comment-author').textContent(), 'Example');
     assert.equal(await thread.locator('.annotation-comment-editor time').getAttribute('datetime'), '2026-01-01T00:45:00.000Z');
     await send(thread, 'Edited root', 'Save changes');
-    saved = await page.evaluate(() => commentView.highlighting.annotations[0].comment);
+    saved = await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0]);
     assert.equal(saved.author, 'Example'); assert.equal(saved.createdAt, '2026-01-01T00:45:00.000Z');
     assert.equal(saved.editedAt, '2026-02-03T04:00:00.000Z');
     assert.equal(await body(page, root).locator('time').getAttribute('datetime'), saved.editedAt);
@@ -681,7 +681,7 @@ test('editing preserves the original author/posting time and displays the latest
     await act(page, root, 'Edit');
     assert.equal(await thread.getByRole('button', { name: 'Save changes', exact: true }).isDisabled(), true);
     await thread.getByRole('textbox').fill('Canceled edit'); await thread.getByRole('button', { name: 'Cancel', exact: true }).click();
-    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.editedAt), saved.editedAt);
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].editedAt), saved.editedAt);
     await act(page, root, 'Edit'); await send(thread, 'Edited again', 'Save changes');
     assert.equal(await body(page, root).locator('time').getAttribute('datetime'), '2026-02-04T04:00:00.000Z');
     assert.deepEqual(await thread.locator('.annotation-comment-author').allTextContents(), ['Example', 'Example']);
@@ -702,14 +702,50 @@ test('stored UTC dates display in the system timezone across date boundaries and
         const date = page.locator('.annotation-comment-date');
         assert.equal((await date.textContent()).replace(/\s+/g, ' '), expected);
         assert.equal(await date.getAttribute('datetime'), utc.replace('Z', '.000Z'));
-        assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].comment.createdAt), utc.replace('Z', '.000Z'));
+        assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads?.[0].createdAt), utc.replace('Z', '.000Z'));
         await page.evaluate(editedAt => {
           const annotation = commentView.highlighting.annotations[0];
-          commentView.highlighting.replace([{ ...annotation, comment: { ...annotation.comment, createdAt: '2020-01-01T00:00:00Z', editedAt } }]);
+          commentView.highlighting.replace([{ ...annotation, comment: { ...annotation.threads?.[0], createdAt: '2020-01-01T00:00:00Z', editedAt } }]);
         }, utc);
         assert.equal((await date.textContent()).replace(/\s+/g, ' '), expected + ' (edited)');
         assert.equal(await date.getAttribute('datetime'), utc.replace('Z', '.000Z'));
       }
     }, false, source, { timezoneId: scenario.zone, locale: 'en-US' });
   }
+});
+
+test('multiple root discussions keep separate owners and resolving one preserves the other', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage'); await send(thread, 'My discussion');
+    const id = await page.evaluate(() => {
+      const state = commentView.highlighting, annotation = state.annotations[0];
+      state.replace([{ ...annotation, threads: [...annotation.threads, { id: 'other-root', text: 'A separate discussion', author: 'Other', createdAt: '2026-09-26T00:00:00.000Z', replies: [] }] }]);
+      return annotation.threads[0].id;
+    });
+    assert.equal(await body(page, 'other-root').getByRole('button', { name: 'Resolve', exact: true, includeHidden: true }).count(), 0);
+    await act(page, id, 'Resolve');
+    assert.equal(await thread.count(), 1); assert.equal(await thread.locator('.annotation-comment-text').textContent(), 'A separate discussion');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].resolved.by), 'Example');
+    await send(thread, 'Another top-level comment');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads.length), 3);
+    assert.equal(await thread.locator('.annotation-comment-text').count(), 2);
+  });
+});
+
+test('remote updates preserve an active draft, caret, focus and article selection', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage'); await send(thread, 'Original root');
+    await thread.hover();
+    await thread.getByRole('button', { name: 'Add a separate comment…' }).click();
+    await thread.getByRole('textbox').fill('My unsent draft');
+    await thread.getByRole('textbox').evaluate(input => input.setSelectionRange(3, 9, 'backward'));
+    const before = await page.evaluate(() => commentView.selection);
+    await page.evaluate(() => {
+      const state = commentView.highlighting, annotation = state.annotations[0];
+      state.replace([{ ...annotation, threads: [...annotation.threads, { id: 'remote-root', text: 'Arrived during typing', author: 'Other', createdAt: '2026-09-26T00:00:00.000Z', replies: [] }] }]);
+    });
+    assert.deepEqual(await thread.getByRole('textbox').evaluate(input => ({ text: input.value, start: input.selectionStart, end: input.selectionEnd, direction: input.selectionDirection, focused: document.activeElement === input })), { text: 'My unsent draft', start: 3, end: 9, direction: 'backward', focused: true });
+    assert.deepEqual(await page.evaluate(() => commentView.selection), before);
+    assert.equal(await thread.locator('.annotation-comment-text').count(), 2);
+  });
 });

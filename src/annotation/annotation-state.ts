@@ -1,7 +1,7 @@
-import type { AnnotationComment, HighlightAction, HighlightAnnotation, HighlightOptions, SourceAnchor } from './types';
+import type { AnnotationComment, HighlightAction, HighlightAnnotation, HighlightOptions, SourceAnchor, AnnotationRemoval } from './types';
 import { assertActionAllowed, type AnnotationActor } from './permissions';
 
-function utcTimestamp(value: string, label = 'Comment posting time'): string {
+export function utcTimestamp(value: string, label = 'Comment posting time'): string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) throw new Error(`${label} must be a UTC ISO timestamp.`);
   const canonical = value.includes('.') ? value : value.replace(/Z$/, '.000Z');
   const date = new Date(canonical);
@@ -9,16 +9,32 @@ function utcTimestamp(value: string, label = 'Comment posting time'): string {
   return canonical;
 }
 
-function freezeComment(comment: AnnotationComment, ids: Set<string>): AnnotationComment {
+export function threadRoots(annotation: HighlightAnnotation): readonly AnnotationComment[] {
+  return annotation.comment ? [annotation.comment] : annotation.threads ?? [];
+}
+
+export function annotationVisible(annotation: HighlightAnnotation): boolean {
+  const roots = threadRoots(annotation);
+  return !annotation.deleted && (!roots.length || roots.some(root => !root.resolved));
+}
+
+function removal(value: AnnotationRemoval): AnnotationRemoval {
+  if (!value || typeof value.by !== 'string' || !value.by.trim() || (value.reason !== undefined && typeof value.reason !== 'string')) throw new Error('Invalid removal record.');
+  return Object.freeze({ by: value.by, at: utcTimestamp(value.at, 'Removal time'), ...(value.reason ? { reason: value.reason } : {}) });
+}
+
+function freezeComment(comment: AnnotationComment, ids: Set<string>, root = true): AnnotationComment {
   if (!comment || typeof comment.id !== 'string' || !comment.id.trim() || ids.has(comment.id)
     || typeof comment.author !== 'string' || !comment.author.trim()
     || typeof comment.text !== 'string' || !comment.text.trim() || !Array.isArray(comment.replies)) throw new Error('Invalid or duplicate comment.');
   ids.add(comment.id);
+  if (!root && comment.resolved) throw new Error('Only root comments can be resolved.');
   if (comment.editedBy !== undefined && (!comment.editedAt || typeof comment.editedBy !== 'string' || !comment.editedBy.trim())) throw new Error('Invalid comment editor.');
   return Object.freeze({ id: comment.id, text: comment.text, author: comment.author, createdAt: utcTimestamp(comment.createdAt),
     ...(comment.editedAt !== undefined ? { editedAt: utcTimestamp(comment.editedAt) } : {}),
     ...(comment.editedBy !== undefined ? { editedBy: comment.editedBy } : {}),
-    replies: Object.freeze(comment.replies.map((reply: AnnotationComment) => freezeComment(reply, ids))) });
+    ...(comment.resolved ? { resolved: removal(comment.resolved) } : {}),
+    replies: Object.freeze(comment.replies.map((reply: AnnotationComment) => freezeComment(reply, ids, false))) });
 }
 
 /** Immutable local snapshots and explicit actions shared by markers and their comment threads. */
@@ -37,12 +53,14 @@ export function annotationState(config: HighlightOptions, validate: (anchor: Sou
       if ((annotation.editedAt === undefined) !== (annotation.editedBy === undefined)
         || (annotation.editedBy !== undefined && (typeof annotation.editedBy !== 'string' || !annotation.editedBy.trim()))) throw new Error('Highlight edit time and editor must be provided together.');
       ids.add(annotation.id);
-      const comment = annotation.comment ? freezeComment(annotation.comment, commentIds) : undefined;
+      if (annotation.threads !== undefined && !Array.isArray(annotation.threads)) throw new Error('Invalid threads.');
+      const threads = threadRoots(annotation).map(root => freezeComment(root, commentIds));
       return Object.freeze({ id: annotation.id, anchor: Object.freeze({ ...annotation.anchor }), color: annotation.color,
         ...(annotation.author !== undefined ? { author: annotation.author } : {}),
         ...(annotation.createdAt !== undefined ? { createdAt: utcTimestamp(annotation.createdAt, 'Highlight creation time') } : {}),
         ...(annotation.editedAt !== undefined && annotation.editedBy !== undefined ? { editedAt: utcTimestamp(annotation.editedAt, 'Highlight edit time'), editedBy: annotation.editedBy } : {}),
-        ...(comment ? { comment } : {}) });
+        ...(threads.length ? { threads: Object.freeze(threads) } : {}),
+        ...(annotation.deleted ? { deleted: removal(annotation.deleted) } : {}) });
     });
     const committed = Object.freeze(next);
     snapshot = committed;
@@ -66,21 +84,24 @@ export function annotationState(config: HighlightOptions, validate: (anchor: Sou
         utcTimestamp(action.highlight.createdAt ?? '', 'Highlight creation time');
         replace([...snapshot, action.highlight], action); return;
       }
-      const annotation = snapshot.find(annotation => annotation.id === action.id);
+      const id = action.id;
+      const annotation = snapshot.find(annotation => annotation.id === id);
       if (!annotation) throw new Error('Annotation no longer exists.');
       assertActionAllowed(annotation, action, actor);
-      if (action.type === 'delete-highlight' || action.type === 'resolve-comment') {
-        replace(snapshot.filter(item => item !== annotation), action); return;
-      }
+      if (annotation.deleted) throw new Error('Annotation has been deleted.');
       let updated: HighlightAnnotation = annotation;
-      if (action.type === 'recolor-highlight') {
+      if (action.type === 'delete-highlight' || action.type === 'resolve-comment') {
+        const record = removal({ by: actor.name?.trim() || 'Anonymous', at: action.at ?? new Date().toISOString(), ...(action.reason ? { reason: action.reason } : {}) });
+        const commentId = action.type === 'resolve-comment' ? action.commentId : undefined;
+        updated = action.type === 'delete-highlight' ? { ...annotation, deleted: record } : { ...annotation, threads: threadRoots(annotation).map(root => root.id === commentId ? { ...root, resolved: record } : root) };
+        replace(snapshot.map(item => item === annotation ? updated : item), { ...action, at: record.at }); return;
+      } else if (action.type === 'recolor-highlight') {
         if (annotation.color === action.color) return;
         const editedBy = actor.name?.trim();
         if (!editedBy) throw new Error('A current user is required to record the highlight edit.');
         updated = { ...annotation, color: action.color, editedAt: utcTimestamp(action.editedAt, 'Highlight edit time'), editedBy };
       } else if (action.type === 'add-comment' && !action.parentId) {
-        if (annotation.comment) throw new Error('Annotation already has a comment.');
-        updated = { ...annotation, comment: action.comment };
+        updated = { ...annotation, threads: [...threadRoots(annotation), action.comment] };
       } else {
         let found = false;
         const visit = (comment: AnnotationComment): AnnotationComment => {
@@ -92,9 +113,9 @@ export function annotationState(config: HighlightOptions, validate: (anchor: Sou
           }
           return { ...comment, replies: comment.replies.map(visit) };
         };
-        const comment = annotation.comment && visit(annotation.comment);
-        if (!found || !comment) throw new Error('Comment no longer exists.');
-        updated = { ...annotation, comment };
+        const threads = threadRoots(annotation).map(visit);
+        if (!found) throw new Error('Comment no longer exists.');
+        updated = { ...annotation, threads };
       }
       replace(snapshot.map(item => item === annotation ? updated : item), action);
     },

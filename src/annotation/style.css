@@ -180,12 +180,16 @@
 .annotation-comment-actions { order: -1; display: none; justify-content: flex-end; gap: 2px; margin-bottom: 6px; opacity: 0; pointer-events: none; }
 .annotation-comment-reply { display: none; align-self: flex-end; margin-top: 6px; opacity: 0; pointer-events: none; }
 .annotation-comment-body:hover > :is(.annotation-comment-actions, .annotation-comment-reply),
+.annotation-comment-body.annotation-comment-action-hover > :is(.annotation-comment-actions, .annotation-comment-reply),
 .annotation-comment-body:has(:focus-visible) > :is(.annotation-comment-actions, .annotation-comment-reply) { display: flex; opacity: 1; pointer-events: auto; }
 .annotation-comment-replies { margin: 0 4px 6px 12px; padding-left: 3px; border-left: 1px solid var(--border-color-base, #a2a9b1); min-width: 0; }
 .annotation-comments .annotation-comment-editor { margin: 0; padding-bottom: 8px; }
 .annotation-comment-editor textarea { display: block; box-sizing: border-box; width: 100%; min-height: 21px; padding: 0; margin: 0; resize: none; border: 0; border-radius: 0; outline: none; background: transparent; box-shadow: none; color: inherit; font: inherit; line-height: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .annotation-comment-editor-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 6px; }
 .annotation-comments .annotation-comment-placeholder { display: block; padding: 12px 10px; width: 100%; text-align: left; color: var(--color-subtle, #54595d); font-size: inherit; }
+@media (hover: hover) {
+  .annotation-comment-thread:not(:hover):not(:has(:focus-visible)) > .annotation-comment-content:has(> .annotation-comment-node) > .annotation-comment-placeholder { display: none; }
+}
 .annotation-comment-connectors { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; z-index: 1; }
 .annotation-comment-connectors path { fill: none; stroke-width: 1.5; }
 .annotation-comments[data-layout="floating"] { position: fixed; display: flex; flex-direction: column; box-sizing: border-box; width: 280px; min-height: 0; z-index: 1002; overflow: visible; background: transparent; border-radius: 0; box-shadow: none; }
@@ -201,3 +205,5 @@
   .annotation-comment-body > :is(.annotation-comment-actions, .annotation-comment-reply) { display: flex; opacity: 1; pointer-events: auto; }
   .annotation-comment-thread[data-crowded] .annotation-comment-text { white-space: pre-wrap; overflow: visible; text-overflow: clip; }
 }
+
+.annotation-comment-content > .annotation-comment-node + .annotation-comment-node { border-top: 1px solid var(--comment-border); }

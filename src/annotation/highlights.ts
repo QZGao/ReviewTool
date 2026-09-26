@@ -1,6 +1,6 @@
 import type { HighlightAnnotation, HighlightColor, HighlightOptions, MappedSelection, ModerationReasonPrompt, RenderedView } from './types';
 import type { PopupLayout } from './popup-layout';
-import { annotationState } from './annotation-state';
+import { annotationState, annotationVisible } from './annotation-state';
 import { canRemoveAnnotation, requestActionReason, type AnnotationActor } from './permissions';
 import { textRects } from './range-rects';
 
@@ -99,7 +99,11 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   };
   const paint = (annotations: readonly HighlightAnnotation[]) => {
     if (controller.signal.aborted) return;
-    const prepared = annotations.map(annotation => {
+    const visible = annotations.filter(annotationVisible);
+    if (visible.length === markers.length && visible.every((annotation, index) => { const previous = markers[index].annotation; return annotation.id === previous.id && annotation.color === previous.color && annotation.anchor.start === previous.anchor.start && annotation.anchor.end === previous.anchor.end; })) {
+      markers.forEach((marker, index) => { marker.annotation = visible[index]; }); return;
+    }
+    const prepared = visible.map(annotation => {
       const range = view.restoreRange(annotation.anchor);
       if (!range) throw new Error('Highlight source is no longer available in the reading view.');
       return { annotation, range, name: `${prefix}-${++serial}` };

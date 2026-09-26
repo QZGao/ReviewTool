@@ -32,12 +32,12 @@ export function createApi(options?: mw.Api.Options): mw.Api {
         super.ajax(request, ajaxOptions).done(resolve).fail((code: unknown) => reject(new LocalApiError(typeof code === 'string' ? code : 'http', 'MediaWiki read failed.')));
       });
       const readRemote = async (title: string): Promise<LocalPage | undefined> => {
-        const response = await network({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|timestamp|content', formatversion: 2 });
-        const pages = (response as { query?: { pages?: Array<{ missing?: boolean; title: string; pageid: number; revisions?: Array<{ revid: number; timestamp: string; slots?: { main?: { content?: string } } }> }> } }).query?.pages;
+        const response = await network({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|timestamp|content|tags|comment', formatversion: 2 });
+        const pages = (response as { query?: { pages?: Array<{ missing?: boolean; title: string; pageid: number; revisions?: Array<{ revid: number; parentid: number; timestamp: string; tags?: string[]; comment?: string; slots?: { main?: { content?: string } } }> }> } }).query?.pages;
         const page = pages?.[0], revision = page?.revisions?.[0];
         if (!page || page.missing) return undefined;
         if (!revision || typeof revision.slots?.main?.content !== 'string') throw new LocalApiError('missingcontent', 'The original page source is not accessible.');
-        return { title, pageid: page.pageid, revid: revision.revid, timestamp: revision.timestamp, content: revision.slots.main.content };
+        return { title, pageid: page.pageid, revid: revision.revid, timestamp: revision.timestamp, parentid: revision.parentid, tags: revision.tags ?? [], summary: revision.comment ?? '', content: revision.slots.main.content };
       };
       const section = async (page: LocalPage, index: string): Promise<[number, number]> => {
         const parsed = await network({ action: 'parse', text: page.content, title: page.title, prop: 'tocdata', formatversion: 2 });
@@ -70,6 +70,14 @@ export function createApi(options?: mw.Api.Options): mw.Api {
           return storage.edit(title, content, { ...params, baserevid: params.baserevid ?? current?.revid ?? 0 }, current, () => aborted);
         }
         if (!readActions.has(action)) throw new LocalApiError('dryrun-unsupported', `Dry-run blocks unsupported API action: ${action}`);
+        const revisionData = (page: LocalPage) => ({ revid: page.revid, parentid: page.parentid ?? 0, timestamp: page.timestamp, tags: page.tags ?? [], comment: page.summary ?? '',
+          ...(list(params.rvprop).includes('content') ? { slots: { main: { content: page.content, contentmodel: 'wikitext', contentformat: 'text/x-wiki' } }, '*': page.content } : {}) });
+        if (action === 'query' && params.revids) {
+          const ids = list(params.revids).map(Number), localRevisions = await Promise.all(ids.map(id => storage.revision(id)));
+          if (localRevisions.every(Boolean)) return { query: { pages: localRevisions.map(page => ({ pageid: page?.pageid, title: page?.title, revisions: page ? [revisionData(page)] : [] })) } };
+          // An existing pre-upgrade local head may not have been copied into revision history yet.
+
+        }
         if (action === 'query' && params.titles) {
           const titles = list(params.titles).map(titleKey);
           const pages = await Promise.all(titles.map(title => storage.read(title)));
@@ -79,10 +87,14 @@ export function createApi(options?: mw.Api.Options): mw.Api {
             for (const [index, title] of titles.entries()) {
               const page = pages[index] ?? await readRemote(title);
               if (!page) { records.push({ ns: mw.Title.newFromText(title)?.getNamespaceId() ?? 1, title, missing: true }); continue; }
+              if (params.rvlimit !== undefined) {
+                const versions = (await storage.history(title)).filter(item => params.rvstartid === undefined || item.revid <= Number(params.rvstartid));
+                records.push({ pageid: page.pageid, title, revisions: versions.map(revisionData) }); continue;
+              }
               const extent = params.rvsection === undefined ? [0, page.content.length] : await section(page, scalar(params.rvsection));
               const content = page.content.slice(extent[0], extent[1]);
               const slot = Number(params.formatversion) === 2 ? { content, contentmodel: 'wikitext', contentformat: 'text/x-wiki' } : { '*': content, contentmodel: 'wikitext', contentformat: 'text/x-wiki' };
-              records.push({ pageid: page.pageid, ns: mw.Title.newFromText(title)?.getNamespaceId() ?? 1, title, lastrevid: page.revid, contentmodel: 'wikitext', revisions: [{ revid: page.revid, timestamp: page.timestamp, comment: page.summary ?? '', slots: { main: slot }, '*': content }] });
+              records.push({ pageid: page.pageid, ns: mw.Title.newFromText(title)?.getNamespaceId() ?? 1, title, lastrevid: page.revid, contentmodel: 'wikitext', revisions: [{ ...revisionData(page), ...(list(params.rvprop).includes('content') ? { slots: { main: slot }, '*': content } : {}) }] });
             }
             return { curtimestamp: new Date().toISOString(), query: { pages: Number(params.formatversion) === 2 ? records : Object.fromEntries(records.map((page, index) => [scalar('pageid' in page ? page.pageid : -index - 1), page])) } };
           }
