@@ -3,14 +3,14 @@ import { commentLayout } from './comment-layout';
 import type { AnnotationComment, CommentDraft, HighlightAnnotation, ModerationReasonPrompt, RenderedView } from './types';
 import type { PopupLayout } from './popup-layout';
 import { textRects } from './range-rects';
-import { canEditComment, canResolveThread, needsModerationReason, requestActionReason, type ModerationTarget } from './permissions';
+import { canEditComment, canResolveThread, findAnnotationComment, needsModerationReason, requestActionReason, type ModerationTarget } from './permissions';
 
 import { threadRoots, annotationVisible } from './annotation-state';
 
 type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string; reason?: string };
 
 /** A local comment thread for each source-anchored highlight. */
-export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages()) {
+export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages(), onDraftsChange?: (drafts: readonly CommentDraft[]) => void) {
   const highlighting = view.highlighting, window = doc.defaultView;
   if (!highlighting || !window) throw new Error('Comments require annotation highlighting in a browser window.');
   const state = highlighting, win = window;
@@ -38,9 +38,11 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   container.dataset.annotationUi = ''; container.hidden = true;
   const hadClass = column.classList.contains('annotation-comments-host');
   column.classList.add('annotation-comments-host'); column.append(container);
-  const retainedDrafts = new Map<string, CommentDraft>();
-  for (const draft of initialDrafts) if (!state.annotations.some(annotation => annotation.id === draft.annotationId && annotationVisible(annotation))) retainedDrafts.set(`${draft.annotationId}/${draft.kind}/${'commentId' in draft ? draft.commentId : ''}`, draft);
+  const draftKey = (draft: CommentDraft) => `${draft.annotationId}/${draft.kind}/${'commentId' in draft ? draft.commentId : ''}`;
+  const retainedDrafts = new Map(initialDrafts.map(draft => [draftKey(draft), draft]));
   const threads = new Map<string, ReturnType<typeof thread>>();
+  const readDrafts = (): readonly CommentDraft[] => Object.freeze([...retainedDrafts.values(), ...[...threads.values()].flatMap(thread => thread.drafts)].map(draft => Object.freeze({ ...draft })));
+  const draftsChanged = () => onDraftsChange?.(readDrafts());
   const layout = commentLayout(doc, view, column, container, () => [...threads.values()].map(item => ({ element: item.element, anchor: item.annotation.anchor, revision: item.revision })), popups);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let reasonPending = false;
@@ -82,11 +84,14 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
     element.addEventListener('pointerleave', clearHoveredBody, options);
     const drafts = new Map<string, Draft>();
     const hasComment = (comment: AnnotationComment | undefined, id: string): boolean => Boolean(comment && (comment.id === id || comment.replies.some(reply => hasComment(reply, id))));
-    for (const draft of initialDrafts) {
+    for (const [storedKey, draft] of retainedDrafts) {
       if (draft.annotationId !== initial.id) continue;
       if (draft.kind === 'new') drafts.set('root', { kind: 'new', text: draft.text });
       else if (threadRoots(initial).some(root => hasComment(root, draft.commentId))
         && (draft.kind !== 'edit' || !needsModerationReason({ type: 'edit-comment', commentId: draft.commentId }, actor, initial) || draft.reason?.trim())) drafts.set(draft.kind + '/' + draft.commentId, { kind: draft.kind, commentId: draft.commentId, text: draft.text, ...(draft.reason ? { reason: draft.reason } : {}) });
+      else continue;
+      // Consume restored drafts once; a later hide/show must not replay the startup snapshot.
+      retainedDrafts.delete(storedKey);
     }
     let renderEvents = new AbortController();
     let annotation = initial, signature = '', revision = 0, composing = false;
@@ -100,7 +105,12 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       const editor = [...element.querySelectorAll<HTMLTextAreaElement>('textarea')].find(input => input.dataset.draft === key);
       editor?.focus({ preventScroll: true });
     };
-    const open = (key: string, draft: Draft) => { drafts.set(key, draft); render(); win.requestAnimationFrame(() => focusEditor(key)); };
+    const open = (key: string, draft: Draft) => { drafts.set(key, draft); render(); draftsChanged(); win.requestAnimationFrame(() => focusEditor(key)); };
+    const removeDraft = (key: string, draft: Draft) => {
+      drafts.delete(key); retainedDrafts.delete(draftKey({ ...draft, annotationId: initial.id }));
+      if (threads.get(initial.id)?.element === element) render();
+      draftsChanged();
+    };
     const editor = (key: string, draft: Draft, savedComment?: AnnotationComment) => {
       const options = { signal: renderEvents.signal };
       const form = doc.createElement('form'); form.className = 'annotation-comment-body annotation-comment-editor';
@@ -112,15 +122,18 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       const canSubmit = () => Boolean(input.value.trim()) && (draft.kind !== 'edit' || (original !== undefined && input.value !== original));
       const send = button(draft.kind === 'edit' ? messages.saveChanges : messages.send, () => {
         if (!canSubmit()) return;
+        const commentId = draft.kind === 'edit' ? draft.commentId : win.crypto.randomUUID();
         if (draft.kind === 'edit') {
-          drafts.delete(key); state.dispatch({ type: 'edit-comment', id: annotation.id, commentId: draft.commentId, text: input.value, editedAt: new Date().toISOString(), ...(draft.reason ? { reason: draft.reason } : {}) });
+          state.dispatch({ type: 'edit-comment', id: annotation.id, commentId, text: input.value, editedAt: new Date().toISOString(), ...(draft.reason ? { reason: draft.reason } : {}) });
         } else {
-          drafts.delete(key);
-          const comment: AnnotationComment = { id: win.crypto.randomUUID(), text: input.value, author: currentAuthor, createdAt: new Date().toISOString(), replies: [] };
+          const comment: AnnotationComment = { id: commentId, text: input.value, author: currentAuthor, createdAt: new Date().toISOString(), replies: [] };
           state.dispatch({ type: 'add-comment', id: annotation.id, comment, ...(draft.kind === 'reply' ? { parentId: draft.commentId } : {}) });
         }
+        // A host can reject and roll back a submission (for example, after a permission change).
+        const current = state.annotations.find(item => item.id === initial.id);
+        if (current && findAnnotationComment(current, commentId)?.text === input.value) removeDraft(key, draft);
       });
-      const discard = button(draft.kind === 'edit' ? messages.cancel : messages.discard, () => { drafts.delete(key); render(); });
+      const discard = button(draft.kind === 'edit' ? messages.cancel : messages.discard, () => removeDraft(key, draft));
       actions.append(send, discard); form.append(metadata(savedComment?.author ?? currentAuthor, savedComment?.createdAt, savedComment?.editedAt, savedComment?.editedBy), input, actions);
       const resize = () => {
         const previous = input.style.height;
@@ -128,7 +141,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         if (input.style.height !== previous) revision++;
         send.disabled = !canSubmit(); layout.schedule();
       };
-      input.addEventListener('input', () => { draft.text = input.value; resize(); }, options);
+      input.addEventListener('input', () => { draft.text = input.value; resize(); draftsChanged(); }, options);
       input.addEventListener('keydown', event => {
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); send.click(); }
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); discard.click(); }
@@ -212,7 +225,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   const sync: Parameters<typeof state.subscribe>[0] = annotations => {
     const visible = annotations.filter(annotationVisible);
     const ids = new Set(visible.map(annotation => annotation.id));
-    for (const [id, item] of threads) if (!ids.has(id)) { for (const draft of item.drafts) retainedDrafts.set(`${draft.annotationId}/${draft.kind}/${'commentId' in draft ? draft.commentId : ''}`, draft); layout.unobserve(item.element); item.destroy(); threads.delete(id); }
+    for (const [id, item] of threads) if (!ids.has(id)) { for (const draft of item.drafts) retainedDrafts.set(draftKey(draft), draft); layout.unobserve(item.element); item.destroy(); threads.delete(id); }
     for (const annotation of visible) {
       let item = threads.get(annotation.id);
       if (!item) { item = thread(annotation); threads.set(annotation.id, item); container.append(item.element); layout.observe(item.element); }
@@ -224,7 +237,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   const stop = state.subscribe(sync);
   return {
     element: container,
-    get drafts(): readonly CommentDraft[] { return Object.freeze([...retainedDrafts.values(), ...[...threads.values()].flatMap(thread => thread.drafts)]); },
+    get drafts(): readonly CommentDraft[] { return readDrafts(); },
     activate,
     destroy() {
       cancel(); stop(); controller.abort(); layout.destroy(); for (const item of threads.values()) item.destroy(); threads.clear();

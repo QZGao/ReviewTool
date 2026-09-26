@@ -164,6 +164,8 @@ export interface RenderOptions {
   /** Host dialog for moderator reasons; live Wikipedia uses Codex. Null means Cancel. */
   requestModerationReason?: ModerationReasonPrompt;
   commentDrafts?: readonly CommentDraft[];
+  /** Private editor changes, including an empty snapshot when sending or discarding clears a draft. */
+  onCommentDraftsChange?: (drafts: readonly CommentDraft[]) => void;
 }
 
 export type ModerationReasonPrompt = (action: 'edit-comment' | 'resolve-comment' | 'delete-highlight', signal: AbortSignal) => Promise<string | null>;

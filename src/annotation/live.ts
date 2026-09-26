@@ -6,7 +6,7 @@ import type { ReviewIdentity } from './live-storage';
 import { wikiSource, type WikiSource } from './wiki-source';
 import { annotationSync } from './sync';
 import { syncJournal } from './sync-journal';
-import type { ModerationReasonPrompt, WikipediaHeadingAnchor } from './types';
+import type { CommentDraft, ModerationReasonPrompt, WikipediaHeadingAnchor } from './types';
 import styles from './style.css';
 import { annotationVisible, threadRoots } from './annotation-state';
 import { findComment, isModerator } from './permissions';
@@ -80,8 +80,8 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
   const messages = annotationMessages(text => state.convByVar(text));
   let exportItem: HTMLElement | null = null;
   let mount: ReturnType<typeof mountWikipediaAnnotation> | undefined, sync: ReturnType<typeof annotationSync> | undefined;
-  let closed = false, draftSave: ReturnType<typeof setTimeout> | undefined, polling: ReturnType<typeof setInterval> | undefined;
-  let saveDrafts = async () => {};
+  let closed = false, polling: ReturnType<typeof setInterval> | undefined;
+  let saveDrafts: (drafts?: readonly CommentDraft[]) => Promise<void> = async () => {};
   const controller = new AbortController(), listener = { signal: controller.signal };
   let notice: { close(): void } | undefined, lastNotice = '';
   const notify = (message: string | HTMLElement, type: 'warn' | 'error' = 'error') => {
@@ -167,8 +167,10 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       const shared = sync, initial = await shared.start();
       if (closed) return;
       const projection = createProjection(source, { wikiBaseUrl: new URL('/wiki/', location.href).href });
+      saveDrafts = (snapshot = mount?.view.comments?.drafts ?? drafts) => journal.drafts(snapshot).then(() => {}).catch(error => failure({ hant: '無法儲存草稿，請先複製文字，以免遺失。', hans: '无法保存草稿，请先复制文字，以免丢失。' }, error));
       mount = mountWikipediaAnnotation(document, projection, {
         comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, headingAnchors: headings, commentDrafts: drafts,
+        onCommentDraftsChange: snapshot => { if (!closed) void saveDrafts(snapshot); },
         ...(requestModerationReason ? { requestModerationReason } : {}),
         highlighting: { initial, onChange: (_next, action) => {
           try { if (!canWrite) throw new Error('Log in before saving annotations.'); shared.add(action); } catch (error) { mount?.view.highlighting?.replace(shared.annotations); failure({ hant: '修改未能儲存，請再試一次。', hans: '修改未能保存，请再试一次。' }, error); }
@@ -181,13 +183,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
         try { downloadAnnotationExport(document, buildAnnotationExport(identity, title, projection, shared.annotations)); }
         catch (error) { failure({ hant: '無法匯出批註，請稍後重試。', hans: '无法导出批注，请稍后重试。' }, error); }
       }, listener);
-      saveDrafts = () => journal.drafts(mount?.view.comments?.drafts ?? []).then(() => {}).catch(error => failure({ hant: '無法儲存草稿，請先複製文字，以免遺失。', hans: '无法保存草稿，请先复制文字，以免丢失。' }, error));
-      document.addEventListener('input', event => {
-        if (!(event.target as Element).closest('.annotation-comments')) return;
-        if (draftSave !== undefined) clearTimeout(draftSave);
-        draftSave = setTimeout(() => { void saveDrafts(); }, 200);
-      }, listener);
-      document.addEventListener('click', event => { if ((event.target as Element).closest('.annotation-comments')) queueMicrotask(() => { if (!closed) void saveDrafts(); }); }, listener);
+
       const refresh = () => { if (!document.hidden) void shared.sync(); };
       polling = setInterval(refresh, 5000);
       document.addEventListener('visibilitychange', refresh, listener); window.addEventListener('online', refresh, listener);
@@ -200,7 +196,6 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
     if (cleanup !== undefined) return cleanup;
     closed = true;
     const draftsSaved = saveDrafts();
-    if (draftSave !== undefined) clearTimeout(draftSave);
     if (polling !== undefined) clearInterval(polling);
     controller.abort();
     mount?.destroy(); exportItem?.remove(); notice?.close(); style.remove();

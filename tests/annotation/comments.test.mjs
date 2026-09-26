@@ -749,3 +749,57 @@ test('remote updates preserve an active draft, caret, focus and article selectio
     assert.equal(await thread.locator('.annotation-comment-text').count(), 2);
   });
 });
+
+test('restored drafts survive temporary highlight removal but cannot return after discard', async () => {
+  await inPage(async page => {
+    await mark(page, 'First passage');
+    await page.evaluate(() => {
+      window.draftAnnotations = commentView.highlighting.annotations;
+      const projection = commentView.projection;
+      commentMount.destroy();
+      window.draftSnapshots = [];
+      window.commentMount = annotationLab.annotation.mountWikipediaAnnotation(document, projection, {
+        comments: true, commentAuthor: 'Example', highlighting: { initial: draftAnnotations },
+        commentDrafts: [{ annotationId: draftAnnotations[0].id, kind: 'new', text: 'Restored draft' }],
+        onCommentDraftsChange: drafts => draftSnapshots.push(drafts),
+      });
+      window.commentView = commentMount.view;
+    });
+    await page.evaluate(() => { commentView.highlighting.replace([]); commentView.highlighting.replace(draftAnnotations); });
+    assert.equal(await page.locator('.annotation-comments textarea').inputValue(), 'Restored draft');
+    await page.getByRole('button', { name: '放棄草稿', exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => draftSnapshots.at(-1)), []);
+    await page.evaluate(() => { commentView.highlighting.replace([]); commentView.highlighting.replace(draftAnnotations); });
+    assert.equal(await page.locator('.annotation-comments textarea').count(), 0);
+    assert.deepEqual(await page.evaluate(() => commentView.comments.drafts), []);
+  });
+});
+
+test('a host rejecting a submission keeps the private draft until a successful retry', async () => {
+  await inPage(async page => {
+    await mark(page, 'First passage');
+    await page.evaluate(() => {
+      const initial = commentView.highlighting.annotations, projection = commentView.projection;
+      commentMount.destroy();
+      window.rejectSubmission = true; window.draftSnapshots = [];
+      window.commentMount = annotationLab.annotation.mountWikipediaAnnotation(document, projection, {
+        comments: true, commentAuthor: 'Example',
+        highlighting: { initial, onChange: () => { if (rejectSubmission) commentView.highlighting.replace(initial); } },
+        onCommentDraftsChange: drafts => draftSnapshots.push(drafts),
+      });
+      window.commentView = commentMount.view;
+    });
+    const thread = page.locator('.annotation-comment-thread');
+    await thread.getByRole('button', { name: '新增評論…' }).click();
+    await thread.getByRole('textbox').fill('Keep this draft if saving is rejected');
+    await thread.getByRole('button', { name: '送出', exact: true }).click();
+    assert.equal(await thread.getByRole('textbox').inputValue(), 'Keep this draft if saving is rejected');
+    assert.equal(await thread.locator('.annotation-comment-text').count(), 0);
+    assert.equal(await page.evaluate(() => draftSnapshots.at(-1)[0].text), 'Keep this draft if saving is rejected');
+    await page.evaluate(() => { window.rejectSubmission = false; });
+    await thread.getByRole('button', { name: '送出', exact: true }).click();
+    assert.equal(await thread.getByRole('textbox').count(), 0);
+    assert.equal(await thread.locator('.annotation-comment-text').textContent(), 'Keep this draft if saving is rejected');
+    assert.deepEqual(await page.evaluate(() => draftSnapshots.at(-1)), []);
+  });
+});
