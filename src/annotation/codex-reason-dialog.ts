@@ -1,10 +1,11 @@
+import { annotationMessages, type AnnotationMessages } from './i18n';
 import type { Component, h as renderNode, ref as reactiveRef } from 'vue';
 import { loadCodexAndVue } from '../dialog';
 import type { ModerationReasonPrompt } from './types';
 import { checkedReason } from './permissions';
 
 /** Load once before enabling moderator controls; each prompt owns its mount and cleanup. */
-export async function createCodexReasonPrompt(doc: Document): Promise<ModerationReasonPrompt> {
+export async function createCodexReasonPrompt(doc: Document, messages: AnnotationMessages = annotationMessages()): Promise<ModerationReasonPrompt> {
   const { Vue, Codex } = await loadCodexAndVue();
   const runtime = Vue as typeof Vue & { h: typeof renderNode; ref: typeof reactiveRef };
   if (!Codex.CdxDialog || !Codex.CdxTextInput) throw new Error('Codex dialog components are unavailable.');
@@ -23,31 +24,31 @@ export async function createCodexReasonPrompt(doc: Document): Promise<Moderation
       const inputId = 'reviewtool-reason-' + win.crypto.randomUUID();
       const value = runtime.ref(''), reasonError = () => {
         try { checkedReason(value.value); return ''; }
-        catch (error) { return error instanceof Error ? error.message : String(error); }
+        catch { return value.value.trim() ? messages.reasonTooLong : messages.reasonRequired; }
       };
-      const title = action === 'edit-comment' ? 'Reason for editing' : action === 'resolve-comment' ? 'Reason for resolving' : 'Reason for deleting';
-      const label = action === 'edit-comment' ? 'Continue to edit' : action === 'resolve-comment' ? 'Resolve thread' : 'Delete highlight';
-      const moderationAction = action === 'edit-comment' ? 'edit another user’s comment' : action === 'resolve-comment' ? 'resolve another user’s thread' : 'delete another user’s annotation';
+      const title = action === 'edit-comment' ? messages.editReason : action === 'resolve-comment' ? messages.resolveReason : messages.deleteReason;
+      const label = action === 'edit-comment' ? messages.continueEditing : action === 'resolve-comment' ? messages.resolveThread : messages.deleteHighlight;
+      const moderationAction = action === 'edit-comment' ? messages.moderatorEdit : action === 'resolve-comment' ? messages.moderatorResolve : messages.moderatorDelete;
       let settled = false, composing = false, compositionEnded = -Infinity;
       const previousFocus = doc.activeElement as HTMLElement | null;
       const app = runtime.createMwApp({
         render() {
           const error = reasonError();
           return runtime.h(Dialog, {
-            open: true, renderInPlace: true, title, useCloseButton: true,
+            open: true, renderInPlace: true, title, useCloseButton: true, closeButtonLabel: messages.close,
             primaryAction: { label, actionType: action === 'edit-comment' ? 'progressive' : 'destructive', disabled: Boolean(error) },
-            defaultAction: { label: 'Cancel' },
+            defaultAction: { label: messages.cancel },
             onPrimary: () => { if (!reasonError()) finish(checkedReason(value.value)); },
             onDefault: () => finish(null), 'onUpdate:open': (open: boolean) => { if (!open) finish(null); },
           }, { default: () => [
-            runtime.h('p', `Your moderation rights allow you to ${moderationAction}.`),
-            runtime.h('p', 'Please give a reason so other editors can understand your action. It will be recorded publicly in the annotation data page’s edit summary.'),
-            runtime.h('label', { for: inputId, style: 'display:block;font-weight:600;margin-bottom:8px' }, 'Reason'),
+            runtime.h('p', moderationAction),
+            runtime.h('p', messages.reasonExplanation),
+            runtime.h('label', { for: inputId, style: 'display:block;font-weight:600;margin-bottom:8px' }, messages.reason),
             runtime.h(TextInput, { id: inputId, modelValue: value.value, 'onUpdate:modelValue': (next: string) => { value.value = next; },
               status: value.value && error ? 'error' : 'default', 'aria-describedby': inputId + '-help', autofocus: true,
             }),
             runtime.h('p', { id: inputId + '-help', 'aria-live': 'polite', style: 'font-size:0.875em;color:var(--color-subtle,#54595d)' },
-              value.value && error ? error : 'Required · Maximum 483 characters'),
+              value.value && error ? error : messages.reasonHelp),
           ] });
         },
       }) as ReturnType<typeof Vue.createMwApp> & { unmount(): void };

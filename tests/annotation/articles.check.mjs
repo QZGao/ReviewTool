@@ -48,7 +48,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
           const read = view.readRange(codeRange);
           code.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
           const original = new TextDecoder().decode(encoder.encode(source).slice(read.anchor.start, read.anchor.end));
-          return { sourceText: read.sourceText, selectionMatchesCode: read.quote === code.textContent && read.sourceText === original && /^\[\[(?:File|Image|文件|檔案|档案|图像|圖像):/i.test(original) && original.endsWith(']]'), restored: view.readRange(view.restoreRange(read.anchor)), selection: read, hasImage: Boolean(view.element.querySelector('[data-annotation-popup] img')), loading: view.element.querySelector('[data-annotation-image]')?.textContent === 'Loading image…', inline: getComputedStyle(code).display === 'inline' };
+          return { sourceText: read.sourceText, selectionMatchesCode: read.quote === code.textContent && read.sourceText === original && /^\[\[(?:File|Image|文件|檔案|档案|图像|圖像):/i.test(original) && original.endsWith(']]'), restored: view.readRange(view.restoreRange(read.anchor)), selection: read, hasImage: Boolean(view.element.querySelector('[data-annotation-popup] img')), loading: view.element.querySelector('[data-annotation-image]')?.textContent === '正在載入圖片…', inline: getComputedStyle(code).display === 'inline' };
         });
         view.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         const href = 'https://zh.wikipedia.org/wiki/' + encodeURIComponent(example.target.replace(/ /g, '_'));

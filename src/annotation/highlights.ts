@@ -1,3 +1,4 @@
+import { annotationMessages, type AnnotationMessages } from './i18n';
 import type { HighlightAnnotation, HighlightColor, HighlightOptions, MappedSelection, ModerationReasonPrompt, RenderedView } from './types';
 import type { PopupLayout } from './popup-layout';
 import { annotationState, annotationVisible } from './annotation-state';
@@ -9,7 +10,7 @@ interface Marker { annotation: HighlightAnnotation; range: Range; name: string; 
 type Active = { kind: 'selection'; selection: MappedSelection } | { kind: 'marker'; id: string };
 
 /** Owns only transient UI and CSS highlights; source DOM text nodes never change. */
-export function createHighlighting(doc: Document, view: RenderedView, config: HighlightOptions, popupLayout: PopupLayout, actor: AnnotationActor = {}, promptReason?: ModerationReasonPrompt) {
+export function createHighlighting(doc: Document, view: RenderedView, config: HighlightOptions, popupLayout: PopupLayout, actor: AnnotationActor = {}, promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages()) {
   const win = doc.defaultView;
   if (!win?.Highlight || !win.CSS?.highlights) throw new Error('This browser does not support text highlights.');
   const registry = win.CSS.highlights;
@@ -44,14 +45,14 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   };
   const buttons = colors.map(color => {
     const button = doc.createElement('button'); button.type = 'button'; button.dataset.color = color;
-    const label = color[0].toUpperCase() + color.slice(1) + ' highlight';
+    const label = messages[color];
     button.setAttribute('aria-label', label); button.title = label;
     button.append(icon('M5 12l4 4L19 6'));
     bar.append(button); return button;
   });
   const separator = doc.createElement('span'); separator.className = 'annotation-highlight-divider'; separator.setAttribute('aria-hidden', 'true');
   const remove = doc.createElement('button'); remove.type = 'button'; remove.dataset.deleteHighlight = '';
-  remove.setAttribute('aria-label', 'Delete highlight'); remove.title = 'Delete highlight';
+  remove.setAttribute('aria-label', messages.deleteHighlight); remove.title = messages.deleteHighlight;
   remove.append(icon('M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6m4-6v6'));
   bar.append(separator, remove);
 
@@ -85,7 +86,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     if (!bar.isConnected) root.append(bar);
     bar.hidden = false;
     const editing = next.kind === 'marker';
-    bar.setAttribute('aria-label', editing ? 'Edit highlight' : 'Highlight selection');
+    bar.setAttribute('aria-label', editing ? messages.editHighlight : messages.highlightSelection);
     const annotation = editing ? markers.find(marker => marker.annotation.id === next.id)?.annotation : undefined;
     const color = annotation?.color;
     buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.color === color)));

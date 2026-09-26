@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { launchInteractiveChrome } from './interactive-chrome.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -12,16 +13,13 @@ export async function launch({ dryRun = false, headless = false, profile } = {})
   const directory = path.join(root, '.cache/reviewtool-extension', mode);
   const userDataDir = profile ?? path.join(root, '.cache/reviewtool-chrome', mode);
   await mkdir(userDataDir, { recursive: true });
-  const context = await chromium.launchPersistentContext(userDataDir, {
+  const context = headless ? await chromium.launchPersistentContext(userDataDir, {
     channel: 'chrome', headless, ignoreDefaultArgs: ['--disable-extensions'],
     args: ['--enable-unsafe-extension-debugging', '--window-size=1440,1000'], viewport: null,
-  });
+  }) : await launchInteractiveChrome(userDataDir);
   try {
     const cdp = await context.browser().newBrowserCDPSession();
     const { id } = await cdp.send('Extensions.loadUnpacked', { path: directory });
-    // Playwright otherwise captures downloads as temporary GUID-named artifacts.
-    // Interactive Chrome should use its normal download location, names and UI.
-    if (!headless) await cdp.send('Browser.setDownloadBehavior', { behavior: 'default', eventsEnabled: true });
     await cdp.detach();
     if (dryRun) {
       // Defense in depth for this testing profile, including requests outside ReviewTool.

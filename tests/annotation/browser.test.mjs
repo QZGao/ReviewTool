@@ -570,7 +570,7 @@ test('link source popups never navigate and their text cannot become an annotati
     assert.equal(result.selectable, 'text');
     assert.equal(result.directLinks, 0);
     assert.equal(result.cursor, 'text');
-    assert.equal(result.popupText, 'Link source' + snippets[2]);
+    assert.equal(result.popupText, '連結原始碼' + snippets[2]);
     assert.equal(result.all.quote, '前标签与水与外链后');
     assert.equal(result.all.sourceText, '前' + snippets.join('与') + '后');
     await page.keyboard.press('Escape');
@@ -1052,7 +1052,7 @@ test('missing image popups lazily query 250px thumbnails and cache filename alia
     await page.locator('[data-inspect="image"]').first().focus();
     await request;
     assert.equal(await page.locator('[data-annotation-popup]').isVisible(), true);
-    assert.equal(await page.locator('[data-annotation-image]').textContent(), 'Loading image…');
+    assert.equal(await page.locator('[data-annotation-image]').textContent(), '正在載入圖片…');
     await page.locator('[data-inspect="image"]').last().focus();
     release();
     await page.waitForFunction(() => document.querySelector('[data-annotation-popup] img')?.naturalWidth > 0);
@@ -1122,7 +1122,7 @@ test('unavailable thumbnails keep an accessible popup and never mount unsafe URL
     for (let index = 0; index < 3; index++) {
       const trigger = page.locator('[data-inspect="image"]').nth(index);
       await trigger.focus();
-      await page.waitForFunction(() => document.querySelector('[data-annotation-image]')?.textContent === 'Image preview unavailable.');
+      await page.waitForFunction(() => document.querySelector('[data-annotation-image]')?.textContent === '無法載入圖片預覽。');
       assert.equal(await page.locator('[data-annotation-popup]').isVisible(), true);
       assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
       assert.equal(await page.locator('[data-annotation-popup] img').count(), 0);

@@ -1,3 +1,4 @@
+import { annotationMessages, type AnnotationMessages } from './i18n';
 import { commentLayout } from './comment-layout';
 import type { AnnotationComment, CommentDraft, HighlightAnnotation, ModerationReasonPrompt, RenderedView } from './types';
 import type { PopupLayout } from './popup-layout';
@@ -9,7 +10,7 @@ import { threadRoots, annotationVisible } from './annotation-state';
 type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string; reason?: string };
 
 /** A local comment thread for each source-anchored highlight. */
-export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt) {
+export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages()) {
   const highlighting = view.highlighting, window = doc.defaultView;
   if (!highlighting || !window) throw new Error('Comments require annotation highlighting in a browser window.');
   const state = highlighting, win = window;
@@ -17,23 +18,23 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   const actor = { name: currentAuthor, groups };
   // Omitting timeZone uses the browser/system timezone, including daylight saving.
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
-  const dateFormat = new Intl.DateTimeFormat(undefined, dateOptions);
-  const detailedDateFormat = new Intl.DateTimeFormat(undefined, { ...dateOptions, second: '2-digit', timeZoneName: 'long' });
+  const dateFormat = new Intl.DateTimeFormat(messages.dateLocale, dateOptions);
+  const detailedDateFormat = new Intl.DateTimeFormat(messages.dateLocale, { ...dateOptions, second: '2-digit', timeZoneName: 'long' });
   const metadata = (name: string, createdAt?: string, editedAt?: string, editedBy?: string) => {
     const row = doc.createElement('div'); row.className = 'annotation-comment-meta';
-    const author = doc.createElement('span'); author.className = 'annotation-comment-author'; author.textContent = name + (editedBy && editedBy !== name ? ` (edited by ${editedBy})` : '');
+    const author = doc.createElement('span'); author.className = 'annotation-comment-author'; author.textContent = name + (editedBy && editedBy !== name ? messages.editedBy(editedBy) : '');
     row.append(author);
     if (createdAt) {
       const time = doc.createElement('time'); time.className = 'annotation-comment-date'; time.dateTime = editedAt ?? createdAt;
       const date = new Date(editedAt ?? createdAt);
-      time.textContent = dateFormat.format(date) + (editedAt ? ' (edited)' : ''); time.title = detailedDateFormat.format(date);
+      time.textContent = dateFormat.format(date) + (editedAt ? messages.edited : ''); time.title = detailedDateFormat.format(date);
       row.append(time);
     }
     return row;
   };
   const controller = new AbortController(), options = { signal: controller.signal };
   const container = doc.createElement('aside');
-  container.className = 'annotation-comments'; container.setAttribute('aria-label', 'Annotation comments');
+  container.className = 'annotation-comments'; container.setAttribute('aria-label', messages.comments);
   container.dataset.annotationUi = ''; container.hidden = true;
   const hadClass = column.classList.contains('annotation-comments-host');
   column.classList.add('annotation-comments-host'); column.append(container);
@@ -67,7 +68,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
 
   function thread(initial: HighlightAnnotation) {
     const element = doc.createElement('section'); element.className = 'annotation-comment-thread';
-    element.dataset.annotationId = initial.id; element.setAttribute('aria-label', 'Comment thread');
+    element.dataset.annotationId = initial.id; element.setAttribute('aria-label', messages.thread);
     const content = doc.createElement('div'); content.className = 'annotation-comment-content'; element.append(content);
     // Keep the last message's controls in place when crossing into the card footer.
     let hoveredBody: HTMLElement | null = null;
@@ -104,12 +105,12 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       const options = { signal: renderEvents.signal };
       const form = doc.createElement('form'); form.className = 'annotation-comment-body annotation-comment-editor';
       const input = doc.createElement('textarea'); input.dataset.draft = key; input.value = draft.text; input.rows = 1;
-      input.placeholder = draft.kind === 'reply' ? 'Write a reply…' : 'Write a comment…';
-      input.setAttribute('aria-label', draft.kind === 'reply' ? 'Reply text' : 'Comment text');
+      input.placeholder = draft.kind === 'reply' ? messages.writeReply : messages.writeComment;
+      input.setAttribute('aria-label', draft.kind === 'reply' ? messages.replyText : messages.commentText);
       const actions = doc.createElement('div'); actions.className = 'annotation-comment-editor-actions';
       const original = savedComment?.text.replace(/\r\n?/g, '\n');
       const canSubmit = () => Boolean(input.value.trim()) && (draft.kind !== 'edit' || (original !== undefined && input.value !== original));
-      const send = button(draft.kind === 'edit' ? 'Save changes' : 'Send', () => {
+      const send = button(draft.kind === 'edit' ? messages.saveChanges : messages.send, () => {
         if (!canSubmit()) return;
         if (draft.kind === 'edit') {
           drafts.delete(key); state.dispatch({ type: 'edit-comment', id: annotation.id, commentId: draft.commentId, text: input.value, editedAt: new Date().toISOString(), ...(draft.reason ? { reason: draft.reason } : {}) });
@@ -119,7 +120,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
           state.dispatch({ type: 'add-comment', id: annotation.id, comment, ...(draft.kind === 'reply' ? { parentId: draft.commentId } : {}) });
         }
       });
-      const discard = button(draft.kind === 'edit' ? 'Cancel' : 'Discard', () => { drafts.delete(key); render(); });
+      const discard = button(draft.kind === 'edit' ? messages.cancel : messages.discard, () => { drafts.delete(key); render(); });
       actions.append(send, discard); form.append(metadata(savedComment?.author ?? currentAuthor, savedComment?.createdAt, savedComment?.editedAt, savedComment?.editedBy), input, actions);
       const resize = () => {
         const previous = input.style.height;
@@ -149,16 +150,16 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         text.tabIndex = 0;
         const actions = doc.createElement('div'); actions.className = 'annotation-comment-actions';
         if (canResolveThread(annotation, comment.id, actor)) {
-          actions.append(button('Resolve', async () => {
+          actions.append(button(messages.resolve, async () => {
             const reason = await reasonFor({ type: 'resolve-comment', commentId: comment.id }, annotation);
             if (reason !== null && node.isConnected && !controller.signal.aborted) state.dispatch({ type: 'resolve-comment', id: annotation.id, commentId: comment.id, ...(reason ? { reason } : {}) });
           }));
         }
-        if (canEditComment(comment, actor)) actions.append(button('Edit', async () => {
+        if (canEditComment(comment, actor)) actions.append(button(messages.edit, async () => {
           const reason = await reasonFor({ type: 'edit-comment', commentId: comment.id }, annotation);
           if (reason !== null && node.isConnected && !controller.signal.aborted) open(editKey, { kind: 'edit', text: comment.text, commentId: comment.id, ...(reason ? { reason } : {}) });
         }));
-        const reply = button('Reply', () => open(replyKey, { kind: 'reply', text: '', commentId: comment.id }));
+        const reply = button(messages.reply, () => open(replyKey, { kind: 'reply', text: '', commentId: comment.id }));
         reply.className = 'annotation-comment-reply';
         body.append(metadata(comment.author, comment.createdAt, comment.editedAt, comment.editedBy), text, actions, reply); node.append(body);
       }
@@ -180,13 +181,13 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       element.querySelector('.annotation-highlight-attribution')?.remove(); content.replaceChildren();
       if (annotation.author && (!threadRoots(annotation).length || threadRoots(annotation).some(root => root.author !== annotation.author))) {
         const attribution = doc.createElement('div'); attribution.className = 'annotation-highlight-attribution';
-        attribution.textContent = `Highlighted by ${annotation.author}`; attribution.title = attribution.textContent; element.prepend(attribution);
+        attribution.textContent = messages.highlightedBy(annotation.author); attribution.title = attribution.textContent; element.prepend(attribution);
       }
       const rootDraft = drafts.get('root');
       for (const root of threadRoots(annotation)) if (!root.resolved) content.append(message(root));
       if (rootDraft) content.append(editor('root', rootDraft));
       else {
-        const placeholder = button(threadRoots(annotation).length ? 'Add a separate comment…' : 'Add a comment…', () => open('root', { kind: 'new', text: '' }));
+        const placeholder = button(threadRoots(annotation).length ? messages.addSeparateComment : messages.addComment, () => open('root', { kind: 'new', text: '' }));
         placeholder.className = 'annotation-comment-placeholder'; content.append(placeholder);
       }
       content.scrollTop = scrollTop;

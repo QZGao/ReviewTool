@@ -37,7 +37,7 @@ test('the real Codex prompt stays open without native-dialog handlers, validates
   try {
     await page.goto(server.url + '/?article=sun-yat-sen');
     await page.waitForFunction(() => Boolean(window.annotationPageLab));
-    await page.evaluate(() => { const button = document.createElement('button'); button.id = 'trigger'; button.textContent = 'Edit'; document.body.prepend(button); });
+    await page.evaluate(() => { const button = document.createElement('button'); button.id = 'trigger'; button.textContent = '編輯'; document.body.prepend(button); });
     await page.addStyleTag({ content: css });
     await page.route(server.url + '/codex-reason-fixture.js', route => route.fulfill({ contentType: 'application/javascript', body: script }));
     await page.addScriptTag({ url: server.url + '/codex-reason-fixture.js' });
@@ -52,11 +52,11 @@ test('the real Codex prompt stays open without native-dialog handlers, validates
       popup.textContent = 'An existing source tooltip'; document.body.append(popup); popup.showPopover();
     });
     await show('edit-comment');
-    const dialog = page.getByRole('dialog', { name: 'Reason for editing', exact: true });
+    const dialog = page.getByRole('dialog', { name: '編輯原因', exact: true });
     await dialog.waitFor({ state: 'visible' }); await page.waitForTimeout(400);
     assert.equal(await dialog.isVisible(), true);
-    const input = dialog.getByRole('textbox', { name: 'Reason', exact: true });
-    const proceed = dialog.getByRole('button', { name: 'Continue to edit', exact: true });
+    const input = dialog.getByRole('textbox', { name: '原因', exact: true });
+    const proceed = dialog.getByRole('button', { name: '繼續編輯', exact: true });
     assert.equal(await proceed.isDisabled(), true);
     await input.fill('   '); assert.equal(await proceed.isDisabled(), true);
     await input.fill('😀'.repeat(501)); assert.equal(await proceed.isDisabled(), true);
@@ -80,13 +80,13 @@ test('the real Codex prompt stays open without native-dialog handlers, validates
     assert.equal(await page.locator('#trigger').evaluate(element => element === document.activeElement), true);
 
     await show('resolve-comment');
-    const resolve = page.getByRole('dialog', { name: 'Reason for resolving', exact: true });
-    await resolve.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const resolve = page.getByRole('dialog', { name: '結束討論的原因', exact: true });
+    await resolve.getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(await page.evaluate(() => reasonResult), null);
     await show('delete-highlight');
-    const remove = page.getByRole('dialog', { name: 'Reason for deleting', exact: true });
-    await remove.getByRole('textbox', { name: 'Reason', exact: true }).fill('Duplicate thread');
-    await remove.getByRole('button', { name: 'Delete highlight', exact: true }).click();
+    const remove = page.getByRole('dialog', { name: '刪除原因', exact: true });
+    await remove.getByRole('textbox', { name: '原因', exact: true }).fill('Duplicate thread');
+    await remove.getByRole('button', { name: '刪除高亮', exact: true }).click();
     assert.equal(await page.evaluate(() => reasonResult), 'Duplicate thread');
 
     await show('edit-comment');

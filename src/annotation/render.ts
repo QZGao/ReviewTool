@@ -1,3 +1,4 @@
+import { annotationMessages } from './i18n';
 import { selectionFromSource, selectionFromView } from './mapping';
 import { referenceImages } from './reference-html';
 import { sourcePopups } from './source-popups';
@@ -11,11 +12,12 @@ import { isModerator } from './permissions';
 import type { ElementNode, Projection, RenderedView, RenderOptions, TextRun, ViewNode } from './types';
 
 export function createAnnotationView(doc: Document, projection: Projection, options: RenderOptions = {}): RenderedView {
+  const messages = options.messages ?? annotationMessages();
   const actor = { name: options.commentAuthor ?? '', groups: options.commentUserGroups ?? [] };
   if (isModerator(actor) && !options.requestModerationReason) throw new Error('A moderation reason dialog is required for moderator controls.');
   const root = doc.createElement('article');
   root.className = 'annotation-document';
-  root.setAttribute('aria-label', 'Annotation reading view');
+  root.setAttribute('aria-label', messages.readingView);
   const nodes = new Map<TextRun, Text>();
   const records = new WeakMap<Node, TextRun>();
   const images = referenceImages(doc, projection, options);
@@ -38,7 +40,7 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     if (headingStart !== undefined) element.dataset.headingStart = String(sourceIndex.toByte(headingStart));
     for (const [name, value] of Object.entries(model.attributes ?? {})) element.setAttribute(name, value);
     if (model.href) element.dataset.targetUrl = model.href;
-    if (model.rawKind) { element.dataset.rawKind = model.rawKind; element.setAttribute('aria-label', `Raw wikitext: ${model.rawKind}`); }
+    if (model.rawKind) { element.dataset.rawKind = model.rawKind; element.setAttribute('aria-label', messages.rawWikitext); }
     if (model.template) element.dataset.template = '';
     if (model.lineBreak) element.dataset.lineBreak = '';
     if (model.sourceKind) element.dataset.sourceKind = model.sourceKind;
@@ -70,7 +72,7 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
   let highlighting: ReturnType<typeof createHighlighting> | null = null;
   let comments: ReturnType<typeof createCommentPanel> | null = null;
   const layout = popupLayout(doc);
-  const popups = sourcePopups(doc, root, projection.source, inspections, previews, selectTrigger, layout);
+  const popups = sourcePopups(doc, root, projection.source, inspections, previews, selectTrigger, layout, messages);
 
   function descendant(node: Node, side: 'first' | 'last'): TextRun | null {
     const own = records.get(node); if (own) return own;
@@ -141,13 +143,13 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     options.onSelectionChange?.(selection);
   }, selection => highlighting?.selectionChanged(selection));
   if (options.highlighting) {
-    try { highlighting = createHighlighting(doc, view, options.highlighting, layout, actor, options.requestModerationReason); }
+    try { highlighting = createHighlighting(doc, view, options.highlighting, layout, actor, options.requestModerationReason, messages); }
     catch (error) { popups.destroy(); selectionState.destroy(); throw error; }
   }
   if (options.commentContainer) {
     try {
       if (typeof options.commentAuthor !== 'string' || !options.commentAuthor.trim()) throw new Error('A comment author is required when enabling comments.');
-      comments = createCommentPanel(doc, view, options.commentContainer, layout, options.commentAuthor, options.commentDrafts, options.commentUserGroups, options.requestModerationReason);
+      comments = createCommentPanel(doc, view, options.commentContainer, layout, options.commentAuthor, options.commentDrafts, options.commentUserGroups, options.requestModerationReason, messages);
       highlighting?.onHover((id, anchor) => comments?.activate(id, anchor));
     } catch (error) { view.destroy(); throw error; }
   }

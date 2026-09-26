@@ -1,3 +1,4 @@
+import { annotationMessages, type AnnotationMessages } from './i18n';
 import type { ElementNode } from './types';
 import { imagePreviews } from './image-preview';
 import type { PopupLayout } from './popup-layout';
@@ -5,7 +6,7 @@ import type { PopupLayout } from './popup-layout';
 let nextPopup = 0;
 
 /** One interactive source popup per mounted view; its contents are excluded from annotation mapping. */
-export function sourcePopups(doc: Document, root: HTMLElement, source: string, entries: WeakMap<HTMLElement, ElementNode>, images: WeakMap<HTMLElement, HTMLImageElement>, selectTrigger: (element: HTMLElement) => void, layout: PopupLayout) {
+export function sourcePopups(doc: Document, root: HTMLElement, source: string, entries: WeakMap<HTMLElement, ElementNode>, images: WeakMap<HTMLElement, HTMLImageElement>, selectTrigger: (element: HTMLElement) => void, layout: PopupLayout, messages: AnnotationMessages = annotationMessages()) {
   const controller = new AbortController();
   const options = { signal: controller.signal };
   const thumbnail = imagePreviews(controller.signal);
@@ -52,7 +53,7 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   };
   const displayImage = (image: HTMLImageElement) => {
     preview.replaceChildren(image);
-    if (image.complete && image.naturalWidth === 0) preview.textContent = 'Image preview unavailable.';
+    if (image.complete && image.naturalWidth === 0) preview.textContent = messages.imageUnavailable;
     position();
   };
   const show = (element: HTMLElement) => {
@@ -61,11 +62,11 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
     hide(); active = element;
     const image = images.get(element);
     const isImage = model.inspection.kind === 'image';
-    heading.textContent = isImage ? 'Image preview' : model.inspection.kind === 'link' ? 'Link source' : 'Reference source';
+    heading.textContent = isImage ? messages.imagePreview : model.inspection.kind === 'link' ? messages.linkSource : messages.referenceSource;
     code.hidden = isImage;
     code.textContent = isImage ? '' : source.slice(model.inspection.from, model.inspection.to);
     preview.hidden = !isImage;
-    preview.textContent = isImage ? 'Loading image…' : '';
+    preview.textContent = isImage ? messages.imageLoading : '';
     if (!popup.isConnected) root.append(popup);
     popup.hidden = false;
     element.setAttribute('aria-expanded', 'true');
@@ -83,7 +84,7 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
           images.set(element, loaded);
         }
         if (loaded) displayImage(loaded);
-        else { preview.textContent = 'Image preview unavailable.'; position(); }
+        else { preview.textContent = messages.imageUnavailable; position(); }
       });
     }
   };
@@ -134,7 +135,7 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   }, options);
   popup.addEventListener('load', position, { ...options, capture: true });
   popup.addEventListener('error', event => {
-    if (inside(event.target, preview)) { preview.textContent = 'Image preview unavailable.'; position(); }
+    if (inside(event.target, preview)) { preview.textContent = messages.imageUnavailable; position(); }
   }, { ...options, capture: true });
   doc.addEventListener('keydown', event => { if (event.key === 'Escape') hide(true); }, options);
   doc.addEventListener('pointerdown', event => {

@@ -1,3 +1,4 @@
+import { waitForAnnotation, waitForSaved } from './ui.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -5,13 +6,7 @@ import path from 'node:path';
 import { readSnapshot } from './record-test-api.mjs';
 import { launch, root } from './launch.mjs';
 
-const url = 'https://zh.wikipedia.org/wiki/孫中山?reviewtool_annotation_view=1&oldid=94447348';
-
-async function waitForAnnotation(page) {
-  await page.waitForFunction(() => document.documentElement.dataset.reviewtoolAnnotationReady === 'dry-run'
-    || document.querySelector('.reviewtool-live-controls [role=status]')?.textContent?.startsWith('Annotation View could not start:'), undefined, { timeout: 45000 });
-  assert.equal(await page.evaluate(() => document.documentElement.dataset.reviewtoolAnnotationReady), 'dry-run', await page.locator('.reviewtool-live-controls').innerText());
-}
+const url = 'https://zh.wikipedia.org/wiki/孫中山?reviewtool_annotation_view=1&oldid=94447348&uselang=zh-tw';
 
 test('the Chrome extension preserves moderator summaries and edited dates locally without remote writes', async () => {
   const profile = await fs.mkdtemp(path.join(root, '.cache/live-test-'));
@@ -57,12 +52,12 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
       const range = document.createRange(); range.selectNodeContents(element);
       getSelection().removeAllRanges(); getSelection().addRange(range);
     });
-    await page.locator('[data-annotation-toolbar]').getByRole('button', { name: 'Green highlight', exact: true }).click();
-    assert.equal(await page.locator('.annotation-highlight-attribution').textContent(), 'Highlighted by Example');
-    await page.locator('.annotation-comments').getByRole('button', { name: 'Add a comment…' }).click();
+    await page.locator('[data-annotation-toolbar]').getByRole('button', { name: '綠色高亮', exact: true }).click();
+    assert.equal(await page.locator('.annotation-highlight-attribution').textContent(), '高亮：Example');
+    await page.locator('.annotation-comments').getByRole('button', { name: '新增評論…' }).click();
     await page.locator('.annotation-comments textarea').fill('A local-only live Wikipedia test.');
-    await page.locator('.annotation-comments').getByRole('button', { name: 'Send', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
+    await page.locator('.annotation-comments').getByRole('button', { name: '送出', exact: true }).click();
+    await waitForSaved(page, 'A local-only live Wikipedia test.');
     assert.equal(await page.locator('.annotation-highlight-attribution').count(), 0);
     const originalText = await page.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();
@@ -79,21 +74,21 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     await waitForAnnotation(page);
     assert.equal(await page.evaluate(() => mw.config.get('wgUserName')), 'Example2');
     await page.locator('.annotation-comment-body').hover();
-    await page.locator('.annotation-comments').getByRole('button', { name: 'Edit', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Reason for editing', exact: true });
+    await page.locator('.annotation-comments').getByRole('button', { name: '編輯', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '編輯原因', exact: true });
     await dialog.waitFor({ state: 'visible' });
     assert.equal(await page.locator('.annotation-comments textarea').count(), 0, 'prompt appears before the editor');
     // No Playwright native-dialog handler: this was the interactive-launcher failure.
     await page.waitForTimeout(400); assert.equal(await dialog.isVisible(), true);
-    const proceed = dialog.getByRole('button', { name: 'Continue to edit', exact: true });
+    const proceed = dialog.getByRole('button', { name: '繼續編輯', exact: true });
     assert.equal(await proceed.isDisabled(), true);
-    await dialog.getByRole('textbox', { name: 'Reason', exact: true }).fill('   '); assert.equal(await proceed.isDisabled(), true);
-    await dialog.getByRole('textbox', { name: 'Reason', exact: true }).fill('😀'.repeat(501)); assert.equal(await proceed.isDisabled(), true);
-    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await dialog.getByRole('textbox', { name: '原因', exact: true }).fill('   '); assert.equal(await proceed.isDisabled(), true);
+    await dialog.getByRole('textbox', { name: '原因', exact: true }).fill('😀'.repeat(501)); assert.equal(await proceed.isDisabled(), true);
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(await page.locator('.annotation-comments textarea').count(), 0);
     await page.locator('.annotation-comment-body').hover();
-    await page.locator('.annotation-comments').getByRole('button', { name: 'Edit', exact: true }).click();
-    await dialog.getByRole('textbox', { name: 'Reason', exact: true }).fill('修正引用，保留原作者');
+    await page.locator('.annotation-comments').getByRole('button', { name: '編輯', exact: true }).click();
+    await dialog.getByRole('textbox', { name: '原因', exact: true }).fill('修正引用，保留原作者');
     assert.equal(await dialog.evaluate(element => {
       const input = element.querySelector('input'), box = input.getBoundingClientRect();
       return element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
@@ -102,11 +97,11 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     await page.screenshot({ path: path.join(root, '.cache/codex-reason-dialog.png') });
     await proceed.click();
     await page.locator('.annotation-comments textarea').fill('A local-only live Wikipedia test. Edited with a reason.');
-    await page.locator('.annotation-comments').getByRole('button', { name: 'Save changes', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
+    await page.locator('.annotation-comments').getByRole('button', { name: '儲存修改', exact: true }).click();
+    await waitForSaved(page, 'A local-only live Wikipedia test. Edited with a reason.');
     assert.equal(await page.locator('[data-annotation-reason-dialog]').count(), 0, 'saving does not prompt again');
-    assert.equal(await page.locator('.annotation-comment-author').textContent(), 'Example (edited by Example2)');
-    assert.match(await page.locator('.annotation-comment-date').textContent(), /\(edited\)$/);
+    assert.equal(await page.locator('.annotation-comment-author').textContent(), 'Example（由 Example2 編輯）');
+    assert.match(await page.locator('.annotation-comment-date').textContent(), /（已編輯）$/);
     assert.equal(await page.locator('.vector-column-end > .vector-sticky-pinned-container').count(), 0);
     assert.equal(await page.locator('.vector-column-start .vector-sticky-pinned-container').count(), 1);
     assert.equal(await page.locator('.annotation-left-pinned > .vector-appearance-landmark').isVisible(), true);
@@ -139,8 +134,8 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     await waitForAnnotation(page);
     assert.equal(await page.locator('.annotation-comment-text').textContent(), 'A local-only live Wikipedia test. Edited with a reason.');
     assert.equal(await page.locator('.annotation-comment-date').getAttribute('datetime'), savedComment.editedAt);
-    assert.match(await page.locator('.annotation-comment-date').textContent(), /\(edited\)$/);
-    assert.equal(await page.locator('.annotation-comment-author').textContent(), 'Example (edited by Example2)');
+    assert.match(await page.locator('.annotation-comment-date').textContent(), /（已編輯）$/);
+    assert.equal(await page.locator('.annotation-comment-author').textContent(), 'Example（由 Example2 編輯）');
     const conflicts = await page.evaluate(async ({ title, revid, content }) => {
       const api = window.__reviewToolDev.createApi();
       const edit = text => new Promise(resolve => api.postWithToken('csrf', { action: 'edit', title, text, baserevid: revid, formatversion: 2 }).done(result => resolve(result.edit.result)).fail(code => resolve(code)));
@@ -160,15 +155,15 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     await waitForAnnotation(reopened);
     assert.equal(await reopened.locator('.annotation-comment-text').textContent(), 'A local-only live Wikipedia test. Edited with a reason.');
     assert.equal(await reopened.locator('.annotation-comment-date').getAttribute('datetime'), savedComment.editedAt);
-    assert.equal(await reopened.locator('.annotation-comment-author').textContent(), 'Example (edited by Example2)');
+    assert.equal(await reopened.locator('.annotation-comment-author').textContent(), 'Example（由 Example2 編輯）');
     assert.equal(await reopened.locator('.annotation-highlight-attribution').count(), 0, 'moderator edits preserve the original matching highlight/comment authors');
     await reopened.locator('.annotation-document [data-source-run]').first().scrollIntoViewIfNeeded();
     await reopened.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await reopened.locator('.annotation-document [data-source-run]').first().evaluate(element => {
       const range = document.createRange(); range.selectNodeContents(element); getSelection().removeAllRanges(); getSelection().addRange(range);
     });
-    await reopened.locator('[data-annotation-toolbar]').getByRole('button', { name: 'Blue highlight', exact: true }).click();
-    await reopened.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
+    await reopened.locator('[data-annotation-toolbar]').getByRole('button', { name: '藍色高亮', exact: true }).click();
+    await waitForSaved(reopened, '"color":"blue"');
     await reopened.reload({ waitUntil: 'domcontentloaded' }); await waitForAnnotation(reopened);
     const recoloredText = await reopened.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();

@@ -1,3 +1,5 @@
+import type { AnnotationMessages } from './i18n';
+
 /** All parser/model positions are half-open UTF-16 offsets in the original string. */
 export interface SourceExtent { from: number; to: number }
 
@@ -145,6 +147,7 @@ export interface RenderedView {
 }
 
 export interface RenderOptions {
+  messages?: AnnotationMessages;
   referenceHtml?: string;
   /** Resolves relative URLs in the reference HTML. */
   referenceBaseUrl?: string;

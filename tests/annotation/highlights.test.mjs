@@ -39,7 +39,7 @@ async function inPage(source, callback, renderOptions = {}, beforeRender) {
   } finally { await page.close(); }
 }
 const toolbar = page => page.locator('[data-annotation-toolbar]');
-const choose = (page, color) => toolbar(page).getByRole('button', { name: `${color} highlight`, exact: true }).click();
+const choose = (page, color) => toolbar(page).getByRole('button', { name: `${({ Red: '紅色', Yellow: '黃色', Green: '綠色', Blue: '藍色' })[color]}高亮`, exact: true }).click();
 async function separatePopups(page) {
   await toolbar(page).waitFor({ state: 'visible' });
   await page.locator('[data-annotation-popup]').waitFor({ state: 'visible' });
@@ -106,8 +106,8 @@ test('native drag opens the color bar; all four colors retain exact UTF-8 source
       await page.mouse.move(bounds.x + .5, bounds.y); await page.mouse.down();
       await page.mouse.move(bounds.right - .5, bounds.y, { steps: 8 }); await page.mouse.up();
       await toolbar(page).waitFor({ state: 'visible' });
-      assert.equal(await toolbar(page).getAttribute('aria-label'), 'Highlight selection');
-      assert.equal(await toolbar(page).getByRole('button', { name: 'Delete highlight' }).isVisible(), false);
+      assert.equal(await toolbar(page).getAttribute('aria-label'), '高亮所選文字');
+      assert.equal(await toolbar(page).getByRole('button', { name: '刪除高亮' }).isVisible(), false);
       await choose(page, color);
       const actual = await page.evaluate(({ start, end }) => ({
         saved: markerView.highlighting.annotations.at(-1), expected: markerAnchor(start, end), selection: markerView.selection,
@@ -129,9 +129,9 @@ test('hover permits recoloring and deletion, including crossing the gap to the b
     assert.equal(original.createdAt, '2026-09-24T08:00:00.000Z');
     assert.equal(original.editedAt, undefined); assert.equal(original.editedBy, undefined);
     await hover(page);
-    assert.equal(await toolbar(page).getAttribute('aria-label'), 'Edit highlight');
-    assert.equal(await toolbar(page).getByRole('button', { name: 'Red highlight' }).getAttribute('aria-pressed'), 'true');
-    const button = await toolbar(page).getByRole('button', { name: 'Green highlight' }).boundingBox();
+    assert.equal(await toolbar(page).getAttribute('aria-label'), '更改高亮顏色');
+    assert.equal(await toolbar(page).getByRole('button', { name: '紅色高亮' }).getAttribute('aria-pressed'), 'true');
+    const button = await toolbar(page).getByRole('button', { name: '綠色高亮' }).boundingBox();
     await page.mouse.move(button.x + 10, button.y + 10, { steps: 8 });
     await page.waitForTimeout(240);
     await page.clock.setFixedTime('2026-09-24T08:05:00Z');
@@ -142,7 +142,7 @@ test('hover permits recoloring and deletion, including crossing the gap to the b
     await hover(page); await choose(page, 'Green');
     assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations[0]), recolored, 'choosing the same color is not an edit');
     await hover(page);
-    await toolbar(page).getByRole('button', { name: 'Delete highlight' }).click();
+    await toolbar(page).getByRole('button', { name: '刪除高亮' }).click();
     assert.equal(await page.evaluate(() => markerView.highlighting.annotations[0].deleted.by), 'Example');
     assert.deepEqual(await page.evaluate(() => markerActions.map(action => action.type)), ['add-highlight', 'recolor-highlight', 'delete-highlight']);
     assert.equal(await page.evaluate(() => [...CSS.highlights.keys()].some(name => name.startsWith('reviewtool-marker-'))), false);
@@ -187,12 +187,12 @@ test('cross-format and multiline markers preserve source slices; overlap hover e
     assert.equal(await page.evaluate(() => markerView.highlighting.annotations[0].id), first.id);
     await select(page, 0, 3); await choose(page, 'Red');
     await hover(page, 1);
-    assert.equal(await toolbar(page).getByRole('button', { name: 'Red highlight' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await toolbar(page).getByRole('button', { name: '紅色高亮' }).getAttribute('aria-pressed'), 'true');
     const priorities = await page.evaluate(() => [...CSS.highlights].filter(([name]) => name.startsWith('reviewtool-marker-')).map(([, value]) => value.priority));
     assert.deepEqual(priorities, [0, 1]);
-    await toolbar(page).getByRole('button', { name: 'Delete highlight' }).click();
+    await toolbar(page).getByRole('button', { name: '刪除高亮' }).click();
     await hover(page, 0);
-    assert.equal(await toolbar(page).getByRole('button', { name: 'Blue highlight' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await toolbar(page).getByRole('button', { name: '藍色高亮' }).getAttribute('aria-pressed'), 'true');
     const restored = await page.evaluate(() => markerView.readRange(markerView.restoreRange(markerView.highlighting.annotations[0].anchor)));
     assert.equal(restored.sourceText, source);
   });
