@@ -15,7 +15,12 @@
 		"prepare:annotation-articles": "node tests/annotation/fetch-articles.mjs",
 		"test:annotation:articles": "npm run prepare:annotation-pages && node tests/annotation/build.mjs && node --test tests/annotation/articles.check.mjs tests/annotation/pages.check.mjs",
 		"prepare:annotation-pages": "npm run prepare:annotation-articles && node tests/annotation/fetch-pages.mjs",
-		"test:annotation:pages": "npm run test:annotation:articles"
+		"test:annotation:pages": "npm run test:annotation:articles",
+		"build:extension": "node build.mjs --extension",
+		"dev:chrome": "node tests/live/launch.mjs",
+		"dev:chrome:dry": "node tests/live/launch.mjs --dry-run",
+		"check:live": "tsc --noEmit --strict --skipLibCheck --target ES2020 --module ESNext --moduleResolution node --lib ES2020,DOM --types types-mediawiki,node global.d.ts src/mediawiki.ts src/mediawiki-dry-run.ts src/annotation/live.ts && eslint \"src/mediawiki*.ts\" \"src/annotation/live*.ts\" src/dev-entry.ts src/main.ts src/state.ts --no-inline-config",
+		"test:live": "node --test tests/live/*.test.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "^24.10.1",
@@ -23,6 +28,7 @@
 		"@typescript-eslint/parser": "^8.54.0",
 		"@vue/compiler-sfc": "^3.4.38",
 		"@vue/runtime-dom": "^3.5.27",
+		"@wikimedia/codex": "1.18.0",
 		"esbuild": "^0.21.5",
 		"eslint": "^9.39.2",
 		"eslint-plugin-vue": "^10.7.0",

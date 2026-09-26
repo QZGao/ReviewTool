@@ -156,6 +156,8 @@
 .annotation-highlight-bar [data-delete-highlight] { color: var(--color-base, #202122); background: transparent; border-color: transparent; }
 
 .annotation-comments-host { position: relative; }
+.vector-feature-page-tools-pinned-disabled .annotation-left-pinned > .vector-page-tools-landmark,
+.vector-feature-appearance-pinned-clientpref-0 .annotation-left-pinned > .vector-appearance-landmark { display: none; }
 .annotation-comments { position: relative; width: 100%; color: var(--color-base, #202122); font: 14px/1.5 system-ui, sans-serif; }
 .annotation-comments[hidden], .annotation-comments [hidden] { display: none !important; }
 .annotation-comment-thread { position: absolute; inset-inline: 0; box-sizing: border-box; min-width: 0; border: 1px solid var(--comment-border); background: var(--comment-background); border-radius: 7px; overflow-wrap: anywhere; z-index: 2; }
@@ -170,6 +172,8 @@
 .annotation-comment-body { display: flex; flex-direction: column; min-width: 0; padding: 12px 10px; }
 .annotation-comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 6px; font-size: 11px; line-height: 1.4; }
 .annotation-comment-author { font-weight: 600; overflow-wrap: anywhere; }
+.annotation-highlight-attribution { position: absolute; inset-inline: -1px; bottom: 100%; margin: 0; padding-bottom: 2px; color: var(--color-subtle, #54595d); font-size: 11px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; }
+.annotation-comment-thread:hover > .annotation-highlight-attribution { opacity: 1; }
 .annotation-comment-date { color: var(--color-subtle, #54595d); }
 .annotation-comment-text { white-space: pre-wrap; min-height: 21px; cursor: text; }
 .annotation-comment-thread[data-crowded]:not(:hover):not(:has(:focus-visible)) .annotation-comment-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -184,8 +188,12 @@
 .annotation-comments .annotation-comment-placeholder { display: block; padding: 12px 10px; width: 100%; text-align: left; color: var(--color-subtle, #54595d); font-size: inherit; }
 .annotation-comment-connectors { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; z-index: 1; }
 .annotation-comment-connectors path { fill: none; stroke-width: 1.5; }
-.annotation-comments[data-layout="floating"] { position: fixed; width: 280px; min-height: 0; z-index: 1002; overflow: auto; overscroll-behavior: contain; background: var(--background-color-base, #fff); border-radius: 7px; box-shadow: 0 4px 16px #0002; }
-.annotation-comments[data-layout="floating"] .annotation-comment-thread { position: relative; top: auto; }
+.annotation-comments[data-layout="floating"] { position: fixed; display: flex; flex-direction: column; box-sizing: border-box; width: 280px; min-height: 0; z-index: 1002; overflow: visible; background: transparent; border-radius: 0; box-shadow: none; }
+.annotation-comments[data-layout="floating"] .annotation-comment-thread { position: relative; top: auto; display: flex; flex-direction: column; flex-shrink: 1; min-height: 0; background: linear-gradient(var(--comment-background), var(--comment-background)), var(--background-color-base, #fff); box-shadow: 0 4px 16px #0002; }
+/* The view restores scroll offsets; native anchoring must not add a second hover-row adjustment. */
+.annotation-comments[data-layout="floating"] .annotation-comment-content { min-height: 0; overflow: auto; overflow-anchor: none; overscroll-behavior: contain; border-radius: inherit; }
+.annotation-comments[data-layout="floating"] .annotation-highlight-attribution { bottom: calc(100% + 1px); background-color: var(--background-color-base, #fff); }
+.annotation-comments[data-layout="floating"]:has(> .annotation-comment-thread:not([hidden]) > .annotation-highlight-attribution) { padding-top: 14px; }
 .annotation-comment-measure { position: fixed; left: -10000px; top: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 .annotation-comment-measuring .annotation-comment-text { white-space: pre-wrap !important; overflow: visible !important; text-overflow: clip !important; }
 .annotation-comment-measuring :is(.annotation-comment-actions, .annotation-comment-reply) { display: none !important; }

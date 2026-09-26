@@ -1,28 +1,30 @@
 import { commentLayout } from './comment-layout';
-import type { AnnotationComment, CommentDraft, HighlightAnnotation, RenderedView } from './types';
+import type { AnnotationComment, CommentDraft, HighlightAnnotation, ModerationReasonPrompt, RenderedView } from './types';
 import type { PopupLayout } from './popup-layout';
 import { textRects } from './range-rects';
+import { canEditComment, canRemoveAnnotation, needsModerationReason, requestActionReason, type ModerationTarget } from './permissions';
 
-type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string };
+type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string; reason?: string };
 
 /** A local comment thread for each source-anchored highlight. */
-export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = []) {
+export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt) {
   const highlighting = view.highlighting, window = doc.defaultView;
   if (!highlighting || !window) throw new Error('Comments require annotation highlighting in a browser window.');
   const state = highlighting, win = window;
   const currentAuthor = author.trim();
+  const actor = { name: currentAuthor, groups };
   // Omitting timeZone uses the browser/system timezone, including daylight saving.
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
   const dateFormat = new Intl.DateTimeFormat(undefined, dateOptions);
   const detailedDateFormat = new Intl.DateTimeFormat(undefined, { ...dateOptions, second: '2-digit', timeZoneName: 'long' });
-  const metadata = (name: string, createdAt?: string) => {
+  const metadata = (name: string, createdAt?: string, editedAt?: string, editedBy?: string) => {
     const row = doc.createElement('div'); row.className = 'annotation-comment-meta';
-    const author = doc.createElement('span'); author.className = 'annotation-comment-author'; author.textContent = name;
+    const author = doc.createElement('span'); author.className = 'annotation-comment-author'; author.textContent = name + (editedBy && editedBy !== name ? ` (edited by ${editedBy})` : '');
     row.append(author);
     if (createdAt) {
-      const time = doc.createElement('time'); time.className = 'annotation-comment-date'; time.dateTime = createdAt;
-      const date = new Date(createdAt);
-      time.textContent = dateFormat.format(date); time.title = detailedDateFormat.format(date);
+      const time = doc.createElement('time'); time.className = 'annotation-comment-date'; time.dateTime = editedAt ?? createdAt;
+      const date = new Date(editedAt ?? createdAt);
+      time.textContent = dateFormat.format(date) + (editedAt ? ' (edited)' : ''); time.title = detailedDateFormat.format(date);
       row.append(time);
     }
     return row;
@@ -36,6 +38,13 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   const threads = new Map<string, ReturnType<typeof thread>>();
   const layout = commentLayout(doc, view, column, container, () => [...threads.values()].map(item => ({ element: item.element, anchor: item.annotation.anchor, revision: item.revision })), popups);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let reasonPending = false;
+  const reasonFor = async (action: ModerationTarget, annotation: HighlightAnnotation) => {
+    if (reasonPending) return null;
+    reasonPending = true; cancel();
+    try { return await requestActionReason(action, actor, promptReason, controller.signal, annotation); }
+    finally { reasonPending = false; }
+  };
   const cancel = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
   const activate = (id: string, anchor: DOMRect) => { cancel(); layout.activate(id, anchor); };
   const atHighlight = (event: MouseEvent) => {
@@ -44,29 +53,31 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
     return range && textRects(range, doc).some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom);
   };
   doc.addEventListener('pointermove', event => {
-    if (!layout.compact || !layout.active || event.buttons) return;
+    if (reasonPending || !layout.compact || !layout.active || event.buttons) return;
     if (popups.contains(event.target) || container.contains(doc.activeElement) || atHighlight(event)) { cancel(); return; }
     if (timer === undefined) timer = setTimeout(() => { timer = undefined; layout.close(); }, 180);
   }, options);
-  doc.addEventListener('pointerdown', event => { if (layout.compact && !popups.contains(event.target) && !atHighlight(event)) { cancel(); layout.close(); } }, options);
-  doc.addEventListener('keydown', event => { if (event.key === 'Escape') { cancel(); layout.close(); } }, options);
-  doc.addEventListener('scroll', event => { if (layout.compact && !popups.contains(event.target)) { cancel(); layout.close(); } }, { ...options, capture: true });
+  doc.addEventListener('pointerdown', event => { if (!reasonPending && layout.compact && !popups.contains(event.target) && !atHighlight(event)) { cancel(); layout.close(); } }, options);
+  doc.addEventListener('keydown', event => { if (!reasonPending && event.key === 'Escape') { cancel(); layout.close(); } }, options);
+  doc.addEventListener('scroll', event => { if (!reasonPending && layout.compact && !popups.contains(event.target)) { cancel(); layout.close(); } }, { ...options, capture: true });
 
   function thread(initial: HighlightAnnotation) {
     const element = doc.createElement('section'); element.className = 'annotation-comment-thread';
     element.dataset.annotationId = initial.id; element.setAttribute('aria-label', 'Comment thread');
+    const content = doc.createElement('div'); content.className = 'annotation-comment-content'; element.append(content);
     const drafts = new Map<string, Draft>();
     const hasComment = (comment: AnnotationComment | undefined, id: string): boolean => Boolean(comment && (comment.id === id || comment.replies.some(reply => hasComment(reply, id))));
     for (const draft of initialDrafts) {
       if (draft.annotationId !== initial.id) continue;
       if (draft.kind === 'new' && !initial.comment) drafts.set('root', { kind: 'new', text: draft.text });
-      else if (draft.kind !== 'new' && hasComment(initial.comment, draft.commentId)) drafts.set(draft.kind + '/' + draft.commentId, { kind: draft.kind, commentId: draft.commentId, text: draft.text });
+      else if (draft.kind !== 'new' && hasComment(initial.comment, draft.commentId)
+        && (draft.kind !== 'edit' || !needsModerationReason({ type: 'edit-comment', commentId: draft.commentId }, actor, initial) || draft.reason?.trim())) drafts.set(draft.kind + '/' + draft.commentId, { kind: draft.kind, commentId: draft.commentId, text: draft.text, ...(draft.reason ? { reason: draft.reason } : {}) });
     }
     let renderEvents = new AbortController();
     let annotation = initial, signature = '', revision = 0;
-    const button = (label: string, action: () => void) => {
+    const button = (label: string, action: () => void | Promise<void>) => {
       const control = doc.createElement('button'); control.type = 'button'; control.textContent = label;
-      control.addEventListener('click', event => { event.stopPropagation(); action(); }, { signal: renderEvents.signal }); return control;
+      control.addEventListener('click', event => { event.stopPropagation(); void action(); }, { signal: renderEvents.signal }); return control;
     };
     const focusEditor = (key: string) => {
       const editor = [...element.querySelectorAll<HTMLTextAreaElement>('textarea')].find(input => input.dataset.draft === key);
@@ -84,15 +95,16 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       const canSubmit = () => Boolean(input.value.trim()) && (draft.kind !== 'edit' || (original !== undefined && input.value !== original));
       const send = button(draft.kind === 'edit' ? 'Save changes' : 'Send', () => {
         if (!canSubmit()) return;
-        drafts.delete(key);
-        if (draft.kind === 'edit') state.dispatch({ type: 'edit-comment', id: annotation.id, commentId: draft.commentId, text: input.value });
-        else {
+        if (draft.kind === 'edit') {
+          drafts.delete(key); state.dispatch({ type: 'edit-comment', id: annotation.id, commentId: draft.commentId, text: input.value, editedAt: new Date().toISOString(), ...(draft.reason ? { reason: draft.reason } : {}) });
+        } else {
+          drafts.delete(key);
           const comment: AnnotationComment = { id: win.crypto.randomUUID(), text: input.value, author: currentAuthor, createdAt: new Date().toISOString(), replies: [] };
           state.dispatch({ type: 'add-comment', id: annotation.id, comment, ...(draft.kind === 'reply' ? { parentId: draft.commentId } : {}) });
         }
       });
       const discard = button(draft.kind === 'edit' ? 'Cancel' : 'Discard', () => { drafts.delete(key); render(); });
-      actions.append(send, discard); form.append(metadata(savedComment?.author ?? currentAuthor, savedComment?.createdAt), input, actions);
+      actions.append(send, discard); form.append(metadata(savedComment?.author ?? currentAuthor, savedComment?.createdAt, savedComment?.editedAt, savedComment?.editedBy), input, actions);
       const resize = () => {
         const previous = input.style.height;
         input.style.height = '0px'; input.style.height = `${Math.min(360, Math.max(21, input.scrollHeight))}px`;
@@ -113,18 +125,26 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       const node = doc.createElement('div'); node.className = 'annotation-comment-node'; node.dataset.commentId = comment.id;
       const editKey = 'edit/' + comment.id, replyKey = 'reply/' + comment.id;
       const edit = drafts.get(editKey);
-      if (edit) node.append(editor(editKey, edit, comment));
+      if (edit && canEditComment(comment, actor)) node.append(editor(editKey, edit, comment));
       else {
         const body = doc.createElement('div'); body.className = 'annotation-comment-body';
         const text = doc.createElement('div'); text.className = 'annotation-comment-text'; text.textContent = comment.text;
         // Keyboard focus offers the same expanded reading state as hover.
         text.tabIndex = 0;
         const actions = doc.createElement('div'); actions.className = 'annotation-comment-actions';
-        actions.append(button('Resolve', () => state.dispatch({ type: 'resolve-comment', id: annotation.id, commentId: comment.id })),
-          button('Edit', () => open(editKey, { kind: 'edit', text: comment.text, commentId: comment.id })));
+        if (comment === annotation.comment && canRemoveAnnotation(annotation, actor)) {
+          actions.append(button('Resolve', async () => {
+            const reason = await reasonFor({ type: 'resolve-comment', commentId: comment.id }, annotation);
+            if (reason !== null && node.isConnected && !controller.signal.aborted) state.dispatch({ type: 'resolve-comment', id: annotation.id, commentId: comment.id, ...(reason ? { reason } : {}) });
+          }));
+        }
+        if (canEditComment(comment, actor)) actions.append(button('Edit', async () => {
+          const reason = await reasonFor({ type: 'edit-comment', commentId: comment.id }, annotation);
+          if (reason !== null && node.isConnected && !controller.signal.aborted) open(editKey, { kind: 'edit', text: comment.text, commentId: comment.id, ...(reason ? { reason } : {}) });
+        }));
         const reply = button('Reply', () => open(replyKey, { kind: 'reply', text: '', commentId: comment.id }));
         reply.className = 'annotation-comment-reply';
-        body.append(metadata(comment.author, comment.createdAt), text, actions, reply); node.append(body);
+        body.append(metadata(comment.author, comment.createdAt, comment.editedAt, comment.editedBy), text, actions, reply); node.append(body);
       }
       if (comment.replies.length || drafts.has(replyKey)) {
         const replies = doc.createElement('div'); replies.className = 'annotation-comment-replies';
@@ -137,14 +157,20 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
     const render = () => {
       revision++;
       renderEvents.abort(); renderEvents = new AbortController();
-      element.replaceChildren();
+      const scrollTop = content.scrollTop;
+      element.querySelector('.annotation-highlight-attribution')?.remove(); content.replaceChildren();
+      if (annotation.author && annotation.author !== annotation.comment?.author) {
+        const attribution = doc.createElement('div'); attribution.className = 'annotation-highlight-attribution';
+        attribution.textContent = `Highlighted by ${annotation.author}`; attribution.title = attribution.textContent; element.prepend(attribution);
+      }
       const rootDraft = drafts.get('root');
-      if (annotation.comment) element.append(message(annotation.comment));
-      else if (rootDraft) element.append(editor('root', rootDraft));
+      if (annotation.comment) content.append(message(annotation.comment));
+      else if (rootDraft) content.append(editor('root', rootDraft));
       else {
         const placeholder = button('Add a comment…', () => open('root', { kind: 'new', text: '' }));
-        placeholder.className = 'annotation-comment-placeholder'; element.append(placeholder);
+        placeholder.className = 'annotation-comment-placeholder'; content.append(placeholder);
       }
+      content.scrollTop = scrollTop;
       layout.schedule();
     };
     return {
@@ -154,7 +180,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       get drafts(): readonly CommentDraft[] { return [...drafts.values()].map(draft => Object.freeze({ ...draft, annotationId: annotation.id })); },
       update(next: HighlightAnnotation) {
         annotation = next; element.dataset.color = next.color;
-        const nextSignature = JSON.stringify(next.comment ?? null);
+        const nextSignature = JSON.stringify([next.author ?? null, next.comment ?? null]);
         if (signature !== nextSignature) { signature = nextSignature; render(); }
         layout.schedule();
       },

@@ -1,6 +1,7 @@
-import type { HighlightAnnotation, HighlightColor, HighlightOptions, MappedSelection, RenderedView } from './types';
+import type { HighlightAnnotation, HighlightColor, HighlightOptions, MappedSelection, ModerationReasonPrompt, RenderedView } from './types';
 import type { PopupLayout } from './popup-layout';
 import { annotationState } from './annotation-state';
+import { canRemoveAnnotation, requestActionReason, type AnnotationActor } from './permissions';
 import { textRects } from './range-rects';
 
 const colors: readonly HighlightColor[] = ['red', 'yellow', 'green', 'blue'];
@@ -8,7 +9,7 @@ interface Marker { annotation: HighlightAnnotation; range: Range; name: string; 
 type Active = { kind: 'selection'; selection: MappedSelection } | { kind: 'marker'; id: string };
 
 /** Owns only transient UI and CSS highlights; source DOM text nodes never change. */
-export function createHighlighting(doc: Document, view: RenderedView, config: HighlightOptions, popupLayout: PopupLayout) {
+export function createHighlighting(doc: Document, view: RenderedView, config: HighlightOptions, popupLayout: PopupLayout, actor: AnnotationActor = {}, promptReason?: ModerationReasonPrompt) {
   const win = doc.defaultView;
   if (!win?.Highlight || !win.CSS?.highlights) throw new Error('This browser does not support text highlights.');
   const registry = win.CSS.highlights;
@@ -20,8 +21,9 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   const hoverListeners = new Set<(id: string, anchor: DOMRect) => void>();
   let serial = 0;
   let markers: Marker[] = [];
-  const state = annotationState(config, anchor => { const range = view.restoreRange(anchor); return Boolean(range && !range.collapsed); });
+  const state = annotationState(config, anchor => { const range = view.restoreRange(anchor); return Boolean(range && !range.collapsed); }, actor);
   let active: Active | null = null;
+  let reasonPending = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let down: { x: number; y: number } | null = null;
   let dragged = false;
@@ -84,9 +86,10 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     bar.hidden = false;
     const editing = next.kind === 'marker';
     bar.setAttribute('aria-label', editing ? 'Edit highlight' : 'Highlight selection');
-    const color = editing ? markers.find(marker => marker.annotation.id === next.id)?.annotation.color : null;
+    const annotation = editing ? markers.find(marker => marker.annotation.id === next.id)?.annotation : undefined;
+    const color = annotation?.color;
     buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.color === color)));
-    separator.hidden = remove.hidden = !editing;
+    separator.hidden = remove.hidden = !annotation || !canRemoveAnnotation(annotation, actor);
     popupLayout.show('highlight', bar, () => anchor);
     if (next.kind === 'marker') for (const listener of hoverListeners) listener(next.id, anchor);
   };
@@ -128,22 +131,34 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   };
   paint(state.annotations);
   const stopState = state.subscribe(paint);
-  bar.addEventListener('click', event => {
+  const activateButton = async (event: MouseEvent) => {
     const button = (event.target as Element).closest<HTMLButtonElement>('button');
-    if (!button || !active) return;
+    if (!button || !active || reasonPending) return;
     const color = button.dataset.color as HighlightColor | undefined;
     const current = active;
+    if (current.kind === 'marker' && button === remove) {
+      const annotation = state.annotations.find(annotation => annotation.id === current.id);
+      if (!annotation) return;
+      reasonPending = true;
+      try {
+        const reason = await requestActionReason({ type: 'delete-highlight' }, actor, promptReason, controller.signal, annotation);
+        if (reason === null || controller.signal.aborted || !state.annotations.some(annotation => annotation.id === current.id)) return;
+        returnFocus();
+        state.dispatch({ type: 'delete-highlight', id: current.id, ...(reason ? { reason } : {}) });
+        view.clearSelection(); hide(); return;
+      } finally { reasonPending = false; }
+    }
     returnFocus();
     if (current.kind === 'selection' && color) {
-      const highlight = Object.freeze({ id: win.crypto.randomUUID(), anchor: Object.freeze({ ...current.selection.anchor }), color });
+      const author = actor.name?.trim();
+      const highlight = Object.freeze({ id: win.crypto.randomUUID(), anchor: Object.freeze({ ...current.selection.anchor }), color, createdAt: new Date().toISOString(), ...(author ? { author } : {}) });
       state.dispatch({ type: 'add-highlight', highlight });
     } else if (current.kind === 'marker' && color) {
-      state.dispatch({ type: 'recolor-highlight', id: current.id, color });
-    } else if (current.kind === 'marker' && button === remove) {
-      state.dispatch({ type: 'delete-highlight', id: current.id });
+      state.dispatch({ type: 'recolor-highlight', id: current.id, color, editedAt: new Date().toISOString() });
     }
     view.clearSelection(); hide();
-  }, options);
+  };
+  bar.addEventListener('click', event => { void activateButton(event); }, options);
   bar.addEventListener('keydown', event => {
     const controls = [...buttons, ...(!remove.hidden ? [remove] : [])];
     const index = controls.indexOf(doc.activeElement as HTMLButtonElement);

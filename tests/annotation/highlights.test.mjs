@@ -27,7 +27,7 @@ async function inPage(source, callback, renderOptions = {}, beforeRender) {
       window.markerActions = [];
       window.markerSnapshots = [];
       window.markerView = annotation.createAnnotationView(document, annotation.createProjection(source), {
-        referenceBaseUrl: location.origin + '/', ...renderOptions,
+        referenceBaseUrl: location.origin + '/', commentAuthor: 'Example', ...renderOptions,
         highlighting: { onChange: (snapshot, action) => { markerSnapshots.push(snapshot); markerActions.push(action); } },
       });
       document.getElementById('test-content').append(markerView.element);
@@ -123,22 +123,57 @@ test('native drag opens the color bar; all four colors retain exact UTF-8 source
 
 test('hover permits recoloring and deletion, including crossing the gap to the bar', async () => {
   await inPage('Alpha Beta Gamma', async page => {
+    await page.clock.setFixedTime('2026-09-24T08:00:00Z');
     await select(page, 0, 5); await choose(page, 'Red');
     const original = await page.evaluate(() => markerView.highlighting.annotations[0]);
+    assert.equal(original.createdAt, '2026-09-24T08:00:00.000Z');
+    assert.equal(original.editedAt, undefined); assert.equal(original.editedBy, undefined);
     await hover(page);
     assert.equal(await toolbar(page).getAttribute('aria-label'), 'Edit highlight');
     assert.equal(await toolbar(page).getByRole('button', { name: 'Red highlight' }).getAttribute('aria-pressed'), 'true');
     const button = await toolbar(page).getByRole('button', { name: 'Green highlight' }).boundingBox();
     await page.mouse.move(button.x + 10, button.y + 10, { steps: 8 });
     await page.waitForTimeout(240);
+    await page.clock.setFixedTime('2026-09-24T08:05:00Z');
     await choose(page, 'Green');
     const recolored = await page.evaluate(() => markerView.highlighting.annotations[0]);
-    assert.deepEqual(recolored, { ...original, color: 'green' });
+    assert.deepEqual(recolored, { ...original, color: 'green', editedAt: '2026-09-24T08:05:00.000Z', editedBy: 'Example' });
+    await page.clock.setFixedTime('2026-09-24T08:10:00Z');
+    await hover(page); await choose(page, 'Green');
+    assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations[0]), recolored, 'choosing the same color is not an edit');
     await hover(page);
     await toolbar(page).getByRole('button', { name: 'Delete highlight' }).click();
     assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations), []);
     assert.deepEqual(await page.evaluate(() => markerActions.map(action => action.type)), ['add-highlight', 'recolor-highlight', 'delete-highlight']);
     assert.equal(await page.evaluate(() => [...CSS.highlights.keys()].some(name => name.startsWith('reviewtool-marker-'))), false);
+  });
+});
+
+test('legacy highlight dates stay unknown and malformed highlight metadata cannot replace a valid snapshot', async () => {
+  await inPage('Alpha Beta Gamma', async page => {
+    await page.evaluate(() => markerView.highlighting.replace([{ id: 'legacy', anchor: markerAnchor(0, 5), color: 'red', author: 'Original' }]));
+    await page.clock.setFixedTime('2026-09-24T09:00:00Z');
+    await hover(page); await choose(page, 'Blue');
+    const stored = await page.evaluate(() => markerView.highlighting.annotations[0]);
+    assert.equal(stored.createdAt, undefined); assert.equal(stored.author, 'Original');
+    assert.equal(stored.editedAt, '2026-09-24T09:00:00.000Z'); assert.equal(stored.editedBy, 'Example');
+    const rejected = await page.evaluate(() => {
+      const state = markerView.highlighting, original = state.annotations;
+      const replacements = [
+        { createdAt: '2026-09-24T09:00:00' }, { createdAt: '2026-02-30T09:00:00Z' },
+        { editedAt: 'invalid' }, { editedBy: ' ' }, { editedBy: undefined }, { editedAt: undefined },
+      ];
+      return replacements.map(patch => {
+        try { state.replace([{ ...original[0], ...patch }]); return false; }
+        catch { return state.annotations === original; }
+      });
+    });
+    assert.deepEqual(rejected, Array(6).fill(true));
+    assert.equal(await page.evaluate(() => {
+      const state = markerView.highlighting, original = state.annotations;
+      try { state.dispatch({ type: 'add-highlight', highlight: { id: 'missing-time', anchor: markerAnchor(6, 10), color: 'green' } }); return false; }
+      catch { return state.annotations === original; }
+    }), true, 'a newly added highlight must include its creation time');
   });
 });
 

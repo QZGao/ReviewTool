@@ -2,6 +2,7 @@ import state from "./state";
 import styles from './styles.css';
 import { addTalkPageReviewToolButtonsToDOM } from "./dom/talk_page";
 import { addMainPageReviewToolButtonsToDOM } from "./dom/article_page";
+import { initLiveAnnotation } from './annotation/live';
 
 /**
  * 將 CSS 樣式注入到頁面中。
@@ -24,7 +25,10 @@ function injectStyles(css: string): void {
 /**
  * 小工具入口。
  */
-function init(): void {
+async function init(): Promise<void> {
+	await mw.loader.using(['mediawiki.api', 'mediawiki.util', 'mediawiki.Title']);
+	if (document.readyState === 'loading') await new Promise<void>(resolve => document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }));
+	if (await initLiveAnnotation()) return;
 	// Inject bundled CSS into the page.
 	if (typeof document !== 'undefined') {
 		injectStyles(styles);
@@ -59,4 +63,4 @@ function init(): void {
 	});
 }
 
-init();
+void init().catch(error => console.error('[ReviewTool] Startup failed', error));

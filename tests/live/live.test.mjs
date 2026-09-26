@@ -1,0 +1,212 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { launch, root } from './launch.mjs';
+
+const url = 'https://zh.wikipedia.org/wiki/孫中山?reviewtool_annotation_view=1&oldid=94447348';
+
+async function waitForAnnotation(page) {
+  await page.waitForFunction(() => document.documentElement.dataset.reviewtoolAnnotationReady === 'dry-run'
+    || document.querySelector('.reviewtool-live-controls [role=status]')?.textContent?.startsWith('Annotation View could not start:'), undefined, { timeout: 45000 });
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.reviewtoolAnnotationReady), 'dry-run', await page.locator('.reviewtool-live-controls').innerText());
+}
+
+test('the Chrome extension preserves moderator summaries and edited dates locally without remote writes', async () => {
+  const profile = await fs.mkdtemp(path.join(root, '.cache/live-test-'));
+  const launched = await launch({ dryRun: true, headless: true, profile });
+  let context = launched.context;
+  const extensionId = launched.extensionId;
+  const blockedWrites = [];
+  const blockedOptions = [];
+  try {
+    const page = context.pages()[0]; page.setDefaultTimeout(15000);
+    let simulatedName = null;
+    // Simulate a group only in this isolated dry-run response; no account rights or wiki edits change.
+    await context.route(new URL(url).href, async route => {
+      const response = await route.fetch();
+      const html = await response.text();
+      assert.match(html, /"wgUserGroups":\[[^\]]*\]/);
+      await route.fulfill({ response, body: html.replace(/"wgUserGroups":\[[^\]]*\]/, '"wgUserGroups":["*","user","sysop"]')
+        .replace(/"wgUserName":(?:null|"(?:\\.|[^"\\])*")/, '"wgUserName":' + JSON.stringify(simulatedName)) });
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const errors = []; page.on('pageerror', error => { if (error.message.includes('ReviewTool')) errors.push(error.message); });
+    context.on('request', request => {
+      const u = new URL(request.url()); if (u.pathname !== '/w/api.php') return;
+      const action = new URLSearchParams(request.postData() ?? '').get('action') ?? u.searchParams.get('action') ?? 'query';
+      if (!['query', 'parse', 'compare', 'paraminfo', 'help', 'expandtemplates', 'opensearch'].includes(action)) blockedWrites.push(action);
+    });
+    context.on('requestfailed', request => {
+      const u = new URL(request.url()); if (u.pathname !== '/w/api.php') return;
+      const action = new URLSearchParams(request.postData() ?? '').get('action') ?? u.searchParams.get('action');
+      if (action === 'options' && request.failure()?.errorText.startsWith('net::ERR_BLOCKED_BY_CLIENT')) blockedOptions.push(action);
+    });
+    const cdp = await context.newCDPSession(page); await cdp.send('Debugger.enable');
+    let mapUrl; cdp.on('Debugger.scriptParsed', event => { if (event.url === `chrome-extension://${extensionId}/bundle.js`) mapUrl = event.sourceMapURL; });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await waitForAnnotation(page);
+    assert.ok(await page.evaluate(() => mw.config.get('wgUserGroups').includes('sysop')), 'the isolated test response supplies the simulated role');
+    assert.match(mapUrl, /^data:application\/json/);
+    const map = JSON.parse(Buffer.from(mapUrl.split(',')[1], 'base64').toString());
+    assert.ok(map.sources.some(source => source.endsWith('src/annotation/live.ts')));
+    assert.ok(map.sources.some(source => source.endsWith('src/mediawiki-dry-run.ts')));
+    assert.ok(map.sourcesContent.every(source => typeof source === 'string'));
+    await page.locator('.annotation-document [data-source-run]').first().scrollIntoViewIfNeeded();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.locator('.annotation-document [data-source-run]').first().evaluate(element => {
+      const range = document.createRange(); range.selectNodeContents(element);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+    });
+    await page.locator('[data-annotation-toolbar]').getByRole('button', { name: 'Green highlight', exact: true }).click();
+    assert.equal(await page.locator('.annotation-highlight-attribution').textContent(), 'Highlighted by Example');
+    await page.locator('.annotation-comments').getByRole('button', { name: 'Add a comment…' }).click();
+    await page.locator('.annotation-comments textarea').fill('A local-only live Wikipedia test.');
+    await page.locator('.annotation-comments').getByRole('button', { name: 'Send', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
+    assert.equal(await page.locator('.annotation-highlight-attribution').count(), 0);
+    const originalHighlight = await page.evaluate(async () => {
+      const api = window.__reviewToolDev.createApi();
+      const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+      const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'content', formatversion: 2 });
+      const raw = result.query.pages[0].revisions[0].slots.main.content;
+      return JSON.parse(raw.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/)[1]).annotations[0];
+    });
+    assert.match(originalHighlight.createdAt, /^\d{4}-\d{2}-\d{2}T.*Z$/);
+    assert.equal(originalHighlight.editedAt, undefined); assert.equal(originalHighlight.editedBy, undefined);
+    simulatedName = 'Example2';
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForAnnotation(page);
+    assert.equal(await page.evaluate(() => mw.config.get('wgUserName')), 'Example2');
+    await page.locator('.annotation-comment-body').hover();
+    await page.locator('.annotation-comments').getByRole('button', { name: 'Edit', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Reason for editing', exact: true });
+    await dialog.waitFor({ state: 'visible' });
+    assert.equal(await page.locator('.annotation-comments textarea').count(), 0, 'prompt appears before the editor');
+    // No Playwright native-dialog handler: this was the interactive-launcher failure.
+    await page.waitForTimeout(400); assert.equal(await dialog.isVisible(), true);
+    const proceed = dialog.getByRole('button', { name: 'Continue to edit', exact: true });
+    assert.equal(await proceed.isDisabled(), true);
+    await dialog.getByRole('textbox', { name: 'Reason', exact: true }).fill('   '); assert.equal(await proceed.isDisabled(), true);
+    await dialog.getByRole('textbox', { name: 'Reason', exact: true }).fill('😀'.repeat(501)); assert.equal(await proceed.isDisabled(), true);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal(await page.locator('.annotation-comments textarea').count(), 0);
+    await page.locator('.annotation-comment-body').hover();
+    await page.locator('.annotation-comments').getByRole('button', { name: 'Edit', exact: true }).click();
+    await dialog.getByRole('textbox', { name: 'Reason', exact: true }).fill('修正引用，保留原作者');
+    assert.equal(await dialog.evaluate(element => {
+      const input = element.querySelector('input'), box = input.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+    }), true, 'the Codex reason prompt receives input above existing popups');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(root, '.cache/codex-reason-dialog.png') });
+    await proceed.click();
+    await page.locator('.annotation-comments textarea').fill('A local-only live Wikipedia test. Edited with a reason.');
+    await page.locator('.annotation-comments').getByRole('button', { name: 'Save changes', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
+    assert.equal(await page.locator('[data-annotation-reason-dialog]').count(), 0, 'saving does not prompt again');
+    assert.equal(await page.locator('.annotation-comment-author').textContent(), 'Example (edited by Example2)');
+    assert.match(await page.locator('.annotation-comment-date').textContent(), /\(edited\)$/);
+    assert.equal(await page.locator('.vector-column-end > .vector-sticky-pinned-container').count(), 0);
+    assert.equal(await page.locator('.vector-column-start .vector-sticky-pinned-container').count(), 1);
+    assert.equal(await page.locator('.annotation-left-pinned > .vector-appearance-landmark').isVisible(), true);
+    const alignment = await page.evaluate(() => {
+      const element = document.querySelector('.annotation-document [data-source-run]');
+      const range = document.createRange(); range.selectNodeContents(element);
+      return Math.abs(document.querySelector('.annotation-comment-thread').getBoundingClientRect().top - range.getClientRects()[0].top);
+    });
+    assert.ok(alignment <= 1, 'live appearance controls do not displace comments');
+    const data = await page.evaluate(async () => {
+      const api = window.__reviewToolDev.createApi();
+      const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+      const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|timestamp|content|comment', curtimestamp: true, formatversion: 2 });
+      return { title, page: result.query.pages[0], readAt: result.curtimestamp };
+    });
+    const stored = data.page.revisions[0].slots.main.content;
+    assert.ok(stored.startsWith('{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">'));
+    assert.match(stored, /A local-only live Wikipedia test/);
+    assert.equal(data.page.revisions[0].comment, '修正引用，保留原作者');
+    const savedHighlight = JSON.parse(stored.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/)[1]).annotations[0];
+    const savedComment = savedHighlight.comment;
+    assert.equal(savedHighlight.author, 'Example');
+    assert.equal(savedHighlight.createdAt, originalHighlight.createdAt);
+    assert.equal(savedHighlight.editedAt, undefined, 'editing a comment does not edit its highlight');
+    assert.equal(savedHighlight.editedBy, undefined);
+    assert.equal(savedComment.author, 'Example'); assert.ok(savedComment.editedAt);
+    assert.equal(savedComment.editedBy, 'Example2');
+    assert.ok(Date.parse(savedComment.editedAt) >= Date.parse(savedComment.createdAt));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForAnnotation(page);
+    assert.equal(await page.locator('.annotation-comment-text').textContent(), 'A local-only live Wikipedia test. Edited with a reason.');
+    assert.equal(await page.locator('.annotation-comment-date').getAttribute('datetime'), savedComment.editedAt);
+    assert.match(await page.locator('.annotation-comment-date').textContent(), /\(edited\)$/);
+    assert.equal(await page.locator('.annotation-comment-author').textContent(), 'Example (edited by Example2)');
+    const conflicts = await page.evaluate(async ({ title, revid, content }) => {
+      const api = window.__reviewToolDev.createApi();
+      const edit = text => new Promise(resolve => api.postWithToken('csrf', { action: 'edit', title, text, baserevid: revid, formatversion: 2 }).done(result => resolve(result.edit.result)).fail(code => resolve(code)));
+      const first = await edit(content + '\n'); const second = await edit(content + '\n\n');
+      const unsupported = await new Promise(resolve => api.postWithToken('csrf', { action: 'delete', title }).done(() => resolve('unexpected')).fail(code => resolve(code)));
+      return { first, second, unsupported };
+    }, { title: data.title, revid: data.page.revisions[0].revid, content: stored });
+    assert.deepEqual(conflicts, { first: 'Success', second: 'editconflict', unsupported: 'dryrun-unsupported' });
+    assert.deepEqual(blockedWrites.filter(action => action !== 'options'), [], 'the annotation API never attempts a remote write');
+    assert.equal(blockedOptions.length, blockedWrites.filter(action => action === 'options').length, 'Wikipedia preference writes for the simulated identity are blocked');
+    assert.deepEqual(errors, []);
+    await page.screenshot({ path: path.join(root, '.cache/live-dry-run.png') });
+    await context.close();
+    context = (await launch({ dryRun: true, headless: true, profile })).context;
+    const reopened = context.pages()[0]; await reopened.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await waitForAnnotation(reopened);
+    assert.equal(await reopened.locator('.annotation-comment-text').textContent(), 'A local-only live Wikipedia test. Edited with a reason.');
+    assert.equal(await reopened.locator('.annotation-comment-date').getAttribute('datetime'), savedComment.editedAt);
+    assert.equal(await reopened.locator('.annotation-comment-author').textContent(), 'Example (edited by Example2)');
+    assert.equal(await reopened.locator('.annotation-highlight-attribution').count(), 0, 'moderator edits preserve the original matching highlight/comment authors');
+    await reopened.locator('.annotation-document [data-source-run]').first().scrollIntoViewIfNeeded();
+    await reopened.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await reopened.locator('.annotation-document [data-source-run]').first().evaluate(element => {
+      const range = document.createRange(); range.selectNodeContents(element); getSelection().removeAllRanges(); getSelection().addRange(range);
+    });
+    await reopened.locator('[data-annotation-toolbar]').getByRole('button', { name: 'Blue highlight', exact: true }).click();
+    await reopened.waitForFunction(() => document.querySelector('.reviewtool-live-controls [role=status]')?.textContent === 'Saved locally (dry run)');
+    await reopened.reload({ waitUntil: 'domcontentloaded' }); await waitForAnnotation(reopened);
+    const recolored = await reopened.evaluate(async () => {
+      const api = window.__reviewToolDev.createApi();
+      const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+      const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'content', formatversion: 2 });
+      return JSON.parse(result.query.pages[0].revisions[0].slots.main.content.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/)[1]).annotations[0];
+    });
+    assert.equal(recolored.id, originalHighlight.id); assert.equal(recolored.createdAt, originalHighlight.createdAt);
+    assert.equal(recolored.color, 'blue'); assert.equal(recolored.editedBy, 'Example');
+    assert.match(recolored.editedAt, /^\d{4}-\d{2}-\d{2}T.*Z$/);
+    assert.deepEqual(recolored.comment, savedComment);
+  } catch (error) { console.error(error); throw error; }
+  finally { await context.close(); }
+});
+
+test('normal is the default build and delegates writes to the real mw.Api (intercepted test response)', async () => {
+  const profile = await fs.mkdtemp(path.join(root, '.cache/normal-test-'));
+  const { context } = await launch({ headless: true, profile });
+  const edits = [];
+  try {
+    await context.route('https://**.wikipedia.org/w/api.php*', route => {
+      const request = route.request(), url = new URL(request.url());
+      const params = new URLSearchParams(request.postData() ?? url.search);
+      const action = params.get('action') ?? url.searchParams.get('action') ?? 'query';
+      if (action === 'edit') {
+        edits.push(Object.fromEntries(params));
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ edit: { result: 'Success', newrevid: 123 } }) });
+      }
+      if (!['query', 'parse', 'compare', 'paraminfo', 'help', 'expandtemplates', 'opensearch'].includes(action)) return route.abort('blockedbyclient');
+      return route.continue();
+    });
+    const page = context.pages()[0]; await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => Boolean(window.__reviewToolDev));
+    const result = await page.evaluate(async () => {
+      const api = window.__reviewToolDev.createApi();
+      const response = await api.post({ action: 'edit', title: 'Talk:ReviewTool test/ReviewTool/1', text: 'Intercepted; never posted', token: 'not-a-real-token' });
+      return { mode: window.__reviewToolDev.mode, native: Object.getPrototypeOf(api) === mw.Api.prototype, result: response.edit.result };
+    });
+    assert.deepEqual(result, { mode: 'normal', native: true, result: 'Success' });
+    assert.equal(edits.length, 1); assert.equal(edits[0].text, 'Intercepted; never posted');
+  } finally { await context.close(); }
+});

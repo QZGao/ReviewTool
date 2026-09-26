@@ -76,11 +76,15 @@ export interface AnnotationComment {
   readonly author: string;
   /** Posting time as a UTC ISO 8601 string ending in Z. Display formatting belongs to the view. */
   readonly createdAt: string;
+  /** Most recent saved edit time, also UTC; absent until the comment is edited. */
+  readonly editedAt?: string;
+  /** Author of the most recent edit; original comment authorship remains unchanged. */
+  readonly editedBy?: string;
   readonly replies: readonly AnnotationComment[];
 }
 
 /** Unsent UI state, kept separately from committed annotation/comment data. */
-export type CommentDraft = { annotationId: string; text: string } & (
+export type CommentDraft = { annotationId: string; text: string; reason?: string } & (
   { kind: 'new' } | { kind: 'reply' | 'edit'; commentId: string }
 );
 
@@ -88,17 +92,24 @@ export interface HighlightAnnotation {
   readonly id: string;
   readonly anchor: Readonly<SourceAnchor>;
   readonly color: HighlightColor;
+  /** User who created the highlight. Absent on older, unattributed annotations. */
+  readonly author?: string;
+  /** Creation time in UTC. Missing only when unknown on an older highlight. */
+  readonly createdAt?: string;
+  /** Latest change to the highlight itself, independently of comment/reply edits. */
+  readonly editedAt?: string;
+  readonly editedBy?: string;
   readonly comment?: AnnotationComment;
 }
 
 /** Local user actions; persistence and revision identity belong to the caller. */
 export type HighlightAction =
   | { type: 'add-highlight'; highlight: HighlightAnnotation }
-  | { type: 'recolor-highlight'; id: string; color: HighlightColor }
-  | { type: 'delete-highlight'; id: string }
+  | { type: 'recolor-highlight'; id: string; color: HighlightColor; editedAt: string }
+  | { type: 'delete-highlight'; id: string; reason?: string }
   | { type: 'add-comment'; id: string; comment: AnnotationComment; parentId?: string }
-  | { type: 'edit-comment'; id: string; commentId: string; text: string }
-  | { type: 'resolve-comment'; id: string; commentId: string };
+  | { type: 'edit-comment'; id: string; commentId: string; text: string; editedAt: string; reason?: string }
+  | { type: 'resolve-comment'; id: string; commentId: string; reason?: string };
 
 export interface HighlightOptions {
   initial?: readonly HighlightAnnotation[];
@@ -137,10 +148,16 @@ export interface RenderOptions {
   highlighting?: HighlightOptions;
   /** Optional host for comment threads, outside the article's selectable source. */
   commentContainer?: HTMLElement;
-  /** Name recorded on new comments/replies; required when a comment panel is enabled. */
+  /** Current user: recorded on new highlights/comments/replies and their edits. Required for a comment panel or a real highlight recolor. */
   commentAuthor?: string;
+  /** Current user's local MediaWiki group names. Moderator edits/removals require a reason. */
+  commentUserGroups?: readonly string[];
+  /** Host dialog for moderator reasons; live Wikipedia uses Codex. Null means Cancel. */
+  requestModerationReason?: ModerationReasonPrompt;
   commentDrafts?: readonly CommentDraft[];
 }
+
+export type ModerationReasonPrompt = (action: 'edit-comment' | 'resolve-comment' | 'delete-highlight', signal: AbortSignal) => Promise<string | null>;
 
 /** Temporary navigation metadata for a heading in this exact source revision. */
 export interface WikipediaHeadingAnchor {

@@ -4,8 +4,8 @@ type VueModule = {
 };
 
 type VueApp = {
-	mount: (selector: string) => unknown;
-	component?: (name: string, value: unknown) => VueApp;
+	mount: (selector: string | Element) => unknown;
+	component: (name: string, value: unknown) => VueApp;
 };
 
 type CodexModule = Partial<{
@@ -69,7 +69,8 @@ function onCompositionEnd(): void {
  * Track composition-like input activity to handle browser/IME event-order differences.
  * @param {InputEvent} event - The beforeinput/input event.
  */
-function onCompositionInput(event: InputEvent): void {
+function onCompositionInput(event: Event): void {
+	if (!(event instanceof InputEvent)) return;
 	const inputType = typeof event.inputType === 'string' ? event.inputType : '';
 	if (event.isComposing || inputType.indexOf('insertComposition') === 0) {
 		_lastCompositionAt = Date.now();

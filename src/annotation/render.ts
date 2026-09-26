@@ -7,9 +7,12 @@ import { popupLayout } from './popup-layout';
 import { createCommentPanel } from './comments';
 import { headingSourceStart } from './heading-anchors';
 import { SourceIndex } from './source-index';
+import { isModerator } from './permissions';
 import type { ElementNode, Projection, RenderedView, RenderOptions, TextRun, ViewNode } from './types';
 
 export function createAnnotationView(doc: Document, projection: Projection, options: RenderOptions = {}): RenderedView {
+  const actor = { name: options.commentAuthor ?? '', groups: options.commentUserGroups ?? [] };
+  if (isModerator(actor) && !options.requestModerationReason) throw new Error('A moderation reason dialog is required for moderator controls.');
   const root = doc.createElement('article');
   root.className = 'annotation-document';
   root.setAttribute('aria-label', 'Annotation reading view');
@@ -138,13 +141,13 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     options.onSelectionChange?.(selection);
   }, selection => highlighting?.selectionChanged(selection));
   if (options.highlighting) {
-    try { highlighting = createHighlighting(doc, view, options.highlighting, layout); }
+    try { highlighting = createHighlighting(doc, view, options.highlighting, layout, actor, options.requestModerationReason); }
     catch (error) { popups.destroy(); selectionState.destroy(); throw error; }
   }
   if (options.commentContainer) {
     try {
       if (typeof options.commentAuthor !== 'string' || !options.commentAuthor.trim()) throw new Error('A comment author is required when enabling comments.');
-      comments = createCommentPanel(doc, view, options.commentContainer, layout, options.commentAuthor, options.commentDrafts);
+      comments = createCommentPanel(doc, view, options.commentContainer, layout, options.commentAuthor, options.commentDrafts, options.commentUserGroups, options.requestModerationReason);
       highlighting?.onHover((id, anchor) => comments?.activate(id, anchor));
     } catch (error) { view.destroy(); throw error; }
   }

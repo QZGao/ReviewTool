@@ -16,6 +16,65 @@ async function headingInView(page, id, original = false) {
   }, { id, original }, { timeout: 5000 });
 }
 
+test('pinned controls move beside the contents without losing widget state and return to their original positions', async () => {
+  const server = await startServer();
+  const channel = process.env.ANNOTATION_BROWSER_CHANNEL ?? (existsSync('/Applications/Google Chrome.app') ? 'chrome' : undefined);
+  const browser = await chromium.launch({ headless: true, ...(channel ? { channel } : {}) });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await page.route('**/*', route => route.request().url().startsWith(server.url) ? route.continue() : route.abort());
+    await page.goto(`${server.url}/?article=sun-yat-sen&view=original`);
+    await page.waitForFunction(() => Boolean(window.annotationPageLab));
+    await page.evaluate(() => {
+      // The downloaded page has no runtime: supply an interactive widget in its native slot.
+      document.documentElement.classList.replace('client-nojs', 'client-js');
+      document.documentElement.classList.remove('vector-feature-appearance-pinned-clientpref-0');
+      document.documentElement.classList.add('vector-feature-appearance-pinned-clientpref-1');
+      const left = document.querySelector('.vector-column-start'), right = document.querySelector('.vector-column-end');
+      const input = document.createElement('input'); input.id = 'pinned-widget';
+      input.setAttribute('aria-label', 'Pinned widget');
+      document.querySelector('#vector-appearance').append(input);
+      const extra = document.createElement('div'); extra.className = 'vector-sticky-pinned-container';
+      const button = document.createElement('button'); button.textContent = 'Pinned action';
+      window.pinnedCalls = 0; button.addEventListener('click', () => pinnedCalls++);
+      extra.append(button); right.append(extra);
+      window.pinnedFixture = { left, right, input, button, leftNodes: [...left.childNodes], rightNodes: [...right.childNodes],
+        stack: left.querySelector(':scope > .vector-sticky-pinned-container'),
+        contents: [...right.querySelectorAll(':scope > .vector-sticky-pinned-container')].map(node => ({ node, children: [...node.childNodes] })) };
+      annotationPageLab.setEnabled(true);
+    });
+    assert.equal(await page.locator('.vector-column-end > .vector-sticky-pinned-container').count(), 0);
+    assert.equal(await page.evaluate(() => pinnedFixture.stack === document.querySelector('.annotation-left-pinned') && pinnedFixture.contents.every(({ children }) => children.every(node => pinnedFixture.stack.contains(node)))), true);
+    assert.equal(await page.locator('.vector-column-start .vector-sticky-pinned-container').count(), 1);
+    await page.getByRole('textbox', { name: 'Pinned widget' }).fill('Kept across view changes');
+    await page.getByRole('button', { name: 'Pinned action', exact: true }).click();
+    await page.evaluate(() => window.scrollTo(0, 500));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const boxes = await page.locator('.annotation-left-pinned > #mw-panel-toc, .annotation-left-pinned > .vector-appearance-landmark').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
+    for (const [index, box] of boxes.entries()) {
+      assert.ok(box.height > 0);
+      if (index) assert.ok(box.top >= boxes[index - 1].bottom, 'pinned panels do not overlap while scrolling');
+    }
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await page.evaluate(() => annotationPageLab.setEnabled(false));
+      assert.deepEqual(await page.evaluate(() => {
+        const { left, right, input, button, leftNodes, rightNodes, contents } = pinnedFixture;
+        const sameNodes = (parent, nodes) => parent.childNodes.length === nodes.length && nodes.every((node, index) => parent.childNodes[index] === node);
+        return { left: sameNodes(left, leftNodes), right: sameNodes(right, rightNodes),
+          input: document.getElementById('pinned-widget') === input, button: right.contains(button),
+          value: input.value, contents: contents.every(({ node, children }) => sameNodes(node, children)) };
+      }), { left: true, right: true, input: true, button: true, value: 'Kept across view changes', contents: true });
+      await page.getByRole('button', { name: 'Pinned action', exact: true }).click();
+      await page.evaluate(() => annotationPageLab.setEnabled(true));
+      assert.equal(await page.locator('.annotation-left-pinned').count(), 1);
+    }
+    assert.equal(await page.evaluate(() => pinnedCalls), 3);
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.locator('.annotation-left-pinned').isVisible(), false, 'native narrow-screen visibility still applies');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  } finally { await browser.close(); await server.close(); }
+});
+
 test('Wikipedia contents links and fragment history follow the visible headings in both article modes', async () => {
   const server = await startServer();
   const channel = process.env.ANNOTATION_BROWSER_CHANNEL ?? (existsSync('/Applications/Google Chrome.app') ? 'chrome' : undefined);
