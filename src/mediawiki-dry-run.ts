@@ -73,6 +73,22 @@ export function createApi(options?: mw.Api.Options): mw.Api {
         if (!readActions.has(action)) throw new LocalApiError('dryrun-unsupported', `Dry-run blocks unsupported API action: ${action}`);
         const revisionData = (page: LocalPage) => ({ revid: page.revid, parentid: page.parentid ?? 0, timestamp: page.timestamp, tags: page.tags ?? [], comment: page.summary ?? '',
           ...(list(params.rvprop).includes('content') ? { slots: { main: { content: page.content, contentmodel: 'wikitext', contentformat: 'text/x-wiki' } }, '*': page.content } : {}) });
+        if (action === 'query' && params.list === 'allpages' && typeof params.apprefix === 'string' && !params.apdir) {
+          const remote = await network(params) as ApiResponse & { query?: { allpages?: { pageid: number; ns: number; title: string }[] }; continue?: { apcontinue?: string; continue?: string } };
+          if (!Array.isArray(remote.query?.allpages)) throw new LocalApiError('missingcontent', 'The remote page listing is unavailable.');
+          const namespace = Number(params.apnamespace ?? 0), prefix = params.apprefix.replace(/_/g, ' ');
+          const start = scalar(params.apcontinue ?? ''), end = remote.continue?.apcontinue;
+          const combined = new Map(remote.query.allpages.map(page => [titleKey(page.title), page]));
+          for (const page of await storage.pages()) {
+            const title = mw.Title.newFromText(page.title), main = title?.getMainText();
+            if (title?.getNamespaceId() !== namespace || !main?.startsWith(prefix) || main < start || (end && main >= end)) continue;
+            combined.set(title.getPrefixedText(), { pageid: page.pageid, ns: namespace, title: title.getPrefixedText() });
+          }
+          const sorted = [...combined.values()].sort((a, b) => a.title < b.title ? -1 : a.title > b.title ? 1 : 0);
+          const limit = params.aplimit === 'max' ? 500 : Math.min(500, Math.max(1, Number(params.aplimit ?? 10)));
+          const next = sorted.length > limit ? mw.Title.newFromText(sorted[limit].title)?.getMainText() : end;
+          return { ...remote, query: { ...remote.query, allpages: sorted.slice(0, limit) }, continue: next ? { continue: remote.continue?.continue ?? '-||', apcontinue: next } : undefined };
+        }
         if (action === 'query' && params.revids) {
           const ids = list(params.revids).map(Number), localRevisions = await Promise.all(ids.map(id => storage.revision(id)));
           if (localRevisions.every(Boolean)) return { query: { pages: localRevisions.map(page => ({ pageid: page?.pageid, title: page?.title, revisions: page ? [revisionData(page)] : [] })) } };

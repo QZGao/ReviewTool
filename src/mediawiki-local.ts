@@ -26,6 +26,13 @@ export class LocalWiki {
       request.onsuccess = () => resolve(request.result as LocalPage | undefined); request.onerror = () => reject(request.error);
     });
   }
+  async pages(): Promise<LocalPage[]> {
+    const db = await this.database;
+    return new Promise((resolve, reject) => {
+      const request = db.transaction('pages').objectStore('pages').getAll();
+      request.onsuccess = () => resolve(request.result as LocalPage[]); request.onerror = () => reject(request.error);
+    });
+  }
   async revision(id: number): Promise<LocalPage | undefined> {
     const db = await this.database;
     return new Promise((resolve, reject) => {

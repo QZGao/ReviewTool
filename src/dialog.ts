@@ -5,6 +5,7 @@ type VueModule = {
 
 type VueApp = {
 	mount: (selector: string | Element) => unknown;
+	unmount: () => void;
 	component: (name: string, value: unknown) => VueApp;
 };
 
@@ -16,6 +17,7 @@ type CodexModule = Partial<{
 	CdxTextInput: unknown;
 	CdxTextArea: unknown;
 	CdxCheckbox: unknown;
+	CdxRadio: unknown;
 }>;
 
 let _mountedApp: VueApp | null = null;
@@ -208,6 +210,7 @@ export function getMountedApp(): VueApp | null {
  * Remove the dialog mount element from the DOM, clean up IME Escape key guarding, and clear internal app references.
  */
 export function removeDialogMount() {
+	_mountedApp?.unmount();
 	const mountPoint = document.getElementById('review-tool-dialog-mount');
 	if (mountPoint) mountPoint.remove();
 	removeImeEscGuard();
@@ -227,6 +230,7 @@ export function registerCodexComponents(app: VueApp, Codex: CodexModule) {
 			.component('cdx-text-input', Codex.CdxTextInput)
 			.component('cdx-text-area', Codex.CdxTextArea)
 			.component('cdx-checkbox', Codex.CdxCheckbox)
+			.component('cdx-radio', Codex.CdxRadio)
 			.component('cdx-select', Codex.CdxSelect)
 			.component('cdx-button', Codex.CdxButton)
 			.component('cdx-button-group', Codex.CdxButtonGroup);

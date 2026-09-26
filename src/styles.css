@@ -492,3 +492,8 @@ html.rt-selecting .review-tool-annotation-ui.sentence {
 	background: #fafafa;
 	padding: 12px;
 }
+
+.review-tool-annotation-revision-dialog {
+	width: calc(100vw - 32px);
+	max-width: 32rem;
+}
