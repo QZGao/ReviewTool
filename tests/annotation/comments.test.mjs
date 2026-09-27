@@ -219,6 +219,61 @@ test('overlapping connectors use three small offsets and allow additional lines 
   });
 });
 
+test('hovering a card emphasizes only its connector and outlined passage without changing source nodes or box dimensions', async () => {
+  await inPage(async page => {
+    const first = await mark(page, 'First passage [[Page|linked words]] after.\nSecond sentence.', 'Green');
+    const second = await mark(page, 'Next paragraph', 'Blue');
+    await page.mouse.move(0, 0); await frames(page);
+    const firstId = await first.getAttribute('data-annotation-id'), secondId = await second.getAttribute('data-annotation-id');
+    const connector = id => page.locator(`.annotation-comment-connectors path[data-annotation-id="${id}"]`);
+    const outline = page.locator('.annotation-comment-highlight-outline');
+    const bounds = () => first.evaluate(element => ({ box: element.getBoundingClientRect().toJSON(), text: element.querySelector('.annotation-comment-placeholder').getBoundingClientRect().toJSON() }));
+    const initial = await bounds();
+    const original = await page.evaluate(() => {
+      window.originalRuns = [...commentView.element.querySelectorAll('[data-source-run]')].map(element => element.firstChild);
+      return { html: commentView.element.innerHTML, selection: commentView.selection, color: getComputedStyle(commentView.element).color };
+    });
+    assert.equal(await outline.locator('rect').count(), 0);
+    await first.hover(); await frames(page);
+    assert.deepEqual(await bounds(), initial, 'outward border adds no layout space');
+    assert.deepEqual(await first.evaluate(element => ({ border: getComputedStyle(element).borderTopWidth, outline: getComputedStyle(element).outlineWidth, offset: getComputedStyle(element).outlineOffset })), { border: '1px', outline: '2px', offset: '0px' });
+    assert.equal(await connector(firstId).evaluate(element => getComputedStyle(element).strokeWidth), '2.5px');
+    assert.equal(await connector(secondId).evaluate(element => getComputedStyle(element).strokeWidth), '1.5px');
+    assert.equal(await outline.getAttribute('data-annotation-id'), firstId);
+    assert.equal(await outline.evaluate(element => getComputedStyle(element).strokeWidth), '2px');
+    assert.equal(await outline.evaluate(element => getComputedStyle(element).stroke), await first.evaluate(element => getComputedStyle(element).borderTopColor));
+    assert.equal(await outline.locator('rect').count(), 2, 'adjacent inline fragments share one border per line');
+    const initialOutline = await outline.locator('rect').evaluateAll(rects => rects.map(rect => rect.getBoundingClientRect().toJSON()));
+    assert.ok(initialOutline[1].top > initialOutline[0].bottom, 'the gap between source lines stays unoutlined');
+    assert.equal(await outline.evaluate(element => getComputedStyle(element).pointerEvents), 'none');
+    assert.deepEqual(await page.evaluate(() => ({ html: commentView.element.innerHTML, selection: commentView.selection, color: getComputedStyle(commentView.element).color })), original);
+    assert.equal(await page.evaluate(() => originalRuns.every(node => commentView.element.contains(node))), true);
+
+    // The border follows reflow and scrolling, including after text wraps onto more lines.
+    await page.setViewportSize({ width: 880, height: 900 }); await first.hover(); await frames(page);
+    assert.ok(await outline.locator('rect').count() >= 2);
+    await page.evaluate(() => { document.body.style.minHeight = '1800px'; window.scrollTo(0, 25); });
+    await first.hover(); await frames(page);
+    const geometry = await outline.locator('rect').evaluateAll((rects, id) => {
+      const highlight = commentView.highlighting.annotations.find(item => item.id === id);
+      const boxes = [...commentView.restoreRange(highlight.anchor).getClientRects()].filter(rect => rect.width > 0 && rect.height > 0);
+      return boxes.every(box => rects.some(rect => { const border = rect.getBoundingClientRect(); return border.left <= box.left && border.right >= box.right && border.top <= box.top && border.bottom >= box.bottom; }));
+    }, firstId);
+    assert.equal(geometry, true);
+    await second.hover(); await frames(page);
+    assert.equal(await outline.getAttribute('data-annotation-id'), secondId);
+    assert.equal(await connector(firstId).evaluate(element => getComputedStyle(element).strokeWidth), '1.5px');
+    await page.mouse.move(0, 0); await frames(page);
+    assert.equal(await outline.locator('rect').count(), 0);
+    assert.equal(await first.evaluate(element => getComputedStyle(element).outlineStyle), 'none');
+    await first.hover(); await frames(page);
+    await page.evaluate(id => commentView.highlighting.dispatch({ type: 'delete-highlight', id }), firstId); await frames(page);
+    assert.notEqual(await outline.getAttribute('data-annotation-id'), firstId);
+    await page.evaluate(() => commentMount.destroy());
+    assert.equal(await page.locator('.annotation-comment-connectors').count(), 0);
+  });
+});
+
 test('comments support nested replies and editing, but only the first comment can resolve the whole thread', async () => {
   await inPage(async page => {
     const thread = await mark(page, 'First passage'); await send(thread, 'Root comment');
@@ -473,6 +528,8 @@ test('narrow screens hide the sidebar and show a floating thread only when its h
     await panel.waitFor({ state: 'visible' });
     assert.equal(await panel.getAttribute('data-layout'), 'floating');
     await thread.locator('.annotation-comment-text').hover(); await frames(page);
+    assert.ok(await page.locator('.annotation-comment-highlight-outline rect').count() > 0, 'hovering a floating card outlines its source passage');
+    assert.equal(await thread.evaluate(element => getComputedStyle(element).outlineWidth), '2px');
     const boxes = await page.locator('.annotation-comments, [data-annotation-toolbar], [data-annotation-popup]').evaluateAll(elements => elements.filter(element => !element.hidden).map(element => element.getBoundingClientRect().toJSON()));
     assert.equal(boxes.length, 3);
     for (const box of boxes) assert.ok(box.left >= 0 && box.right <= 391 && box.top >= 0 && box.bottom <= 441);
@@ -498,6 +555,7 @@ test('narrow screens hide the sidebar and show a floating thread only when its h
     await panel.hover(); await page.waitForTimeout(230); assert.equal(await panel.isVisible(), true);
     await page.evaluate(() => document.activeElement?.blur());
     await page.mouse.move(0, 0); await page.waitForTimeout(230); assert.equal(await panel.isVisible(), false);
+    assert.equal(await page.locator('.annotation-comment-highlight-outline rect').count(), 0);
     await page.evaluate(() => commentView.highlighting.dispatch({ type: 'add-highlight', highlight: { id: 'narrow-new', createdAt: new Date().toISOString(), anchor: { unit: 'utf8-byte', start: 0, end: 13 }, color: 'red' } }));
     await frames(page); assert.equal(await panel.isVisible(), false, 'new narrow-screen threads wait for highlight hover');
     await page.locator('.annotation-document [data-source-run]').first().hover();

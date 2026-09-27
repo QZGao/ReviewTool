@@ -4,6 +4,25 @@ import type { PopupLayout } from './popup-layout';
 
 export interface CommentCard { element: HTMLElement; anchor: SourceAnchor; revision: number }
 
+/** Join adjacent fragments on a line without outlining whitespace between lines or blocks. */
+function outlineRects(rects: readonly DOMRect[]): DOMRect[] {
+  const merged: DOMRect[] = [];
+  for (const rect of rects) {
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    let next = new DOMRect(rect.x, rect.y, rect.width, rect.height);
+    for (let i = 0; i < merged.length; i++) {
+      const other = merged[i];
+      const overlap = Math.min(next.bottom, other.bottom) - Math.max(next.top, other.top);
+      if (overlap < Math.min(next.height, other.height) / 2 || next.left > other.right + 1 || other.left > next.right + 1) continue;
+      const left = Math.min(next.left, other.left), top = Math.min(next.top, other.top);
+      next = new DOMRect(left, top, Math.max(next.right, other.right) - left, Math.max(next.bottom, other.bottom) - top);
+      merged.splice(i, 1); i = -1;
+    }
+    merged.push(next);
+  }
+  return merged;
+}
+
 /** Align cards to source lines, pushing later cards down only when they would overlap. */
 export function commentLayout(doc: Document, view: RenderedView, column: HTMLElement, container: HTMLElement, cards: () => readonly CommentCard[], popups: PopupLayout) {
   const win = doc.defaultView;
@@ -11,6 +30,8 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
   const controller = new AbortController();
   const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('annotation-comment-connectors'); svg.setAttribute('aria-hidden', 'true');
+  const outline = doc.createElementNS(svg.namespaceURI, 'g') as SVGGElement;
+  outline.classList.add('annotation-comment-highlight-outline'); svg.append(outline);
   doc.body.append(svg);
   let frame = 0;
   let active: string | null = null, floatingAnchor: DOMRect | null = null;
@@ -51,7 +72,7 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       const rects = range ? textRects(range, doc) : [];
       const first = rects.find(rect => rect.width > 0 && rect.height > 0);
       const line = first && { top: first.top, bottom: first.bottom, right: Math.max(...rects.filter(rect => Math.abs(rect.top - first.top) < 2).map(rect => rect.right)) };
-      return { ...card, line, idealTop: Math.max(0, (line?.top ?? article.top) - origin.top), naturalHeight: compact ? 0 : naturalHeight(card) };
+      return { ...card, line, rects, idealTop: Math.max(0, (line?.top ?? article.top) - origin.top), naturalHeight: compact ? 0 : naturalHeight(card) };
     }).sort((a, b) => (a.line?.top ?? 0) - (b.line?.top ?? 0) || a.anchor.start - b.anchor.start);
     const crowded = new Set<HTMLElement>();
     if (!compact) {
@@ -65,6 +86,7 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       finish();
     }
     for (const entry of entries) entry.element.toggleAttribute('data-crowded', crowded.has(entry.element));
+    outline.replaceChildren(); delete outline.dataset.annotationId;
     let bottom = 0;
     const routes: { y: number; start: number; middle: number; low: number; high: number; lane: number }[] = [];
     for (const entry of entries) {
@@ -78,6 +100,18 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       }
       let path = paths.get(element);
       if (!path) { path = doc.createElementNS(svg.namespaceURI, 'path') as SVGPathElement; path.dataset.annotationId = element.dataset.annotationId; paths.set(element, path); svg.append(path); }
+      const hovered = !container.hidden && !element.hidden && element.matches(':hover');
+      path.toggleAttribute('data-comment-hovered', hovered);
+      const color = getComputedStyle(element).borderTopColor;
+      if (hovered) {
+        outline.dataset.annotationId = element.dataset.annotationId; outline.style.stroke = color;
+        for (const box of outlineRects(entry.rects)) {
+          const rect = doc.createElementNS(svg.namespaceURI, 'rect');
+          rect.setAttribute('x', String(box.left - 1)); rect.setAttribute('y', String(box.top - 1));
+          rect.setAttribute('width', String(box.width + 2)); rect.setAttribute('height', String(box.height + 2));
+          outline.append(rect);
+        }
+      }
       if (compact || !line) { path.setAttribute('d', ''); continue; }
       const box = element.getBoundingClientRect(), baseY = line.bottom + 2, y2 = box.top + Math.min(20, box.height / 2);
       const route = { y: baseY, start: line.right + 2, middle: (article.right + box.left) / 2, low: Math.min(baseY, y2), high: Math.max(baseY, y2), lane: 0 };
@@ -89,7 +123,7 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       routes.push(route);
       const y1 = baseY + route.lane * 3, middle = Math.max(line.right + 4, route.middle - route.lane * 3);
       path.setAttribute('d', `M ${line.right} ${line.bottom} L ${line.right + 2} ${y1} H ${middle} C ${middle + 8} ${y1}, ${middle - 8} ${y2}, ${box.left - 1} ${y2}`);
-      path.style.stroke = getComputedStyle(element).borderTopColor;
+      path.style.stroke = color;
     }
     const minHeight = compact ? '' : `${bottom}px`;
     if (container.style.minHeight !== minHeight) container.style.minHeight = minHeight;
@@ -101,6 +135,8 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
   const schedule = () => { if (!frame && !controller.signal.aborted) frame = win.requestAnimationFrame(layout); };
   const observer = new win.ResizeObserver(schedule);
   observer.observe(view.element); observer.observe(column); observer.observe(container);
+  container.addEventListener('pointerover', schedule, { signal: controller.signal });
+  container.addEventListener('pointerout', schedule, { signal: controller.signal });
   doc.addEventListener('scroll', schedule, { capture: true, passive: true, signal: controller.signal });
   win.addEventListener('resize', schedule, { signal: controller.signal });
   void doc.fonts.ready.then(() => { naturalSizes.clear(); schedule(); });
