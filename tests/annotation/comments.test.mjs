@@ -219,7 +219,7 @@ test('overlapping connectors use three small offsets and allow additional lines 
   });
 });
 
-test('hovering a card emphasizes only its connector and outlined passage without changing source nodes or box dimensions', async () => {
+test('hovering a card dims other annotations and outlines its passage without changing source nodes or box dimensions', async () => {
   await inPage(async page => {
     const first = await mark(page, 'First passage [[Page|linked words]] after.\nSecond sentence.', 'Green');
     const second = await mark(page, 'Next paragraph', 'Blue');
@@ -236,11 +236,15 @@ test('hovering a card emphasizes only its connector and outlined passage without
     assert.equal(await outline.locator('rect').count(), 0);
     await first.hover(); await frames(page);
     assert.deepEqual(await bounds(), initial, 'outward border adds no layout space');
-    assert.deepEqual(await first.evaluate(element => ({ border: getComputedStyle(element).borderTopWidth, outline: getComputedStyle(element).outlineWidth, offset: getComputedStyle(element).outlineOffset })), { border: '1px', outline: '2px', offset: '0px' });
-    assert.equal(await connector(firstId).evaluate(element => getComputedStyle(element).strokeWidth), '2.5px');
+    assert.deepEqual(await first.evaluate(element => ({ border: getComputedStyle(element).borderTopWidth, outline: getComputedStyle(element).outlineStyle, offset: getComputedStyle(element).outlineOffset })), { border: '1px', outline: 'none', offset: '0px' });
+    assert.equal(await connector(firstId).evaluate(element => getComputedStyle(element).strokeWidth), '1.5px');
     assert.equal(await connector(secondId).evaluate(element => getComputedStyle(element).strokeWidth), '1.5px');
     assert.equal(await outline.getAttribute('data-annotation-id'), firstId);
-    assert.equal(await outline.evaluate(element => getComputedStyle(element).strokeWidth), '2px');
+    assert.equal(await second.evaluate(element => getComputedStyle(element).opacity), '0.35');
+    assert.equal(await connector(secondId).evaluate(element => getComputedStyle(element).opacity), '0.35');
+    assert.equal(await first.evaluate(element => getComputedStyle(element).opacity), '1');
+    assert.equal(await page.evaluate(() => [...document.querySelectorAll('style')].some(style => style.textContent.includes('color-mix(in srgb, var(--annotation-marker-blue) 35%, transparent)'))), true);
+    assert.equal(await outline.evaluate(element => getComputedStyle(element).strokeWidth), '1px');
     assert.equal(await outline.evaluate(element => getComputedStyle(element).stroke), await first.evaluate(element => getComputedStyle(element).borderTopColor));
     assert.equal(await outline.locator('rect').count(), 2, 'adjacent inline fragments share one border per line');
     const initialOutline = await outline.locator('rect').evaluateAll(rects => rects.map(rect => rect.getBoundingClientRect().toJSON()));
@@ -266,6 +270,7 @@ test('hovering a card emphasizes only its connector and outlined passage without
     await page.mouse.move(0, 0); await frames(page);
     assert.equal(await outline.locator('rect').count(), 0);
     assert.equal(await first.evaluate(element => getComputedStyle(element).outlineStyle), 'none');
+    assert.equal(await second.evaluate(element => getComputedStyle(element).opacity), '1');
     await first.hover(); await frames(page);
     await page.evaluate(id => commentView.highlighting.dispatch({ type: 'delete-highlight', id }), firstId); await frames(page);
     assert.notEqual(await outline.getAttribute('data-annotation-id'), firstId);
@@ -529,7 +534,7 @@ test('narrow screens hide the sidebar and show a floating thread only when its h
     assert.equal(await panel.getAttribute('data-layout'), 'floating');
     await thread.locator('.annotation-comment-text').hover(); await frames(page);
     assert.ok(await page.locator('.annotation-comment-highlight-outline rect').count() > 0, 'hovering a floating card outlines its source passage');
-    assert.equal(await thread.evaluate(element => getComputedStyle(element).outlineWidth), '2px');
+    assert.equal(await thread.evaluate(element => getComputedStyle(element).outlineStyle), 'none');
     const boxes = await page.locator('.annotation-comments, [data-annotation-toolbar], [data-annotation-popup]').evaluateAll(elements => elements.filter(element => !element.hidden).map(element => element.getBoundingClientRect().toJSON()));
     assert.equal(boxes.length, 3);
     for (const box of boxes) assert.ok(box.left >= 0 && box.right <= 391 && box.top >= 0 && box.bottom <= 441);

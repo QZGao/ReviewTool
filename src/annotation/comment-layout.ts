@@ -86,6 +86,8 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       finish();
     }
     for (const entry of entries) entry.element.toggleAttribute('data-crowded', crowded.has(entry.element));
+    const engaged = !container.hidden ? entries.find(entry => !entry.element.hidden && entry.element.matches(':hover'))?.element : undefined;
+    view.highlighting?.emphasize(engaged?.dataset.annotationId ?? null);
     outline.replaceChildren(); delete outline.dataset.annotationId;
     let bottom = 0;
     const routes: { y: number; start: number; middle: number; low: number; high: number; lane: number }[] = [];
@@ -100,15 +102,16 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       }
       let path = paths.get(element);
       if (!path) { path = doc.createElementNS(svg.namespaceURI, 'path') as SVGPathElement; path.dataset.annotationId = element.dataset.annotationId; paths.set(element, path); svg.append(path); }
-      const hovered = !container.hidden && !element.hidden && element.matches(':hover');
-      path.toggleAttribute('data-comment-hovered', hovered);
+      const hovered = element === engaged;
+      element.toggleAttribute('data-dimmed', Boolean(engaged && !hovered));
+      path.toggleAttribute('data-dimmed', Boolean(engaged && !hovered));
       const color = getComputedStyle(element).borderTopColor;
       if (hovered) {
         outline.dataset.annotationId = element.dataset.annotationId; outline.style.stroke = color;
         for (const box of outlineRects(entry.rects)) {
           const rect = doc.createElementNS(svg.namespaceURI, 'rect');
-          rect.setAttribute('x', String(box.left - 1)); rect.setAttribute('y', String(box.top - 1));
-          rect.setAttribute('width', String(box.width + 2)); rect.setAttribute('height', String(box.height + 2));
+          rect.setAttribute('x', String(box.left - .5)); rect.setAttribute('y', String(box.top - .5));
+          rect.setAttribute('width', String(box.width + 1)); rect.setAttribute('height', String(box.height + 1));
           outline.append(rect);
         }
       }
@@ -148,6 +151,6 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
     schedule,
     observe(element: HTMLElement) { observer.observe(element); schedule(); },
     unobserve(element: HTMLElement) { observer.unobserve(element); paths.get(element)?.remove(); paths.delete(element); ranges.delete(element); naturalSizes.delete(element); schedule(); },
-    destroy() { controller.abort(); observer.disconnect(); win.cancelAnimationFrame(frame); popups.hide('comment'); svg.remove(); measurement.remove(); paths.clear(); ranges.clear(); naturalSizes.clear(); },
+    destroy() { controller.abort(); observer.disconnect(); win.cancelAnimationFrame(frame); view.highlighting?.emphasize(null); popups.hide('comment'); svg.remove(); measurement.remove(); paths.clear(); ranges.clear(); naturalSizes.clear(); },
   };
 }

@@ -168,7 +168,6 @@
 .annotation-comments { position: relative; width: 100%; color: var(--color-base, #202122); font: 14px/1.5 system-ui, sans-serif; }
 .annotation-comments[hidden], .annotation-comments [hidden] { display: none !important; }
 .annotation-comment-thread { position: absolute; inset-inline: 0; box-sizing: border-box; min-width: 0; border: 1px solid var(--comment-border); background: var(--comment-background); border-radius: 7px; overflow-wrap: anywhere; z-index: 2; }
-.annotation-comment-thread:hover { outline: 2px solid var(--comment-border); outline-offset: 0; }
 .annotation-comment-thread[data-color="red"] { --comment-border: #F2CEB6; --comment-background: var(--annotation-marker-red); }
 .annotation-comment-thread[data-color="yellow"] { --comment-border: #EEDAA8; --comment-background: var(--annotation-marker-yellow); }
 .annotation-comment-thread[data-color="green"] { --comment-border: #C9DBCD; --comment-background: var(--annotation-marker-green); }
@@ -200,8 +199,8 @@
 }
 .annotation-comment-connectors { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; z-index: 1; }
 .annotation-comment-connectors path { fill: none; stroke-width: 1.5; }
-.annotation-comment-connectors path[data-comment-hovered] { stroke-width: 2.5; }
-.annotation-comment-highlight-outline { fill: none; stroke-width: 2; }
+.annotation-comment-thread[data-dimmed], .annotation-comment-connectors path[data-dimmed] { opacity: .35; }
+.annotation-comment-highlight-outline { fill: none; stroke-width: 1; }
 .annotation-comments[data-layout="floating"] { position: fixed; display: flex; flex-direction: column; box-sizing: border-box; width: 280px; min-height: 0; z-index: 1002; overflow: visible; background: transparent; border-radius: 0; box-shadow: none; }
 .annotation-comments[data-layout="floating"] .annotation-comment-thread { position: relative; top: auto; display: flex; flex-direction: column; flex-shrink: 1; min-height: 0; background: linear-gradient(var(--comment-background), var(--comment-background)), var(--background-color-base, #fff); box-shadow: 0 4px 16px #0002; }
 /* The view restores scroll offsets; native anchoring must not add a second hover-row adjustment. */

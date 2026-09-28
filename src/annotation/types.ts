@@ -126,6 +126,7 @@ export interface HighlightOptions {
 
 export interface HighlightingView {
   readonly annotations: readonly HighlightAnnotation[];
+  emphasize(id: string | null): void;
   /** Replace a committed snapshot without generating a user action. Invalid anchors throw. */
   replace(annotations: readonly HighlightAnnotation[]): void;
   dispatch(action: HighlightAction): void;

@@ -22,6 +22,13 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   const hoverListeners = new Set<(id: string, anchor: DOMRect) => void>();
   let serial = 0;
   let markers: Marker[] = [];
+  let emphasized: string | null = null;
+  const updateStyles = () => {
+    style.textContent = markers.map(marker => {
+      const color = `var(--annotation-marker-${marker.annotation.color})`;
+      return `.annotation-document ::highlight(${marker.name}) { background-color: ${emphasized && marker.annotation.id !== emphasized ? `color-mix(in srgb, ${color} 35%, transparent)` : color}; }`;
+    }).join('\n');
+  };
   const state = annotationState(config, anchor => { const range = view.restoreRange(anchor); return Boolean(range && !range.collapsed); }, actor);
   let active: Active | null = null;
   let reasonPending = false;
@@ -112,7 +119,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     hide();
     for (const marker of markers) registry.delete(marker.name);
     markers = prepared;
-    style.textContent = markers.map(marker => `.annotation-document ::highlight(${marker.name}) { background-color: var(--annotation-marker-${marker.annotation.color}); }`).join('\n');
+    updateStyles();
     if (!style.isConnected) doc.head.append(style);
     markers.forEach((marker, index) => {
       const highlight = new win.Highlight(marker.range); highlight.priority = index;
@@ -216,6 +223,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
 
   return {
     get annotations() { return state.annotations; },
+    emphasize(id: string | null) { if (id !== emphasized) { emphasized = id; updateStyles(); } },
     replace: state.replace,
     dispatch: state.dispatch,
     subscribe: state.subscribe,
