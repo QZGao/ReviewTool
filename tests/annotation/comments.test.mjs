@@ -96,6 +96,24 @@ test('a new highlight shows an aligned Add a comment placeholder and opens its e
   });
 });
 
+test('saved comments render basic wikitext safely while edits and nowiki retain literal source', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage');
+    const source = "'''重點'''與''斜體'' [[頁面|連結]]\n\n* 項目\n<nowiki>'''原樣''' [[不解析]]</nowiki> <script>alert(1)</script>";
+    await send(thread, source);
+    const text = thread.locator('.annotation-comment-text');
+    assert.equal(await text.locator('strong').textContent(), '重點');
+    assert.equal(await text.locator('em').textContent(), '斜體');
+    assert.equal(await text.locator('a').textContent(), '連結');
+    assert.equal(await text.locator('li').count(), 1);
+    assert.ok((await text.textContent()).includes("'''原樣''' [[不解析]]"));
+    assert.equal(await text.locator('script').count(), 0);
+    const id = await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].id);
+    await act(page, id, '編輯');
+    assert.equal(await thread.getByRole('textbox').inputValue(), source);
+  });
+});
+
 test('highlight attribution follows the original root author, preserves creation identity, and leaves legacy data unattributed', async () => {
   await inPage(async page => {
     const thread = await mark(page, 'First passage');

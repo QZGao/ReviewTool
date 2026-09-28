@@ -6,6 +6,7 @@ import { textRects } from './range-rects';
 import { canEditComment, canResolveThread, findAnnotationComment, needsModerationReason, requestActionReason, type ModerationTarget } from './permissions';
 
 import { threadRoots, annotationVisible } from './annotation-state';
+import { renderCommentMarkup } from './comment-markup';
 
 type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string; reason?: string };
 
@@ -158,7 +159,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       if (edit && canEditComment(comment, actor)) node.append(editor(editKey, edit, comment));
       else {
         const body = doc.createElement('div'); body.className = 'annotation-comment-body';
-        const text = doc.createElement('div'); text.className = 'annotation-comment-text'; text.textContent = comment.text;
+        const text = doc.createElement('div'); text.className = 'annotation-comment-text'; text.append(renderCommentMarkup(doc, comment.text));
         // Keyboard focus offers the same expanded reading state as hover.
         text.tabIndex = 0;
         const actions = doc.createElement('div'); actions.className = 'annotation-comment-actions';
