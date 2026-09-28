@@ -164,12 +164,13 @@ export interface RenderOptions {
   commentUserGroups?: readonly string[];
   /** Host dialog for moderator reasons; live Wikipedia uses Codex. Null means Cancel. */
   requestModerationReason?: ModerationReasonPrompt;
+  requestCloseConfirmation?: (signal: AbortSignal) => Promise<boolean>;
   commentDrafts?: readonly CommentDraft[];
   /** Private editor changes, including an empty snapshot when sending or discarding clears a draft. */
   onCommentDraftsChange?: (drafts: readonly CommentDraft[]) => void;
 }
 
-export type ModerationReasonPrompt = (action: 'edit-comment' | 'resolve-comment' | 'delete-highlight', signal: AbortSignal) => Promise<string | null>;
+export type ModerationReasonPrompt = (action: 'edit-comment' | 'resolve-comment' | 'delete-highlight' | 'confirm-close', signal: AbortSignal) => Promise<string | null>;
 
 /** Temporary navigation metadata for a heading in this exact source revision. */
 export interface WikipediaHeadingAnchor {

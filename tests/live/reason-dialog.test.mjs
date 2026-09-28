@@ -83,6 +83,11 @@ test('the real Codex prompt stays open without native-dialog handlers, validates
     const resolve = page.getByRole('dialog', { name: '結束討論的原因', exact: true });
     await resolve.getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(await page.evaluate(() => reasonResult), null);
+    await show('confirm-close');
+    const confirmation = page.getByRole('dialog', { name: '結束這個討論？', exact: true });
+    assert.equal(await confirmation.getByRole('textbox').count(), 0);
+    await confirmation.getByRole('button', { name: '結束討論', exact: true }).click();
+    assert.equal(await page.evaluate(() => reasonResult), '');
     await show('delete-highlight');
     const remove = page.getByRole('dialog', { name: '刪除原因', exact: true });
     await remove.getByRole('textbox', { name: '原因', exact: true }).fill('Duplicate thread');

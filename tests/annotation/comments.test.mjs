@@ -62,6 +62,7 @@ async function send(thread, text, label = '送出') {
 const body = (page, id) => page.locator(`[data-comment-id="${id}"] > .annotation-comment-body`);
 async function act(page, id, action) {
   const target = body(page, id); await target.hover(); await target.getByRole('button', { name: action, exact: true }).click();
+  if (action === '結束討論' && await page.locator('.annotation-close-confirm').count()) await page.locator('.annotation-close-confirm').getByRole('button', { name: '結束討論', exact: true }).click();
 }
 async function frames(page) { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); }
 
@@ -111,6 +112,24 @@ test('saved comments render basic wikitext safely while edits and nowiki retain 
     const id = await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].id);
     await act(page, id, '編輯');
     assert.equal(await thread.getByRole('textbox').inputValue(), source);
+  });
+});
+
+test('closing your own thread asks confirmation and cancellation preserves the discussion', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage'); await send(thread, 'Keep until confirmed');
+    await thread.locator('.annotation-comment-text').hover();
+    await thread.getByRole('button', { name: '結束討論', exact: true }).click();
+    const confirmation = page.getByRole('dialog', { name: '結束這個討論？' });
+    await confirmation.waitFor();
+    assert.equal(await thread.count(), 1);
+    await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(await thread.count(), 1);
+    await thread.locator('.annotation-comment-text').hover();
+    await thread.getByRole('button', { name: '結束討論', exact: true }).click();
+    await confirmation.getByRole('button', { name: '結束討論', exact: true }).click();
+    assert.equal(await thread.count(), 0);
+    assert.deepEqual(await page.evaluate(() => reasonRequests), []);
   });
 });
 

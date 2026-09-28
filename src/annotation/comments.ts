@@ -7,11 +7,12 @@ import { canEditComment, canResolveThread, findAnnotationComment, needsModeratio
 
 import { threadRoots, annotationVisible } from './annotation-state';
 import { renderCommentMarkup } from './comment-markup';
+import { confirmThreadClose } from './confirm-close';
 
 type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string; reason?: string };
 
 /** A local comment thread for each source-anchored highlight. */
-export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages(), onDraftsChange?: (drafts: readonly CommentDraft[]) => void) {
+export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages(), onDraftsChange?: (drafts: readonly CommentDraft[]) => void, confirmClose = (signal: AbortSignal) => confirmThreadClose(doc, messages, signal)) {
   const highlighting = view.highlighting, window = doc.defaultView;
   if (!highlighting || !window) throw new Error('Comments require annotation highlighting in a browser window.');
   const state = highlighting, win = window;
@@ -50,7 +51,10 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   const reasonFor = async (action: ModerationTarget, annotation: HighlightAnnotation) => {
     if (reasonPending) return null;
     reasonPending = true; cancel();
-    try { return await requestActionReason(action, actor, promptReason, controller.signal, annotation); }
+    try {
+      if (action.type === 'resolve-comment' && !needsModerationReason(action, actor, annotation)) return await confirmClose(controller.signal) ? '' : null;
+      return await requestActionReason(action, actor, promptReason, controller.signal, annotation);
+    }
     finally { reasonPending = false; }
   };
   const cancel = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };

@@ -17,17 +17,19 @@ export async function createCodexReasonPrompt(doc: Document, messages: Annotatio
   return (action, signal) => {
     if (active || signal.aborted) return Promise.resolve(null);
     active = true;
+    const confirmation = action === 'confirm-close';
     return new Promise(resolve => {
       const host = doc.createElement('div'); host.dataset.annotationReasonDialog = '';
       host.setAttribute('popover', 'manual');
       host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:transparent;overflow:visible;color:var(--color-base,#202122)';
       const inputId = 'reviewtool-reason-' + win.crypto.randomUUID();
       const value = runtime.ref(''), reasonError = () => {
+        if (confirmation) return '';
         try { checkedReason(value.value); return ''; }
         catch { return value.value.trim() ? messages.reasonTooLong : messages.reasonRequired; }
       };
-      const title = action === 'edit-comment' ? messages.editReason : action === 'resolve-comment' ? messages.resolveReason : messages.deleteReason;
-      const label = action === 'edit-comment' ? messages.continueEditing : action === 'resolve-comment' ? messages.resolveThread : messages.deleteHighlight;
+      const title = confirmation ? messages.closeThreadTitle : action === 'edit-comment' ? messages.editReason : action === 'resolve-comment' ? messages.resolveReason : messages.deleteReason;
+      const label = confirmation ? messages.resolveThread : action === 'edit-comment' ? messages.continueEditing : action === 'resolve-comment' ? messages.resolveThread : messages.deleteHighlight;
       const moderationAction = action === 'edit-comment' ? messages.moderatorEdit : action === 'resolve-comment' ? messages.moderatorResolve : messages.moderatorDelete;
       let settled = false, composing = false, compositionEnded = -Infinity;
       const previousFocus = doc.activeElement as HTMLElement | null;
@@ -38,9 +40,9 @@ export async function createCodexReasonPrompt(doc: Document, messages: Annotatio
             open: true, renderInPlace: true, title, useCloseButton: true, closeButtonLabel: messages.close,
             primaryAction: { label, actionType: action === 'edit-comment' ? 'progressive' : 'destructive', disabled: Boolean(error) },
             defaultAction: { label: messages.cancel },
-            onPrimary: () => { if (!reasonError()) finish(checkedReason(value.value)); },
+            onPrimary: () => { if (!reasonError()) finish(confirmation ? '' : checkedReason(value.value)); },
             onDefault: () => finish(null), 'onUpdate:open': (open: boolean) => { if (!open) finish(null); },
-          }, { default: () => [
+          }, { default: () => confirmation ? [runtime.h('p', messages.closeThreadExplanation)] : [
             runtime.h('p', moderationAction),
             runtime.h('p', messages.reasonExplanation),
             runtime.h('label', { for: inputId, style: 'display:block;font-weight:600;margin-bottom:8px' }, messages.reason),

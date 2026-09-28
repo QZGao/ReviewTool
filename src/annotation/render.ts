@@ -149,7 +149,7 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
   if (options.commentContainer) {
     try {
       if (typeof options.commentAuthor !== 'string' || !options.commentAuthor.trim()) throw new Error('A comment author is required when enabling comments.');
-      comments = createCommentPanel(doc, view, options.commentContainer, layout, options.commentAuthor, options.commentDrafts, options.commentUserGroups, options.requestModerationReason, messages, options.onCommentDraftsChange);
+      comments = createCommentPanel(doc, view, options.commentContainer, layout, options.commentAuthor, options.commentDrafts, options.commentUserGroups, options.requestModerationReason, messages, options.onCommentDraftsChange, options.requestCloseConfirmation);
       highlighting?.onHover((id, anchor) => comments?.activate(id, anchor));
     } catch (error) { view.destroy(); throw error; }
   }

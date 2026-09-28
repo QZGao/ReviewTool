@@ -41,6 +41,8 @@ export function annotationMessages(convert: VariantConverter = text => text.hant
     deleteReason: convert({ hant: '刪除原因', hans: '删除原因' }),
     continueEditing: convert({ hant: '繼續編輯', hans: '继续编辑' }),
     resolveThread: convert({ hant: '結束討論', hans: '结束讨论' }),
+    closeThreadTitle: convert({ hant: '結束這個討論？', hans: '结束这个讨论？' }),
+    closeThreadExplanation: convert({ hant: '結束後，這個討論及其回覆將不再顯示。確定要結束討論嗎？', hans: '结束后，这个讨论及其回复将不再显示。确定要结束讨论吗？' }),
     moderatorEdit: convert({ hant: '您正在使用管理權限編輯他人的評論。', hans: '您正在使用管理权限编辑他人的评论。' }),
     moderatorResolve: convert({ hant: '您正在使用管理權限結束他人發起的討論。', hans: '您正在使用管理权限结束他人发起的讨论。' }),
     moderatorDelete: convert({ hant: '您正在使用管理權限刪除他人的批註。', hans: '您正在使用管理权限删除他人的批注。' }),

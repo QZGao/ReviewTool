@@ -176,6 +176,10 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
         comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, headingAnchors: headings, commentDrafts: drafts,
         onCommentDraftsChange: snapshot => { if (!closed) void saveDrafts(snapshot); },
         ...(requestModerationReason ? { requestModerationReason } : {}),
+        requestCloseConfirmation: async signal => {
+          const prompt = requestModerationReason ?? await createCodexReasonPrompt(document, messages);
+          return await prompt('confirm-close', signal) !== null;
+        },
         highlighting: { initial, onChange: (_next, action) => {
           try { if (!canWrite) throw new Error('Log in before saving annotations.'); shared.add(action); } catch (error) { mount?.view.highlighting?.replace(shared.annotations); failure({ hant: '修改未能儲存，請再試一次。', hans: '修改未能保存，请再试一次。' }, error); }
         } },

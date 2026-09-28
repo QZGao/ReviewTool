@@ -176,6 +176,9 @@
 .annotation-comments button:enabled:hover { text-decoration: underline; }
 .annotation-comments button:focus-visible, .annotation-comment-text:focus-visible { outline: 2px solid var(--border-color-progressive--focus, #36c); outline-offset: 2px; }
 .annotation-comments button:disabled { color: var(--color-disabled, #72777d); opacity: .65; cursor: default; text-decoration: none; }
+.annotation-close-confirm { max-width: 28rem; padding: 24px; border: 1px solid var(--border-color-subtle, #c8ccd1); border-radius: 8px; background: var(--background-color-base, #fff); color: var(--color-base, #202122); }
+.annotation-close-confirm::backdrop { background: #0005; }
+.annotation-close-confirm button { margin-inline-end: 12px; }
 .annotation-comment-body { display: flex; flex-direction: column; min-width: 0; padding: 12px 10px; }
 .annotation-comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 6px; font-size: 11px; line-height: 1.4; }
 .annotation-comment-author { font-weight: 600; overflow-wrap: anywhere; }
