@@ -39,7 +39,7 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     const headingStart = headingSourceStart(model);
     if (headingStart !== undefined) element.dataset.headingStart = String(sourceIndex.toByte(headingStart));
     for (const [name, value] of Object.entries(model.attributes ?? {})) element.setAttribute(name, value);
-    if (model.href) element.dataset.targetUrl = model.href;
+    if (model.href) { element.dataset.targetUrl = model.href; element.setAttribute('href', model.href); element.draggable = false; }
     if (model.rawKind) { element.dataset.rawKind = model.rawKind; element.setAttribute('aria-label', messages.rawWikitext); }
     if (model.template) element.dataset.template = '';
     if (model.lineBreak) element.dataset.lineBreak = '';

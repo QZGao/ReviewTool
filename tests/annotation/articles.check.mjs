@@ -22,7 +22,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
       await page.goto(`${server.url}/?article=${article.key}`);
       await page.waitForFunction(key => window.annotationPageLab?.fixture.key === key, article.key);
       const linkExample = {
-        earth: { invocation: '{{tsl|en|Biogenic substance|生源物质|生源}}', label: '生源', target: '生源物质' },
+        earth: { invocation: '{{tsl|en|Biogenic substance|生源物质|生源}}', label: '生源', target: 'Biogenic substance', language: 'en' },
         javascript: { invocation: '{{le|膠水語言|glue code}}', label: '膠水語言', target: '膠水語言' },
         liyue: { invocation: '[[蒙德 (原神)|蒙德]]', label: '蒙德', target: '蒙德 (原神)' },
         'sun-yat-sen': { invocation: '[[博濟醫學堂|博濟醫院附設醫科學校]]', label: '博濟醫院附設醫科學校', target: '博濟醫學堂' },
@@ -51,7 +51,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
           return { sourceText: read.sourceText, selectionMatchesCode: read.quote === code.textContent && read.sourceText === original && /^\[\[(?:File|Image|文件|檔案|档案|图像|圖像):/i.test(original) && original.endsWith(']]'), restored: view.readRange(view.restoreRange(read.anchor)), selection: read, hasImage: Boolean(view.element.querySelector('[data-annotation-popup] img')), loading: view.element.querySelector('[data-annotation-image]')?.textContent === '正在載入圖片…', inline: getComputedStyle(code).display === 'inline' };
         });
         view.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        const href = 'https://zh.wikipedia.org/wiki/' + encodeURIComponent(example.target.replace(/ /g, '_'));
+        const href = `https://${example.language ?? 'zh'}.wikipedia.org/wiki/` + encodeURIComponent(example.target.replace(/ /g, '_'));
         const articleLink = [...view.element.querySelectorAll('a')].find(link => link.textContent === example.label && link.dataset.targetUrl === href);
         if (!articleLink) throw new Error('Known article link was not rendered as a link.');
         const linkRange = document.createRange(); linkRange.selectNodeContents(articleLink);

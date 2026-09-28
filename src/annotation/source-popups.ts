@@ -27,6 +27,11 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   let active: HTMLElement | null = null;
   let down: { x: number; y: number } | null = null;
   let dragged = false;
+  let selectingLink: HTMLElement | null = null;
+  const restoreLink = () => {
+    if (selectingLink?.dataset.targetUrl) selectingLink.setAttribute('href', selectingLink.dataset.targetUrl);
+    selectingLink = null;
+  };
   let restoringFocus = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
@@ -113,13 +118,27 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   root.addEventListener('click', event => {
     const element = trigger(event.target);
     if (element) {
+      const model = entries.get(element);
+      if ((event.metaKey || event.ctrlKey) && model?.inspection?.kind === 'link') {
+        event.preventDefault();
+        doc.defaultView?.open(model.href, '_blank', 'noopener');
+        return;
+      }
       event.preventDefault();
       if (event.detail > 0 && dragged) return;
       show(element);
       selectTrigger(element);
     }
   }, options);
-  root.addEventListener('pointerdown', event => { down = { x: event.clientX, y: event.clientY }; dragged = false; }, options);
+  root.addEventListener('pointerdown', event => {
+    down = { x: event.clientX, y: event.clientY }; dragged = false;
+    restoreLink();
+    const link = (event.target as Element).closest<HTMLElement>('a[data-target-url]');
+    // Let the browser start a text selection on an ordinary drag; modified clicks remain links.
+    if (link && event.button === 0 && !event.metaKey && !event.ctrlKey) { selectingLink = link; link.removeAttribute('href'); }
+  }, options);
+  doc.addEventListener('pointerup', restoreLink, options);
+  doc.addEventListener('pointercancel', restoreLink, options);
   root.addEventListener('pointermove', event => {
     if (down && event.buttons && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) dragged = true;
   }, options);
@@ -143,5 +162,5 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   }, options);
   doc.addEventListener('scroll', event => { if (!layout.contains(event.target)) hide(); }, { ...options, capture: true });
   doc.defaultView?.addEventListener('resize', () => hide(), options);
-  return { hide: () => hide(), destroy: () => { hide(); controller.abort(); popup.remove(); } };
+  return { hide: () => hide(), destroy: () => { restoreLink(); hide(); controller.abort(); popup.remove(); } };
 }

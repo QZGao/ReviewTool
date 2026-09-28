@@ -178,15 +178,15 @@ test('multiline templates preserve source line breaks while formatting their tex
 test('tsl and translink use their documented target and display defaults', () => {
   const cases = [
     ['{{tsl|en|MooTools}}', 'MooTools', 'MooTools'],
-    ['{{tsl|en|Water|水}}', '水', '水'],
-    ['{{tsl|en|Water|水|一氧化二氢}}', '一氧化二氢', '水'],
+    ['{{tsl|en|Water|水}}', '水', 'Water'],
+    ['{{tsl|en|Water|水|一氧化二氢}}', '一氧化二氢', 'Water'],
     ['{{Translink|en|pr (Unix)||pr}}', 'pr', 'pr_(Unix)'],
-    ['{{tsl|en|Water|水|}}', '水', '水'],
+    ['{{tsl|en|Water|水|}}', '水', 'Water'],
   ];
   for (const [source, label, target] of cases) {
     const view = createProjection('前' + source + '后');
     assert.equal(view.text, '前' + label + '后');
-    assert.match(renderToHtml(view), new RegExp(`data-target-url="https://zh.wikipedia.org/wiki/${encodeURIComponent(target).replace(/[()]/g, '\\$&')}"`));
+    assert.match(renderToHtml(view), new RegExp(`data-target-url="https://en.wikipedia.org/wiki/${encodeURIComponent(target).replace(/[()]/g, '\\$&')}"`));
     assert.equal(choose(view, label).sourceText, label);
     assert.equal(choose(view, view.text).sourceText, '前' + source + '后');
   }
@@ -259,7 +259,7 @@ test('empty pipe tricks remain source because the revision parser does not perfo
 });
 
 test('unrecognized templates and unresolved targets keep their source presentation', () => {
-  for (const source of ['{{lang-en|Water}}', '{{legend|red|水}}', '{{longitem|水}}', '{{lc|水|Water}}', '{{link-wd|水|Q283}}', '{{link-wikidata|水|Q283}}', '{{tsl|en}}', '{{tsl|en|Water|水|显示|unknown=说明}}', '{{tsl|en|Water|{{未知|水}}}}']) {
+  for (const source of ['{{lang-en|Water}}', '{{legend|red|水}}', '{{longitem|水}}', '{{lc|水|Water}}', '{{link-wd|水|Q283}}', '{{link-wikidata|水|Q283}}', '{{tsl|en}}', '{{tsl|en|Water|水|显示|unknown=说明}}', '{{tsl|en|{{未知|水}}|水}}']) {
     assert.equal(createProjection(source).text, source);
   }
   // Nested links would produce invalid HTML; retain the template form instead.

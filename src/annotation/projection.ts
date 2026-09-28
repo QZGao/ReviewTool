@@ -108,7 +108,7 @@ export function renderToHtml(projection: Projection, messages: AnnotationMessage
     const spacing = node.flowBreak ? ` data-break-before="${node.flowBreak}"` : '';
     const caption = node.fileCaption ? ' data-file-caption=""' : '';
     if (node.tag === 'hr') return `<hr${attrs}${presentation}${spacing}>`;
-    return `<${node.tag}${heading}${attrs}${presentation}${spacing}${caption}>${node.children.map(emit).join('')}</${node.tag}>`;
+    return `<${node.tag}${heading}${attrs}${node.href ? ` href="${escapeHtml(node.href)}" draggable="false"` : ''}${presentation}${spacing}${caption}>${node.children.map(emit).join('')}</${node.tag}>`;
   };
   return `<article class="annotation-document" aria-label="${escapeHtml(messages.readingView)}">${projection.blocks.map(emit).join('')}</article>`;
 }

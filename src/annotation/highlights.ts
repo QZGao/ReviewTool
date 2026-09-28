@@ -199,6 +199,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     });
   }, options);
   root.addEventListener('click', event => {
+    if ((event.metaKey || event.ctrlKey) && (event.target as Element).closest('a[data-target-url]')) return;
     if (!event.detail || dragged || !contentTarget(event.target)) return;
     const match = hit(event.clientX, event.clientY);
     if (match) {
