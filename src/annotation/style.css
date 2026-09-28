@@ -210,3 +210,4 @@
 }
 
 .annotation-comment-content > .annotation-comment-node + .annotation-comment-node { border-top: 1px solid var(--comment-border); }
+.annotation-comment-content:has(> .annotation-comment-node) > .annotation-comment-placeholder { border-top: 1px solid var(--comment-border); border-radius: 0; }
