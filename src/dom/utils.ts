@@ -71,7 +71,7 @@ export function appendButtonToHeading(heading: Element, button: Element): void {
         const anchor = (button.querySelector && button.querySelector('a')) || null;
         if (anchor && typeof anchor.onclick === 'function') {
             const orig = anchor.onclick;
-            anchor.onclick = (e: Event) => {
+            anchor.onclick = (e: PointerEvent) => {
                 try { state.pendingReviewHeading = heading; } catch (err) { console.error('[ReviewTool][appendButtonToHeading] failed to set pendingReviewHeading', err); throw err; }
                 // call original handler
                 try { orig.call(anchor, e); } catch (ex) { console.error('[ReviewTool][appendButtonToHeading] original click handler failed', ex); throw ex; }

@@ -1,3 +1,5 @@
+import { createApi } from './mediawiki';
+
 /**
  * 全局狀態管理。
  */
@@ -34,7 +36,7 @@ class State {
 	private _api: mw.Api | null = null;
 	getApi() {
 		if (!this._api) {
-			this._api = new mw.Api({
+			this._api = createApi({
 				ajax: {
 					headers: { 'Api-User-Agent': 'ReviewTool/1.0' }
 				}
@@ -47,15 +49,6 @@ class State {
 	// dialogs can determine which section to operate on.
 	pendingReviewHeading: Element | null = null;
 
-	// 批註模式狀態
-	private annotationModeState: { [headingTitle: string]: boolean } = {};
-	isAnnotationModeActive(headingTitle: string): boolean {
-		return !!this.annotationModeState[headingTitle];
-	}
-	toggleAnnotationModeState(headingTitle: string): void {
-		const currentState = this.isAnnotationModeActive(headingTitle);
-		this.annotationModeState[headingTitle] = !currentState;
-	}
 }
 
 export const state = new State();

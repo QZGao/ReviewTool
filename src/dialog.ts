@@ -4,8 +4,9 @@ type VueModule = {
 };
 
 type VueApp = {
-	mount: (selector: string) => unknown;
-	component?: (name: string, value: unknown) => VueApp;
+	mount: (selector: string | Element) => unknown;
+	unmount: () => void;
+	component: (name: string, value: unknown) => VueApp;
 };
 
 type CodexModule = Partial<{
@@ -16,6 +17,7 @@ type CodexModule = Partial<{
 	CdxTextInput: unknown;
 	CdxTextArea: unknown;
 	CdxCheckbox: unknown;
+	CdxRadio: unknown;
 }>;
 
 let _mountedApp: VueApp | null = null;
@@ -69,7 +71,8 @@ function onCompositionEnd(): void {
  * Track composition-like input activity to handle browser/IME event-order differences.
  * @param {InputEvent} event - The beforeinput/input event.
  */
-function onCompositionInput(event: InputEvent): void {
+function onCompositionInput(event: Event): void {
+	if (!(event instanceof InputEvent)) return;
 	const inputType = typeof event.inputType === 'string' ? event.inputType : '';
 	if (event.isComposing || inputType.indexOf('insertComposition') === 0) {
 		_lastCompositionAt = Date.now();
@@ -207,6 +210,7 @@ export function getMountedApp(): VueApp | null {
  * Remove the dialog mount element from the DOM, clean up IME Escape key guarding, and clear internal app references.
  */
 export function removeDialogMount() {
+	_mountedApp?.unmount();
 	const mountPoint = document.getElementById('review-tool-dialog-mount');
 	if (mountPoint) mountPoint.remove();
 	removeImeEscGuard();
@@ -226,6 +230,7 @@ export function registerCodexComponents(app: VueApp, Codex: CodexModule) {
 			.component('cdx-text-input', Codex.CdxTextInput)
 			.component('cdx-text-area', Codex.CdxTextArea)
 			.component('cdx-checkbox', Codex.CdxCheckbox)
+			.component('cdx-radio', Codex.CdxRadio)
 			.component('cdx-select', Codex.CdxSelect)
 			.component('cdx-button', Codex.CdxButton)
 			.component('cdx-button-group', Codex.CdxButtonGroup);

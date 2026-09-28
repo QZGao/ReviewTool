@@ -11,6 +11,25 @@ const pkgJson = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta
 
 const watch = process.argv.includes('--watch');
 const release = process.argv.includes('--release');
+const extension = process.argv.includes('--extension');
+const dryRun = process.argv.includes('--dry-run');
+if (release && dryRun) throw new Error('A dry-run bundle cannot be built as a release.');
+const extensionDir = path.join(__dirname, '.cache', 'reviewtool-extension', dryRun ? 'dry-run' : 'normal');
+if (extension) {
+	fs.mkdirSync(extensionDir, { recursive: true });
+	fs.writeFileSync(path.join(extensionDir, 'manifest.json'), JSON.stringify({
+		manifest_version: 3, name: `ReviewTool Development${dryRun ? ' — Dry run' : ''}`, version: pkgJson.version,
+		content_scripts: [{ matches: ['https://zh.wikipedia.org/*'], js: ['bundle.js'], world: 'MAIN', run_at: 'document_idle' }],
+	}, null, 2));
+}
+const mediawikiReplacement = {
+	name: 'reviewtool-mediawiki-mode',
+	setup(build) {
+		if (dryRun) build.onResolve({ filter: /\/mediawiki$/ }, args => {
+			if (path.resolve(args.resolveDir, args.path + '.ts') === path.join(__dirname, 'src/mediawiki.ts')) return { path: path.join(__dirname, 'src/mediawiki-dry-run.ts') };
+		});
+	}
+};
 
 function rewriteVueNamedImports(code) {
 	return code.replace(/import\s*\{([^}]+)\}\s*from\s*["']vue["'];?/g, (_match, spec) => {
@@ -112,15 +131,16 @@ const cssMinifyPlugin = {
 };
 
 const buildOptions = {
-	entryPoints: [path.join(__dirname, 'src', 'main.ts')],
-	outfile: path.join(__dirname, 'dist', 'bundled.js'),
+	entryPoints: [path.join(__dirname, 'src', extension ? 'dev-entry.ts' : 'main.ts')],
+	outfile: extension ? path.join(extensionDir, 'bundle.js') : path.join(__dirname, 'dist', dryRun ? 'bundled.dry-run.js' : 'bundled.js'),
 	bundle: true,
 	format: 'iife',
 	charset: 'utf8',
 	target: ['es2017'],
 	minify: release,
-	sourcemap: false,
-	plugins: [vueSfcPlugin, cssMinifyPlugin],
+	sourcemap: release ? false : 'inline',
+	sourcesContent: true,
+	plugins: [mediawikiReplacement, vueSfcPlugin, cssMinifyPlugin],
 	loader: {
 		'.css': 'text', // Tell esbuild to load CSS files as text so they're bundled into the JS
 		'.vue': 'ts'

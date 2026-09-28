@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReviewTool annotation lab</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f2f4f1; color: #26322e; font-family: system-ui, sans-serif; }
+    header { padding: 24px 32px; background: #fff; border-bottom: 1px solid #dde3de; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+    h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; letter-spacing: -.5px; }
+    header p { margin: 0; font-size: 13px; color: #647269; }
+    button { border: 0; background: #235c47; color: white; padding: 10px 17px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
+    button:focus-visible, textarea:focus-visible { outline: 3px solid #accbbe; outline-offset: 3px; }
+    button:disabled { opacity: .4; cursor: default; }
+    main { display: grid; grid-template-columns: minmax(200px, 290px) minmax(350px, 1fr) minmax(210px, 300px); gap: 20px; padding: 24px; max-width: 1600px; margin: auto; }
+    .panel { min-width: 0; }
+    .inputs, .inspection { position: sticky; top: 20px; align-self: start; max-height: calc(100vh - 40px); overflow: auto; }
+    select, input { width: 100%; padding: 9px; border: 1px solid #d9e0d9; border-radius: 6px; background: white; font: inherit; font-size: 12px; }
+    .article-controls { display: flex; gap: 8px; margin-bottom: 12px; }
+    .article-controls select { min-width: 0; }
+    #article-info { font-size: 12px; line-height: 1.6; margin-bottom: 18px; color: #647269; overflow-wrap: anywhere; }
+    #article-info a { color: #235c47; }
+    h2 { margin: 0 0 12px; font-size: 13px; font-weight: 650; color: #647269; }
+    label { display: block; font-size: 13px; margin-bottom: 8px; }
+    textarea { display: block; width: 100%; resize: vertical; min-height: 300px; border: 1px solid #d9e0d9; border-radius: 7px; padding: 12px; background: #fafbf9; font: 12px/1.6 ui-monospace, monospace; color: #425047; }
+    #reference { min-height: 110px; margin-top: 8px; }
+    details { margin: 18px 0; font-size: 13px; }
+    #canvas { background: white; padding: 28px 38px; border: 1px solid #dde4de; border-radius: 9px; min-height: 70vh; }
+    .read-hint { border-bottom: 1px solid #e4e9e4; margin: -4px 0 22px; padding-bottom: 16px; font-size: 12px; color: #718076; }
+    .card { background: white; border: 1px solid #dce4dd; border-radius: 7px; padding: 16px; margin-bottom: 16px; }
+    .card p { font-size: 13px; line-height: 1.6; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .card pre { font: 11px/1.6 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+    .status { font-size: 12px; color: #647269; margin: 12px 0; }
+    #error { color: #a32626; }
+    @media (max-width: 1000px) { main { grid-template-columns: 230px minmax(0, 1fr); } .inspection { position: static; max-height: none; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; } .inspection > h2 { grid-column: 1 / -1; } }
+    @media (max-width: 680px) { main { display: block; padding: 14px; } header { padding: 18px; } #canvas { padding: 20px; margin-block: 20px; } textarea { min-height: 180px; } .inspection { display: block; } .inputs { position: static; max-height: none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>ReviewTool annotation lab</h1><p>Select article text to inspect its source position. Hover links and references to see their wikitext.</p></div>
+    <button id="render">Render inputs</button>
+  </header>
+  <main>
+    <section class="panel inputs">
+      <h2>Inputs</h2>
+      <label for="article">Article fixture</label>
+      <div class="article-controls">
+        <select id="article"><option value="">Small example</option><option value="earth">地球 · 94197675</option><option value="javascript">JavaScript · 93611733</option><option value="liyue">璃月 · 94264832</option><option value="sun-yat-sen">孫中山 · 94447348</option></select>
+        <button id="load-article">Load</button>
+      </div>
+      <div id="article-info">Synthetic example</div>
+      <label for="source">Original wikitext</label>
+      <textarea id="source" spellcheck="false"></textarea>
+      <details><summary>Supplied rendered HTML</summary><textarea id="reference" spellcheck="false" aria-label="Supplied HTML"></textarea><label for="reference-base">HTML base URL</label><input id="reference-base" type="url"></details>
+      <button id="first-image">Jump to image source</button>
+      <p class="status" id="status"></p><p class="status" id="error" role="alert"></p>
+    </section>
+    <section class="panel" id="canvas"><p class="read-hint">Select a word or sentence to inspect its source position.</p><div id="view"></div></section>
+    <section class="panel inspection">
+      <h2>Selection</h2>
+      <div class="card"><h2>Readable quotation</h2><p id="quote">Select text in the reading view.</p></div>
+      <div class="card"><h2>Source anchor · UTF-8 bytes</h2><pre id="anchor">—</pre></div>
+      <div class="card"><h2>Original source slice</h2><pre id="slice">—</pre></div>
+      <button id="restore" disabled>Restore selection</button>
+      <details><summary>Generated HTML</summary><pre id="output" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px"></pre></details>
+    </section>
+  </main>
+  <script type="module">
+    import * as annotation from '/annotation.mjs';
+    const $ = id => document.getElementById(id);
+    $('source').value = `==文章批註==
+這是一個用於驗證視覺模型的段落。第二句可以獨立選取，即使它與前後句處於同一個段落。第三句保留原始文字位置。
+
+文字可以包含'''重點'''、''斜體''與[[地球半径|平均半径]]。面積 m<sup>2</sup>、符號 &amp; 和表情 😀 也需要保留正確的來源位置。<ref name="範例來源">這是來源內容，包含[[引用頁面]]。</ref>
+
+* 選取連結中的部分文字
+* 跨越格式選取一句話
+
+===複雜內容保留原始碼===
+{| class="wikitable"
+! 名稱 !! 數值
+|-
+| '''範例''' || {{tsl|en|Water|水}}<ref>表格內的來源內容。</ref>
+|}
+
+<math>E = mc^2</math>
+
+{{lang|en|Source remains authoritative}}
+
+[[File:Example image.png|thumb|示範圖片]]`;
+    $('reference').value = '<figure><a href="/wiki/File:Example_image.png"><img src="/fixture.png" width="96" height="48" alt="Cached example" class="mw-file-element"></a><figcaption>This caption is not copied.</figcaption></figure>';
+    $('reference-base').value = location.origin + '/wiki/';
+    const sample = { source: $('source').value, html: $('reference').value, base: $('reference-base').value };
+    let view, selected, loadedArticle = null, loadNumber = 0;
+    function show(result) {
+      if (!result) {
+        selected = null;
+        $('quote').textContent = 'Select text in the reading view.';
+        $('anchor').textContent = '—';
+        $('slice').textContent = '—';
+        $('restore').disabled = true;
+        return;
+      }
+      selected = result;
+      $('quote').textContent = result.quote;
+      $('anchor').textContent = JSON.stringify(result.anchor, null, 2) + (result.adjusted ? '\nBoundary adjusted to a complete unit.' : '');
+      $('slice').textContent = result.sourceText;
+      $('restore').disabled = false;
+    }
+    function render(source, referenceHtml = '', referenceBaseUrl = $('reference-base').value) {
+      const model = annotation.createProjection(source);
+      view?.destroy();
+      view = annotation.createAnnotationView(document, model, { referenceHtml, referenceBaseUrl, onSelectionChange: show });
+      $('view').replaceChildren(view.element);
+      const imageCount = view.element.querySelectorAll('[data-inspect="image"]').length;
+      $('status').textContent = `${view.projection.runs.length} visible runs · ${view.projection.fallbacks.length} raw-code regions · ${imageCount} image sources`;
+      $('first-image').disabled = imageCount === 0;
+      $('output').textContent = view.element.outerHTML;
+      $('error').textContent = '';
+      show(null);
+      return view;
+    }
+    async function loadArticle(key) {
+      const number = ++loadNumber;
+      $('load-article').disabled = true;
+      $('error').textContent = '';
+      try {
+        if (!key) {
+          $('source').value = sample.source; $('reference').value = sample.html; $('reference-base').value = sample.base;
+          render(sample.source, sample.html, sample.base);
+          loadedArticle = null; $('article-info').textContent = 'Synthetic example';
+        } else {
+          if (!['earth', 'javascript', 'liyue', 'sun-yat-sen'].includes(key)) throw new Error('Unknown article fixture.');
+          $('status').textContent = 'Loading article snapshot…';
+          const response = await fetch(`/articles/${key}.json`);
+          if (!response.ok) throw new Error(await response.text());
+          const data = await response.json();
+          if (number !== loadNumber) return;
+          render(data.wikitext, data.renderedHtml, data.referenceBaseUrl);
+          $('source').value = data.wikitext; $('reference').value = data.renderedHtml; $('reference-base').value = data.referenceBaseUrl;
+          const link = document.createElement('a'); link.href = data.sourceUrl; link.target = '_blank'; link.rel = 'noreferrer'; link.textContent = `${data.title} · revision ${data.revisionId}`;
+          $('article-info').replaceChildren(link, document.createElement('br'), document.createTextNode(`Chinese Wikipedia · ${data.license?.title ?? 'See original article for attribution'}`));
+          loadedArticle = { key, title: data.title, revisionId: data.revisionId };
+        }
+        $('article').value = key;
+        const url = new URL(location.href); if (key) url.searchParams.set('article', key); else url.searchParams.delete('article');
+        history.replaceState(null, '', url);
+      } catch (error) { if (number === loadNumber) $('error').textContent = error.message; }
+      finally { if (number === loadNumber) $('load-article').disabled = false; }
+    }
+    $('load-article').onclick = () => loadArticle($('article').value);
+    $('render').onclick = () => {
+      loadNumber++; $('load-article').disabled = false;
+      try { render($('source').value, $('reference').value); } catch (error) { $('error').textContent = error.message; }
+    };
+    $('first-image').onclick = () => view?.element.querySelector('[data-inspect="image"]')?.scrollIntoView({ block: 'center' });
+    $('restore').onclick = () => {
+      const range = selected && view.restoreRange(selected.anchor);
+      if (range) { const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); }
+    };
+    $('restore').onmousedown = event => event.preventDefault();
+    window.annotationLab = { annotation, render, loadArticle, get view() { return view; }, get loadedArticle() { return loadedArticle; } };
+    render($('source').value, $('reference').value);
+    const initialArticle = new URL(location.href).searchParams.get('article');
+    if (initialArticle) loadArticle(initialArticle);
+  </script>
+</body>
+</html>

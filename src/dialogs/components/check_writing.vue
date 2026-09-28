@@ -1,6 +1,9 @@
 <script lang="ts">
 import state from "../../state";
-import { buildAnnotationGroups, AnnotationGroup, Annotation } from "../../annotations";
+import type { AnnotationGroup, Annotation } from "../../annotations";
+import type { UnknownApiParams } from "types-mediawiki/api_params";
+import { createApi } from "../../mediawiki";
+import { resolveAnnotationArticle, listAnnotatedRevisions, loadAnnotationRevision, type AnnotationReadRequest, type AnnotationArticle, type AnnotatedRevision } from "../../annotation/revision-import";
 import { compareOrderKeys } from "../../dom/numeric_pos";
 import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../../api";
 import { advanceDialogStep, regressDialogStep, triggerDialogContentHooks } from "../utils";
@@ -33,6 +36,18 @@ type CheckWritingI18n = {
 	importError: string;
 	importInvalid: string;
 	annotationFallbackChapter: string;
+	chooseAnnotationRevision: string;
+	chooseAnnotationRevisionHelp: string;
+	loadingAnnotations: string;
+	loadSelectedAnnotations: string;
+	noAnnotations: string;
+	noComments: string;
+	annotationListFailed: string;
+	annotationLoadFailed: string;
+	annotationArticleMissing: string;
+	retry: string;
+	close: string;
+	newest: string;
 };
 
 type CheckWritingSuggestion = { quote: string; suggestion: string };
@@ -42,6 +57,13 @@ type CheckWritingDialogVm = {
 	open: boolean;
 	isSaving: boolean;
 	isLoadingAnnotations: boolean;
+	annotationPickerOpen: boolean;
+	annotationRevisions: AnnotatedRevision[];
+	selectedAnnotationRevision: number | null;
+	annotationArticle: AnnotationArticle | null;
+	annotationReader: ReturnType<typeof createAnnotationReader> | null;
+	annotationImportToken: number;
+	annotationPickerError: string;
 	currentStep: number;
 	chapters: CheckWritingChapter[];
 	previewWikitext: string;
@@ -79,7 +101,11 @@ type CheckWritingDialogVm = {
 	generateImportAnnotationId: () => string;
 	normalizeImportedAnnotation: (raw: unknown, fallbackSection?: string) => Annotation;
 	onAnnotationFileSelected: (ev: Event) => void;
-	loadAnnotationsIntoForm: () => void;
+	loadAnnotationsIntoForm: () => Promise<void>;
+	loadSelectedAnnotations: () => Promise<void>;
+	closeAnnotationPicker: () => void;
+	onAnnotationPickerOpen: (open: boolean) => void;
+	annotationRevisionLabel: (revision: AnnotatedRevision) => string;
 	buildChaptersFromAnnotationGroups: (groups: AnnotationGroup[]) => CheckWritingChapter[];
 	applyAnnotationChapters: (nextChapters: CheckWritingChapter[]) => void;
 	sortAnnotationsByPosition: (list: Annotation[] | undefined) => Annotation[];
@@ -120,12 +146,34 @@ function buildI18n(): CheckWritingI18n {
 		importSuccess: state.convByVar({ hant: "已從檔案載入批註。", hans: "已从文件载入批注。" }),
 		importError: state.convByVar({ hant: "載入檔案時發生錯誤。", hans: "读取文件时发生错误。" }),
 		importInvalid: state.convByVar({ hant: "無效的批註檔案。", hans: "无效的批注文件。" }),
-		annotationFallbackChapter: state.convByVar({ hant: "（未指定章節）", hans: "（未指定章节）" })
+		annotationFallbackChapter: state.convByVar({ hant: "（未指定章節）", hans: "（未指定章节）" }),
+		chooseAnnotationRevision: state.convByVar({ hant: "選擇批註版本", hans: "选择批注版本" }),
+		chooseAnnotationRevisionHelp: state.convByVar({ hant: "選擇要載入哪個條目版本的批註。", hans: "选择要载入哪个条目版本的批注。" }),
+		loadingAnnotations: state.convByVar({ hant: "載入中…", hans: "载入中…" }),
+		loadSelectedAnnotations: state.convByVar({ hant: "載入", hans: "载入" }),
+		noAnnotations: state.convByVar({ hant: "這個條目還沒有批註。", hans: "这个条目还没有批注。" }),
+		noComments: state.convByVar({ hant: "這個版本尚無可載入的評論。", hans: "这个版本尚无可载入的评论。" }),
+		annotationListFailed: state.convByVar({ hant: "無法取得批註版本，請重試。", hans: "无法获取批注版本，请重试。" }),
+		annotationLoadFailed: state.convByVar({ hant: "無法載入這個版本的批註，請重試或選擇其他版本。", hans: "无法载入这个版本的批注，请重试或选择其他版本。" }),
+		annotationArticleMissing: state.convByVar({ hant: "找不到這個條目。", hans: "找不到这个条目。" }),
+		retry: state.convByVar({ hant: "重試", hans: "重试" }),
+		close: state.convByVar({ hant: "關閉", hans: "关闭" }),
+		newest: state.convByVar({ hant: "最新", hans: "最新" })
 	};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object";
+}
+
+function createAnnotationReader() {
+	const api = createApi();
+	let cancelled = false;
+	const request: AnnotationReadRequest = params => new Promise((resolve, reject) => {
+		if (cancelled) { reject(new Error("Annotation import cancelled.")); return; }
+		api.get(params as UnknownApiParams).done(resolve).fail((code: unknown) => reject(new Error(typeof code === 'string' ? code : 'MediaWiki read failed.')));
+	});
+	return { request, cancel: () => { cancelled = true; api.abort(); } };
 }
 
 export default {
@@ -134,6 +182,13 @@ export default {
 			open: true,
 			isSaving: false,
 			isLoadingAnnotations: false,
+			annotationPickerOpen: false,
+			annotationRevisions: [] as AnnotatedRevision[],
+			selectedAnnotationRevision: null as number | null,
+			annotationArticle: null as AnnotationArticle | null,
+			annotationReader: null as ReturnType<typeof createAnnotationReader> | null,
+			annotationImportToken: 0,
+			annotationPickerError: "",
 			currentStep: 0,
 			chapters: [{ title: "", suggestions: [{ quote: "", suggestion: "" }] }],
 			previewWikitext: "",
@@ -146,6 +201,11 @@ export default {
 		};
 	},
 	computed: {
+		annotationPickerPrimary(this: CheckWritingDialogVm) {
+			if (!this.annotationRevisions.length) return undefined;
+			return { label: this.isLoadingAnnotations ? this.$options.i18n.loadingAnnotations : this.$options.i18n.loadSelectedAnnotations,
+				actionType: "progressive", disabled: this.isLoadingAnnotations || this.selectedAnnotationRevision === null };
+		},
 		primaryAction(this: CheckWritingDialogVm) {
 			if (this.currentStep < 3) {
 				return { label: this.$options.i18n.next || "Next", actionType: "progressive", disabled: false };
@@ -167,6 +227,7 @@ export default {
 	beforeCreate(this: CheckWritingDialogVm) {
 		this.$options.i18n = buildI18n();
 	},
+	beforeUnmount(this: CheckWritingDialogVm) { this.closeAnnotationPicker(); },
 	methods: {
 		triggerContentHooks(this: CheckWritingDialogVm, kind: "preview" | "diff") {
 			triggerDialogContentHooks(this, kind);
@@ -302,6 +363,7 @@ export default {
 			}
 		},
 		closeDialog(this: CheckWritingDialogVm) {
+			this.closeAnnotationPicker();
 			this.open = false;
 			setTimeout(() => {
 				removeDialogMount();
@@ -437,38 +499,60 @@ export default {
 			};
 			reader.readAsText(file, "utf-8");
 		},
-		loadAnnotationsIntoForm(this: CheckWritingDialogVm) {
-			if (this.isLoadingAnnotations) {
-				return;
-			}
-			this.isLoadingAnnotations = true;
+		async loadAnnotationsIntoForm(this: CheckWritingDialogVm) {
+			if (this.isLoadingAnnotations) return;
+			this.annotationReader?.cancel();
+			const token = ++this.annotationImportToken;
+			const reader = createAnnotationReader(); this.annotationReader = reader;
+			this.annotationPickerOpen = true; this.isLoadingAnnotations = true;
+			this.annotationPickerError = ""; this.annotationRevisions = []; this.selectedAnnotationRevision = null;
+			this.annotationArticle = null;
 			try {
-				const pageName = state.articleTitle || "";
-				if (!pageName) {
-					this.reportAnnotationLoadFailure(state.convByVar({ hant: "無法識別條目名稱，無法載入批註。", hans: "无法识别条目名称，无法载入批注。" }));
-					return;
-				}
-
-				const groups = buildAnnotationGroups(pageName);
-				if (!groups.length) {
-					this.reportAnnotationLoadFailure(state.convByVar({ hant: "目前沒有可載入的批註。", hans: "目前没有可载入的批注。" }));
-					return;
-				}
-
-				const nextChapters = this.buildChaptersFromAnnotationGroups(groups);
-				if (!nextChapters.length) {
-					this.reportAnnotationLoadFailure(state.convByVar({ hant: "批註內容為空，請稍後再試。", hans: "批注内容为空，请稍后再试。" }));
-					return;
-				}
-
-				this.applyAnnotationChapters(nextChapters);
-				const successMsg = state.convByVar({ hant: "已將批註載入表單，請檢查後繼續。", hans: "已将批注载入表单，请检查后继续。" });
-				if (mw && mw.notify) {
-					mw.notify(successMsg, { tag: "review-tool" });
-				}
-			} finally {
-				this.isLoadingAnnotations = false;
-			}
+				const article = await resolveAnnotationArticle(reader.request, state.articleTitle);
+				if (token !== this.annotationImportToken) return;
+				if (!article) { this.annotationPickerError = this.$options.i18n.annotationArticleMissing; return; }
+				const talk = mw.Title.newFromText(article.title)?.getTalkPage();
+				if (!talk) throw new Error('Article has no talk page.');
+				const revisions = await listAnnotatedRevisions(reader.request, article, {
+					namespace: talk.getNamespaceId(), mainText: talk.getMainText() + '/ReviewTool/', title: talk.getPrefixedText() + '/ReviewTool/',
+				});
+				if (token !== this.annotationImportToken) return;
+				this.annotationArticle = article; this.annotationRevisions = revisions;
+				this.selectedAnnotationRevision = revisions[0]?.revisionId ?? null;
+			} catch (error) {
+				if (token !== this.annotationImportToken) return;
+				console.error('[ReviewTool] Could not list annotation revisions', error);
+				this.annotationPickerError = this.$options.i18n.annotationListFailed;
+			} finally { if (token === this.annotationImportToken) this.isLoadingAnnotations = false; }
+		},
+		async loadSelectedAnnotations(this: CheckWritingDialogVm) {
+			const selected = this.annotationRevisions.find(item => item.revisionId === this.selectedAnnotationRevision);
+			if (this.isLoadingAnnotations || !selected || !this.annotationArticle || !this.annotationReader) return;
+			const token = this.annotationImportToken;
+			this.isLoadingAnnotations = true; this.annotationPickerError = "";
+			try {
+				const groups = await loadAnnotationRevision(this.annotationReader.request, mw.config.get('wgDBname'), this.annotationArticle, selected);
+				if (token !== this.annotationImportToken || !this.open || !this.annotationPickerOpen) return;
+				if (!groups.length) { this.annotationPickerError = this.$options.i18n.noComments; return; }
+				this.applyAnnotationChapters(this.buildChaptersFromAnnotationGroups(groups));
+				this.closeAnnotationPicker();
+				mw.notify(state.convByVar({ hant: "已載入批註，請檢查後繼續。", hans: "已载入批注，请检查后继续。" }), { tag: 'review-tool' });
+			} catch (error) {
+				if (token !== this.annotationImportToken) return;
+				console.error('[ReviewTool] Could not import annotation revision', error);
+				this.annotationPickerError = this.$options.i18n.annotationLoadFailed;
+			} finally { if (token === this.annotationImportToken) this.isLoadingAnnotations = false; }
+		},
+		closeAnnotationPicker(this: CheckWritingDialogVm) {
+			++this.annotationImportToken; this.annotationReader?.cancel(); this.annotationReader = null;
+			this.annotationPickerOpen = false; this.isLoadingAnnotations = false;
+		},
+		onAnnotationPickerOpen(this: CheckWritingDialogVm, open: boolean) { if (!open) this.closeAnnotationPicker(); },
+		annotationRevisionLabel(this: CheckWritingDialogVm, revision: AnnotatedRevision) {
+			const label = state.convByVar({ hant: `版本 ${revision.revisionId}`, hans: `版本 ${revision.revisionId}` });
+			if (!revision.timestamp) return label;
+			const date = new Intl.DateTimeFormat(state.convByVar({ hant: 'zh-Hant', hans: 'zh-Hans' }), { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(revision.timestamp));
+			return `${label} · ${date}`;
 		},
 		buildChaptersFromAnnotationGroups(this: CheckWritingDialogVm, groups: AnnotationGroup[]) {
 			if (!groups.length) {
@@ -625,7 +709,7 @@ export default {
 </script>
 
 <template>
-	<cdx-dialog v-model:open="open" :title="$options.i18n.dialogTitle" :use-close-button="true"
+	<cdx-dialog v-model:open="open" :title="$options.i18n.dialogTitle" :use-close-button="true" :close-button-label="$options.i18n.close"
 		@update:open="onUpdateOpen"
 		class="review-tool-dialog review-tool-check-writing-dialog review-tool-multistep-dialog">
 		<template #header>
@@ -752,5 +836,25 @@ export default {
 				</cdx-button>
 			</div>
 		</template>
+	</cdx-dialog>
+	<cdx-dialog :open="annotationPickerOpen" :title="$options.i18n.chooseAnnotationRevision" :use-close-button="true"
+		:close-button-label="$options.i18n.close" class="review-tool-annotation-revision-dialog"
+		:primary-action="annotationPickerPrimary"
+		:default-action="{ label: annotationRevisions.length || isLoadingAnnotations ? $options.i18n.cancel : $options.i18n.close }"
+		@primary="loadSelectedAnnotations" @default="closeAnnotationPicker" @update:open="onAnnotationPickerOpen">
+		<p v-if="isLoadingAnnotations" role="status">{{ $options.i18n.loadingAnnotations }}</p>
+		<p v-if="annotationPickerError" role="alert">{{ annotationPickerError }}</p>
+		<cdx-button v-if="annotationPickerError && !annotationRevisions.length" :disabled="isLoadingAnnotations" @click="loadAnnotationsIntoForm">{{ $options.i18n.retry }}</cdx-button>
+		<template v-if="annotationRevisions.length">
+			<p>{{ $options.i18n.chooseAnnotationRevisionHelp }}</p>
+			<div role="radiogroup" :aria-label="$options.i18n.chooseAnnotationRevisionHelp">
+				<cdx-radio v-for="(revision, index) in annotationRevisions" :key="revision.revisionId"
+					v-model="selectedAnnotationRevision" :input-value="revision.revisionId" name="reviewtool-annotation-revision"
+					:disabled="isLoadingAnnotations">
+					{{ annotationRevisionLabel(revision) }}<span v-if="index === 0"> · {{ $options.i18n.newest }}</span>
+				</cdx-radio>
+			</div>
+		</template>
+		<p v-else-if="!isLoadingAnnotations && !annotationPickerError">{{ $options.i18n.noAnnotations }}</p>
 	</cdx-dialog>
 </template>

@@ -1,7 +1,7 @@
 import state from "./state";
 import styles from './styles.css';
 import { addTalkPageReviewToolButtonsToDOM } from "./dom/talk_page";
-import { addMainPageReviewToolButtonsToDOM } from "./dom/article_page";
+import { initLiveAnnotation } from './annotation/live';
 
 /**
  * 將 CSS 樣式注入到頁面中。
@@ -24,7 +24,9 @@ function injectStyles(css: string): void {
 /**
  * 小工具入口。
  */
-function init(): void {
+async function init(): Promise<void> {
+	await mw.loader.using(['mediawiki.api', 'mediawiki.util', 'mediawiki.Title']);
+	if (document.readyState === 'loading') await new Promise<void>(resolve => document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }));
 	// Inject bundled CSS into the page.
 	if (typeof document !== 'undefined') {
 		injectStyles(styles);
@@ -45,18 +47,13 @@ function init(): void {
 		return;
 	}
 
-	state.initHanAssist().then(() => {
-		if (namespace === 0 || pageName === 'User:SuperGrey/gadgets/ReviewTool/TestPage') {
-			state.articleTitle = pageName;
-			mw.hook('wikipage.content').add(function () {
-				addMainPageReviewToolButtonsToDOM(pageName);
-			});
-		} else {
-			mw.hook('wikipage.content').add(function () {
-				addTalkPageReviewToolButtonsToDOM(namespace, pageName);
-			});
-		}
+	await state.initHanAssist().catch(error => console.warn('[ReviewTool] Language helper unavailable; using default labels.', error));
+	state.articleTitle = pageName;
+	if (await initLiveAnnotation()) return;
+	if (namespace === 0 || pageName === 'User:SuperGrey/gadgets/ReviewTool/TestPage') return;
+	mw.hook('wikipage.content').add(function () {
+		addTalkPageReviewToolButtonsToDOM(namespace, pageName);
 	});
 }
 
-init();
+void init().catch(error => console.error('[ReviewTool] Startup failed', error));

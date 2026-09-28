@@ -1,6 +1,6 @@
 {
 	"name": "reviewtool",
-	"version": "1.0.1",
+	"version": "2.0.0",
 	"private": true,
 	"description": "Review articles and provide feedback on Chinese Wikipedia.",
 	"type": "module",
@@ -8,7 +8,19 @@
 		"build": "node build.mjs",
 		"watch": "node build.mjs --watch",
 		"release": "node build.mjs --release",
-		"lint": "eslint \"src/**/*.{ts,tsx,vue}\" --no-inline-config"
+		"lint": "eslint \"src/**/*.{ts,tsx,vue}\" --no-inline-config",
+		"test:annotation": "node tests/annotation/build.mjs && node --test tests/annotation/*.test.mjs",
+		"check:annotation": "tsc --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck --target ES2017 --module ESNext --moduleResolution node --lib ES2017,DOM src/annotation/index.ts && eslint \"src/annotation/**/*.ts\" --no-inline-config",
+		"demo:annotation": "npm run prepare:annotation-pages && node tests/annotation/build.mjs && node tests/annotation/serve.mjs",
+		"prepare:annotation-articles": "node tests/annotation/fetch-articles.mjs",
+		"test:annotation:articles": "npm run prepare:annotation-pages && node tests/annotation/build.mjs && node --test tests/annotation/articles.check.mjs tests/annotation/pages.check.mjs",
+		"prepare:annotation-pages": "npm run prepare:annotation-articles && node tests/annotation/fetch-pages.mjs",
+		"test:annotation:pages": "npm run test:annotation:articles",
+		"build:extension": "node build.mjs --extension",
+		"dev:chrome": "node tests/live/launch.mjs",
+		"dev:chrome:dry": "node tests/live/launch.mjs --dry-run",
+		"check:live": "tsc --noEmit --strict --skipLibCheck --target ES2020 --module ESNext --moduleResolution node --lib ES2020,DOM --types types-mediawiki,node global.d.ts src/mediawiki.ts src/mediawiki-dry-run.ts src/annotation/live.ts && eslint \"src/mediawiki*.ts\" \"src/annotation/live*.ts\" src/dev-entry.ts src/main.ts src/state.ts --no-inline-config",
+		"test:live": "node --test tests/live/*.test.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "^24.10.1",
@@ -16,11 +28,17 @@
 		"@typescript-eslint/parser": "^8.54.0",
 		"@vue/compiler-sfc": "^3.4.38",
 		"@vue/runtime-dom": "^3.5.27",
+		"@wikimedia/codex": "1.18.0",
 		"esbuild": "^0.21.5",
 		"eslint": "^9.39.2",
 		"eslint-plugin-vue": "^10.7.0",
+		"playwright": "^1.63.0",
 		"types-mediawiki": "^1.9.1",
+		"typescript": "^5.9.3",
 		"vue": "^3.4.27",
 		"vue-eslint-parser": "^10.2.0"
+	},
+	"dependencies": {
+		"entities": "^8.0.0"
 	}
 }
