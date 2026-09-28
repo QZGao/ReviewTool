@@ -115,6 +115,74 @@ test('saved comments render basic wikitext safely while edits and nowiki retain 
   });
 });
 
+test('comment links with wrapped fragment destinations render as links and retain their saved source', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage');
+    // Wrapped destinations from Talk:启示录/ReviewTool/94470909, revision 94625825.
+    const source = '[[This is a pen]]\n也看看[[#*For Each ... Next\n2026年9月28日 20:17|这条意见]]\n也可能是[[Special:PermaLink/94259706#*SuperGrey\n2026年9月26日 22:08|上次评注的意见]]';
+    await send(thread, source);
+    const text = thread.locator('.annotation-comment-text');
+    assert.equal(await text.locator('pre, code').count(), 0);
+    const links = await text.locator('a').evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, href: node.href })));
+    assert.deepEqual(links.map(link => link.text), ['This is a pen', '这条意见', '上次评注的意见']);
+    assert.equal(links[0].href, 'https://zh.wikipedia.org/wiki/This_is_a_pen');
+    const local = new URL(links[1].href), current = new URL(page.url()), remote = new URL(links[2].href);
+    assert.equal(local.origin + local.pathname + local.search, current.origin + current.pathname + current.search);
+    assert.equal(decodeURIComponent(local.hash), '#*For_Each_..._Next_2026年9月28日_20:17');
+    assert.equal(decodeURIComponent(remote.pathname), '/wiki/Special:PermaLink/94259706');
+    assert.equal(decodeURIComponent(remote.hash), '#*SuperGrey_2026年9月26日_22:08');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].text), source);
+    const id = await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].id);
+    await act(page, id, '編輯');
+    assert.equal(await thread.getByRole('textbox').inputValue(), source);
+  });
+});
+
+test('leading spaces and tabs stay ordinary comment text while nowiki and explicit pre retain their meaning', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage');
+    const source = " 或者用\n§0.1 \n¶1  \n  [[頁面|縮排連結]]\n\t下一行 '''重點'''\n\n<blockquote> [[引用頁面|引用]]</blockquote>\n\n<nowiki> [[不解析]]\n  '''原樣'''</nowiki>\n\n<pre> [[程式碼原樣]]</pre>";
+    await send(thread, source);
+    const text = thread.locator('.annotation-comment-text');
+    assert.equal(await text.locator('pre').count(), 1);
+    assert.equal(await text.locator('pre').textContent(), ' [[程式碼原樣]]');
+    assert.equal(await text.locator('code').count(), 0);
+    assert.deepEqual(await text.locator('a').allTextContents(), ['縮排連結', '引用']);
+    assert.equal(await text.locator('strong').textContent(), '重點');
+    assert.equal(await text.locator('p').first().textContent(), ' 或者用\n§0.1 \n¶1  \n  縮排連結\n\t下一行 重點');
+    assert.ok((await text.textContent()).includes(" [[不解析]]\n  '''原樣'''"));
+    assert.equal(await text.locator('p').first().evaluate(el => getComputedStyle(el).fontFamily), await text.evaluate(el => getComputedStyle(el).fontFamily));
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].text), source);
+  });
+});
+
+test('inline syntax fallbacks stay in their paragraph and code cannot escape a crowded comment’s one-line collapse', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage');
+    const source = 'Before [[invalid{\ntarget|label]] after.\n\n<pre>First code line\nSecond code line\nThird code line</pre>';
+    await send(thread, source);
+    const text = thread.locator('.annotation-comment-text');
+    assert.equal(await text.locator('pre').count(), 1, 'only explicit pre markup creates a code block');
+    assert.equal(await text.locator('p > code').textContent(), '[[invalid{\ntarget|label]]');
+    assert.equal(await text.locator('p').first().textContent(), 'Before [[invalid{\ntarget|label]] after.');
+    const neighbor = await mark(page, 'linked words', 'Blue'); await send(neighbor, 'Another nearby comment');
+    await page.mouse.move(0, 0); await page.evaluate(() => document.activeElement.blur()); await frames(page);
+    assert.equal(await thread.getAttribute('data-crowded'), '');
+    const collapsed = await text.evaluate(element => ({
+      height: element.getBoundingClientRect().height, line: parseFloat(getComputedStyle(element).lineHeight),
+      overflow: element.scrollWidth > element.clientWidth, ellipsis: getComputedStyle(element).textOverflow,
+      nowrap: [...element.querySelectorAll('*')].every(child => getComputedStyle(child).whiteSpace === 'nowrap'),
+    }));
+    assert.ok(collapsed.height <= collapsed.line + 1);
+    assert.equal(collapsed.overflow && collapsed.nowrap, true);
+    assert.equal(collapsed.ellipsis, 'ellipsis');
+    await thread.hover(); await frames(page);
+    assert.ok((await text.boundingBox()).height > collapsed.height * 2);
+    assert.ok((await text.locator('pre').boundingBox()).height > collapsed.height * 2);
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].text), source);
+  });
+});
+
 test('closing your own thread asks confirmation and cancellation preserves the discussion', async () => {
   await inPage(async page => {
     const thread = await mark(page, 'First passage'); await send(thread, 'Keep until confirmed');

@@ -14,6 +14,6 @@ export function renderCommentMarkup(doc: Document, source: string): DocumentFrag
     for (const child of node.children) { const rendered = emit(child); if (rendered) element.append(rendered); }
     return element;
   };
-  for (const node of createProjection(source).blocks) { const rendered = emit(node); if (rendered) fragment.append(rendered); }
+  for (const node of createProjection(source, { mode: 'comment' }).blocks) { const rendered = emit(node); if (rendered) fragment.append(rendered); }
   return fragment;
 }

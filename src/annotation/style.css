@@ -198,7 +198,7 @@
 .annotation-comment-text :is(pre, code) { font-family: ui-monospace, monospace; font-size: .92em; background: transparent; color: inherit; }
 .annotation-comment-text a { color: var(--color-link, #36c); }
 .annotation-comment-thread[data-crowded]:not(:hover):not(:has(:focus-visible)) .annotation-comment-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.annotation-comment-thread[data-crowded]:not(:hover):not(:has(:focus-visible)) .annotation-comment-text * { display: inline; margin: 0; padding: 0; }
+.annotation-comment-thread[data-crowded]:not(:hover):not(:has(:focus-visible)) .annotation-comment-text * { display: inline; white-space: nowrap; margin: 0; padding: 0; border: 0; }
 .annotation-comment-actions { order: -1; display: none; justify-content: flex-end; gap: 2px; margin-bottom: 6px; opacity: 0; pointer-events: none; }
 .annotation-comment-reply { display: none; align-self: flex-end; margin-top: 6px; opacity: 0; pointer-events: none; }
 .annotation-comment-body:hover > :is(.annotation-comment-actions, .annotation-comment-reply),

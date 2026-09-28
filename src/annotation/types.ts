@@ -55,6 +55,8 @@ export interface Projection {
 export interface ProjectionOptions {
   /** Absolute HTTP(S) article-directory URL. No MediaWiki globals are used. */
   wikiBaseUrl?: string;
+  /** Comments allow wrapped link destinations and keep leading indentation as ordinary text. */
+  mode?: 'article' | 'comment';
 }
 
 /** Persistent coordinates explicitly identify their unit. Revision identity belongs to the caller. */

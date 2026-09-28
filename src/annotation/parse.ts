@@ -21,6 +21,7 @@ const hasBlock = (nodes: ViewNode[]): boolean => nodes.some(n => isBlock(n) || (
 const hasLink = (nodes: ViewNode[]): boolean => nodes.some(n => n.kind === 'element' && (n.tag === 'a' || hasLink(n.children)));
 const blockKinds = new Set(['table', 'unclosed-table', 'source-block', 'complex-list-item', 'complex-heading', 'pre', 'syntaxhighlight', 'source', 'gallery', 'div', 'blockquote', 'script']);
 const tableTags = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption']);
+interface InlineContext { baseUrl: string; comment: boolean }
 
 function lastLeaf(nodes: ViewNode[]): ViewNode | undefined {
   let node = nodes[nodes.length - 1];
@@ -36,14 +37,15 @@ function referenceName(tag: string): string | undefined {
   return undefined;
 }
 
-export function raw(source: string, from: number, to: number, reason: string): ElementNode {
+export function raw(source: string, from: number, to: number, reason: string, inlineOnly = false): ElementNode {
   const content = text(source, from, to);
-  const block = reason !== 'file' && (blockKinds.has(reason) || /[\r\n]/.test(content.text));
+  const block = !inlineOnly && reason !== 'file' && (blockKinds.has(reason) || /[\r\n]/.test(content.text));
   return { kind: 'element', tag: block ? 'pre' : 'code', rawKind: reason, children: block ? [element('code', [content])] : [content] };
 }
 
 /** A bounded presentation parser. Unsupported constructs keep their original source. */
-function inline(source: string, from: number, end: number, baseUrl: string, depth = 0, allowLists = true): { nodes: ViewNode[]; end: number } {
+function inline(source: string, from: number, end: number, context: InlineContext, depth = 0, allowLists = true): { nodes: ViewNode[]; end: number } {
+  const { baseUrl, comment } = context;
   if (depth > 24) return { nodes: [raw(source, from, end, 'nesting-limit')], end };
   const nodes: ViewNode[] = [];
   let i = from;
@@ -56,7 +58,7 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
     const external = opaque ? null : externalLinkAt(source, i, baseUrl);
     if (allowLists && (i === 0 || /[\r\n]/.test(source[i - 1])) && /[*#;:]/.test(source[i])) {
       const parsed = parseLists(source.slice(0, end), i,
-        (from, to) => inline(source, from, to, baseUrl, depth + 1),
+        (from, to) => inline(source, from, to, context, depth + 1),
         (from, to) => raw(source, from, to, 'complex-list-item'));
       emitted = parsed.nodes;
       next = parsed.end;
@@ -78,7 +80,7 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
         }
         const known = reference ? null : templateLink(source, i, next, baseUrl);
         if (known) {
-          const label = inline(source, known.label.from, known.label.to, baseUrl, depth + 1);
+          const label = inline(source, known.label.from, known.label.to, context, depth + 1);
           if (label.end === known.label.to && !hasBlock(label.nodes) && !hasLink(label.nodes)) {
             const link = element('a', label.nodes);
             link.href = known.href;
@@ -89,7 +91,7 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
         if (!emitted) {
           const size = source.startsWith('{{{', i) ? 3 : 2;
           const contentEnd = next - size;
-          const content = inline(source, i + size, contentEnd, baseUrl, depth + 1);
+          const content = inline(source, i + size, contentEnd, context, depth + 1);
           if (content.end !== contentEnd) emitted = [raw(source, i, next, 'complex-template')];
           else {
             const block = hasBlock(content.nodes) || /[\r\n]/.test(source.slice(i, next));
@@ -100,7 +102,7 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
         }
       } else if (opaque.reason === 'language-conversion') {
         // Keep flags/variant labels literal; a branch separator at line start is not a definition-list marker.
-        const content = inline(source, i + 2, next - 2, baseUrl, depth + 1, false);
+        const content = inline(source, i + 2, next - 2, context, depth + 1, false);
         if (content.end !== next - 2) emitted = [raw(source, i, next, 'complex-language-conversion')];
         else {
           const block = hasBlock(content.nodes) || /[\r\n]/.test(source.slice(i, next));
@@ -109,7 +111,7 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
           emitted = [conversion];
         }
       } else if (opaque.reason === 'table') {
-        const content = inline(source, i + 2, next - 2, baseUrl, depth + 1);
+        const content = inline(source, i + 2, next - 2, context, depth + 1);
         if (content.end !== next - 2) emitted = [raw(source, i, next, 'complex-table')];
         else {
           const table = element('div', [text(source, i, i + 2), ...content.nodes, text(source, next - 2, next)]);
@@ -123,9 +125,10 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
       const innerEnd = closed ? next - 2 : next;
       const inside = source.slice(i + 2, innerEnd);
       const pipe = inside.indexOf('|');
-      const target = (pipe < 0 ? inside : inside.slice(0, pipe));
+      const rawTarget = pipe < 0 ? inside : inside.slice(0, pipe);
+      const target = comment ? rawTarget.replace(/[ \t\r\n]+/g, ' ').trim() : rawTarget;
       if (!closed || /[\r\n\[\]{}<>]/.test(target) || !target.trim() || (pipe >= 0 && !inside.slice(pipe + 1))) {
-        emitted = [raw(source, i, next, 'unsupported-link')];
+        emitted = [raw(source, i, next, 'unsupported-link', comment)];
       } else if (fileNamespace.test(target) || categoryNamespace.test(target)) {
         const node = raw(source, i, next, fileNamespace.test(target) ? 'file' : 'category');
         if (fileNamespace.test(target)) {
@@ -133,7 +136,7 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
           node.inspection = { kind: 'image', from: i, to: next };
           const caption = pipe < 0 ? null : fileCaption(source, i + 3 + pipe, innerEnd);
           if (caption && caption.from < caption.to) {
-            const content = inline(source, caption.from, caption.to, baseUrl, depth + 1);
+            const content = inline(source, caption.from, caption.to, context, depth + 1);
             if (content.end === caption.to && !hasBlock(content.nodes)) {
               const description = element('span', content.nodes);
               description.fileCaption = true;
@@ -144,11 +147,16 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
         emitted = [node];
       } else {
         const labelFrom = pipe < 0 ? i + 2 : i + 3 + pipe;
-        const label = inline(source, labelFrom, innerEnd, baseUrl, depth + 1);
-        if (hasBlock(label.nodes) || hasLink(label.nodes) || label.end !== innerEnd) emitted = [raw(source, i, next, 'complex-link')];
+        const label = inline(source, labelFrom, innerEnd, context, depth + 1);
+        if (hasBlock(label.nodes) || hasLink(label.nodes) || label.end !== innerEnd) emitted = [raw(source, i, next, 'complex-link', comment)];
         else {
           const link = element('a', label.nodes);
           link.href = new URL(encodeURIComponent(target.trim().replace(/^:/, '').replace(/ /g, '_')), baseUrl).href;
+          if (comment && target.includes('#')) {
+            const hash = target.indexOf('#'), title = target.slice(0, hash).replace(/^:/, '').trim();
+            const fragment = encodeURIComponent(target.slice(hash + 1).replace(/ /g, '_'));
+            link.href = (title ? new URL(encodeURIComponent(title.replace(/ /g, '_')), baseUrl).href : '') + '#' + fragment;
+          }
           link.inspection = { kind: 'link', from: i, to: next };
           emitted = [hidden(i, labelFrom), link, hidden(innerEnd, next)];
         }
@@ -166,8 +174,8 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
         link.children = literalWithEntities(source, external.urlFrom, external.urlTo);
         emitted = [link];
       } else {
-        const label = inline(source, external.labelFrom, external.labelTo, baseUrl, depth + 1);
-        if (hasBlock(label.nodes) || hasLink(label.nodes) || label.end !== external.labelTo) emitted = [raw(source, i, next, 'complex-link')];
+        const label = inline(source, external.labelFrom, external.labelTo, context, depth + 1);
+        if (hasBlock(label.nodes) || hasLink(label.nodes) || label.end !== external.labelTo) emitted = [raw(source, i, next, 'complex-link', comment)];
         else {
           link.children = label.nodes;
           emitted = [hidden(i, external.labelFrom), link, hidden(external.labelTo, next)];
@@ -178,11 +186,11 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
       while (source[i + count] === "'") count++;
       const marker = "'".repeat(count);
       const close = [2, 3, 5].includes(count) ? source.indexOf(marker, i + count) : -1;
-      if (close < 0 || close >= end) { next = end; emitted = [raw(source, i, next, 'unclosed-emphasis')]; }
+      if (close < 0 || close >= end) { next = end; emitted = [raw(source, i, next, 'unclosed-emphasis', comment)]; }
       else {
         next = close + count;
-        const content = inline(source, i + count, close, baseUrl, depth + 1);
-        if (hasBlock(content.nodes) || content.end !== close) emitted = [raw(source, i, next, 'complex-emphasis')];
+        const content = inline(source, i + count, close, context, depth + 1);
+        if (hasBlock(content.nodes) || content.end !== close) emitted = [raw(source, i, next, 'complex-emphasis', comment)];
         else {
           const styled = count === 2 ? element('em', content.nodes) : element('strong', count === 5 ? [element('em', content.nodes)] : content.nodes);
           emitted = [hidden(i, i + count), styled, hidden(close, next)];
@@ -206,7 +214,7 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
           ref.inspection = { kind: 'reference', from: i, to: next, ...(name ? { name } : {}) };
           emitted = [ref];
         } else if (paired && (tag.name === 'references' || tableTags.has(tag.name))) {
-          const content = inline(source, tag.end, closingStart, baseUrl, depth + 1);
+          const content = inline(source, tag.end, closingStart, context, depth + 1);
           if (content.end !== closingStart) emitted = [raw(source, i, next, tag.name)];
           else {
             const block = tag.name === 'table' || hasBlock(content.nodes) || /[\r\n]/.test(source.slice(i, next));
@@ -224,10 +232,10 @@ function inline(source: string, from: number, end: number, baseUrl: string, dept
           let contents: ViewNode[];
           if (format.tag === 'pre') contents = literalWithEntities(source, tag.end, closingStart);
           else if (format.tag === 'blockquote') {
-            contents = parseSource(source.slice(tag.end, closingStart), { wikiBaseUrl: baseUrl }, depth + 1);
+            contents = parseSource(source.slice(tag.end, closingStart), { wikiBaseUrl: baseUrl, mode: comment ? 'comment' : 'article' }, depth + 1);
             shiftSource(contents, tag.end);
           } else {
-            const parsed = inline(source, tag.end, closingStart, baseUrl, depth + 1);
+            const parsed = inline(source, tag.end, closingStart, context, depth + 1);
             const allowsBlocks = ['ul', 'ol', 'li', 'dl', 'dt', 'dd'].includes(format.tag);
             if (parsed.end !== closingStart || (!allowsBlocks && hasBlock(parsed.nodes))) {
               emitted = [raw(source, i, next, 'complex-html-content')]; contents = [];
@@ -307,6 +315,7 @@ export function parseSource(source: string, options: ProjectionOptions = {}, dep
   if (depth > 24) return [raw(source, 0, source.length, 'nesting-limit')];
   const base = new URL(options.wikiBaseUrl ?? 'https://zh.wikipedia.org/wiki/');
   if (!['http:', 'https:'].includes(base.protocol) || !base.pathname.endsWith('/')) throw new TypeError('wikiBaseUrl must be an HTTP(S) directory URL.');
+  const context: InlineContext = { baseUrl: base.href, comment: options.mode === 'comment' };
   const blocks: ViewNode[] = [];
   let paragraph: ViewNode[] = [];
   let i = 0;
@@ -340,7 +349,7 @@ export function parseSource(source: string, options: ProjectionOptions = {}, dep
       flush();
       const from = i + heading[1].length;
       const to = from + heading[2].length;
-      const parsed = inline(source, from, to, base.href, depth);
+      const parsed = inline(source, from, to, context, depth);
       if (hasBlock(parsed.nodes) || parsed.end !== to) blocks.push(raw(source, i, current.end, 'complex-heading'));
       else blocks.push(element(`h${heading[1].length}` as Tag, [hidden(i, from), ...parsed.nodes, hidden(to, current.end)]));
       if (current.after > current.end) blocks.push(hidden(current.end, current.after));
@@ -348,16 +357,16 @@ export function parseSource(source: string, options: ProjectionOptions = {}, dep
     } else if (list) {
       flush();
       const parsed = parseLists(source, i,
-        (from, to) => inline(source, from, to, base.href, depth),
+        (from, to) => inline(source, from, to, context, depth),
         (from, to) => raw(source, from, to, 'complex-list-item'));
       blocks.push(...parsed.nodes);
       i = parsed.end;
-    } else if (atLineStart && current.value.startsWith(' ')) {
+    } else if (!context.comment && atLineStart && current.value.startsWith(' ')) {
       flush();
       const contents: ViewNode[] = [];
       while (i < source.length && source[i] === ' ') {
         const item = line(source, i);
-        const parsed = inline(source, i + 1, item.end, base.href, depth);
+        const parsed = inline(source, i + 1, item.end, context, depth);
         if (hasBlock(parsed.nodes) || parsed.end !== item.end) {
           if (contents.length) blocks.push(element('pre', contents.splice(0)));
           const end = Math.max(item.end, parsed.end);
@@ -368,18 +377,18 @@ export function parseSource(source: string, options: ProjectionOptions = {}, dep
         i = item.after;
       }
       if (contents.length) blocks.push(element('pre', contents));
-    } else if (atLineStart && (/^[\t]/.test(current.value) || /^[*#;:]/.test(current.value))) {
+    } else if (atLineStart && ((!context.comment && /^[\t]/.test(current.value)) || /^[*#;:]/.test(current.value))) {
       flush(); blocks.push(raw(source, i, current.end, 'source-block'));
       if (current.after > current.end) blocks.push(hidden(current.end, current.after));
       i = current.after;
     } else {
-      const parsed = inline(source, i, current.end, base.href, depth);
+      const parsed = inline(source, i, current.end, context, depth);
       append(parsed.nodes);
       i = parsed.end;
       const rest = line(source, i);
       if (rest.end === i && rest.after > i) {
         const next = line(source, rest.after).value;
-        if (!next.trim() || /^[=*#;:\s]/.test(next) || /^-{4,}/.test(next) || next.startsWith('{|') || /^<(?:blockquote|pre|p|ul|ol|dl)\b/i.test(next)) {
+        if (!next.trim() || /^[=*#;:]/.test(next) || (!context.comment && /^\s/.test(next)) || /^-{4,}/.test(next) || next.startsWith('{|') || /^<(?:blockquote|pre|p|ul|ol|dl)\b/i.test(next)) {
           flush(); blocks.push(hidden(i, rest.after));
         } else if (paragraph.length) {
           const ending = text(source, i, rest.after, '\n'); ending.lineBreak = true;
