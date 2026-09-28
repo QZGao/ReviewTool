@@ -16,8 +16,9 @@ import state from '../state';
 import { buildAnnotationExport, downloadAnnotationExport } from './export';
 import { annotationMessages } from './i18n';
 import { showAnnotationLoading } from './loading-view';
+import { activationParameter, annotationViewUrl } from './view-url';
 
-export const activationParameter = 'reviewtool_annotation_view';
+export { activationParameter } from './view-url';
 function dataPageTitle(title: string, revision: number): string {
   const talk = mw.Title.newFromText(title)?.getTalkPage()?.getPrefixedText();
   if (!talk) throw new Error('This page has no associated talk page for annotations.');
@@ -56,9 +57,9 @@ export async function initLiveAnnotation(): Promise<boolean> {
       try { await previous.close(); } finally { closing = false; navigation.update(false); }
       return;
     }
-    const url = new URL(location.href);
-    if (url.searchParams.get('oldid') !== String(revision)) {
-      url.searchParams.set('oldid', String(revision)); url.searchParams.set(activationParameter, '1');
+    const url = annotationViewUrl(location.href, revision, mw.config.get('skin'));
+    const currentUrl = new URL(location.href);
+    if (currentUrl.searchParams.get('oldid') !== String(revision) || currentUrl.searchParams.get('useskin') !== url.searchParams.get('useskin')) {
       location.assign(url.href); return;
     }
     updateUrl(true); navigation.update(true, true);

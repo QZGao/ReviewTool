@@ -162,6 +162,7 @@
 .annotation-highlight-bar [data-delete-highlight] { color: var(--color-base, #202122); background: transparent; border-color: transparent; }
 
 .annotation-comments-host { position: relative; }
+.annotation-mobile-comments-host { position: fixed; width: 0; height: 0; }
 .vector-feature-page-tools-pinned-disabled .annotation-left-pinned > .vector-page-tools-landmark,
 .vector-feature-appearance-pinned-clientpref-0 .annotation-left-pinned > .vector-appearance-landmark { display: none; }
 .annotation-comments { position: relative; width: 100%; color: var(--color-base, #202122); font: 14px/1.5 system-ui, sans-serif; }

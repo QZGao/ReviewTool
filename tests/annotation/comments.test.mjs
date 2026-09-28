@@ -611,6 +611,22 @@ test('real Wikipedia comments survive view toggles, preserve the sidebar, and cl
   }, true);
 });
 
+test('Minerva mounts floating comments without a Vector column and removes its temporary host on close', async () => {
+  await inPage(async page => {
+    await mark(page, '1879年5月21日', 'Red');
+    await page.evaluate(() => {
+      annotationPageLab.setEnabled(false);
+      document.body.classList.add('skin-minerva'); document.querySelector('.vector-column-end').remove();
+      annotationPageLab.setEnabled(true); window.commentView = annotationPageLab.view;
+    });
+    await frames(page);
+    assert.equal(await page.locator('.annotation-mobile-comments-host').count(), 1);
+    assert.equal(await page.locator('.annotation-comments').getAttribute('data-layout'), 'floating');
+    await page.evaluate(() => annotationPageLab.setEnabled(false));
+    assert.equal(await page.locator('.annotation-mobile-comments-host').count(), 0);
+  }, true);
+});
+
 test('all floating surfaces appear above Wikipedia stacking contexts, cards and page overlays', async () => {
   await inPage(async page => {
     await page.evaluate(() => {
