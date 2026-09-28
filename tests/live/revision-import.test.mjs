@@ -71,7 +71,7 @@ test('imports every saved root and reply from the selected revision with its rea
   assert.deepEqual(groups.map(g => g.sectionPath), ['生平']);
   assert.deepEqual(groups[0].annotations.map(a => a.opinion), ['Root review', 'Reply review', 'Nested review', 'Resolved review']);
   assert.ok(groups[0].annotations.every(a => a.sentenceText === '原文😀'));
-  assert.equal(groups[0].annotations[1].parentId, 'root'); assert.equal(groups[0].annotations[3].resolved, true);
+  assert.equal(groups[0].annotations[1].parentId, 'root'); assert.equal(groups[0].annotations[3].closed, true);
 });
 
 test('rejects missing, malformed, foreign and source-mismatched data instead of importing the wrong revision', async () => {

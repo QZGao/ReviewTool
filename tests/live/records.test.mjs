@@ -30,6 +30,24 @@ test('one record per line preserves the entire snapshot without a materialized m
   document.destroy(); result.document.destroy(); reordered.destroy();
 });
 
+test('any user can mark and unmark a root resolved, concurrent changes converge, and closure stays independent', () => {
+  const document = seed(), bob = { name: 'Bob' }, a = document.clone('a'), b = document.clone('b');
+  const action = resolved => ({ type: 'set-thread-resolution', id: 'a', commentId: 'one', resolved, at: time });
+  const marked = a.dispatch(action(true), bob), unmarked = b.dispatch(action(false), actor);
+  a.merge(unmarked); b.merge(marked);
+  assert.deepEqual(a.snapshot(), b.snapshot());
+  assert.equal(a.snapshot()[0].threads[0].resolution.resolved, false);
+  a.dispatch(action(true), bob);
+  const restored = api.decodePage(page(api.encodePage(identity, frame, a)), identity, valid).document;
+  assert.equal(restored.snapshot()[0].threads[0].resolution.by, 'Bob');
+  assert.equal(restored.snapshot()[0].threads[0].resolved, undefined);
+  assert.throws(() => a.dispatch({ type: 'resolve-comment', id: 'a', commentId: 'one', at: time }, bob), /author/);
+  a.dispatch({ type: 'resolve-comment', id: 'a', commentId: 'one', at: time }, actor);
+  assert.equal(a.snapshot()[0].threads[0].resolved.by, 'Alice');
+  assert.equal(a.snapshot()[0].threads[0].resolution.resolved, true);
+  for (const doc of [document, a, b, restored]) doc.destroy();
+});
+
 test('JSON parser rejects duplicate escaped/nested keys before any state is accepted', () => {
   for (const bad of ['{"x":1,"x":2}', '{"x":1,"\\u0078":2}', '{"a":[{"b":1,"b":2}]}']) assert.throws(() => api.parseRecordJson(bad), /Duplicate/);
   const good = '{"a":[{},[],true,null,-1.5e2,"quote\\\"slash\\\\"],"b":{"a":1}}';

@@ -133,6 +133,28 @@ test('closing your own thread asks confirmation and cancellation preserves the d
   });
 });
 
+test('any logged-in user can resolve and reopen another author’s root without affecting separate discussions', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage'); await send(thread, 'First discussion');
+    await page.evaluate(() => {
+      const annotation = commentView.highlighting.annotations[0];
+      commentView.highlighting.replace([{ ...annotation, threads: [{ ...annotation.threads[0], author: 'Other' }, { ...annotation.threads[0], id: 'separate', text: 'Separate discussion' }] }]);
+    });
+    const first = thread.locator('.annotation-comment-node').first();
+    await first.locator('.annotation-comment-text').hover();
+    await first.getByRole('button', { name: '標記已解決', exact: true }).click();
+    assert.equal(await first.locator('time').count(), 0);
+    assert.equal(await first.locator('.annotation-resolved-summary').textContent(), 'OtherFirst discussion');
+    assert.equal(await thread.locator('.annotation-comment-text').textContent(), 'Separate discussion');
+    assert.deepEqual(await page.evaluate(() => reasonRequests), []);
+    const toggle = first.locator('.annotation-resolution-toggle'); await toggle.hover();
+    assert.equal(await toggle.getByText('尚未解決？', { exact: true }).isVisible(), true);
+    await toggle.click();
+    assert.equal(await first.locator('time').count(), 1);
+    assert.equal(await first.locator('.annotation-comment-text').textContent(), 'First discussion');
+  });
+});
+
 test('highlight attribution follows the original root author, preserves creation identity, and leaves legacy data unattributed', async () => {
   await inPage(async page => {
     const thread = await mark(page, 'First passage');

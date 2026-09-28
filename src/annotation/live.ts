@@ -124,7 +124,8 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
     for (const entry of retained) {
       const item = document.createElement('p'), action = entry.action;
       item.textContent = action.type === 'edit-comment' ? action.text : action.type === 'add-comment' ? action.comment.text
-        : state.convByVar(action.type === 'resolve-comment' ? { hant: '結束討論', hans: '结束讨论' }
+        : state.convByVar(action.type === 'set-thread-resolution' ? { hant: action.resolved ? '標記已解決' : '標記尚未解決', hans: action.resolved ? '标记已解决' : '标记尚未解决' }
+          : action.type === 'resolve-comment' ? { hant: '結束討論', hans: '结束讨论' }
           : action.type === 'delete-highlight' ? { hant: '刪除高亮', hans: '删除高亮' }
           : action.type === 'recolor-highlight' ? { hant: '更改高亮顏色', hans: '更改高亮颜色' } : { hant: '新增高亮', hans: '添加高亮' });
       content.append(item);
@@ -173,7 +174,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       saveDrafts = (snapshot = mount?.view.comments?.drafts ?? drafts) => journal.drafts(snapshot).then(() => {}).catch(error => failure({ hant: '無法儲存草稿，請先複製文字，以免遺失。', hans: '无法保存草稿，请先复制文字，以免丢失。' }, error));
       stopLoading();
       mount = mountWikipediaAnnotation(document, projection, {
-        comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, headingAnchors: headings, commentDrafts: drafts,
+        comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, commentCanWrite: canWrite, headingAnchors: headings, commentDrafts: drafts,
         onCommentDraftsChange: snapshot => { if (!closed) void saveDrafts(snapshot); },
         ...(requestModerationReason ? { requestModerationReason } : {}),
         requestCloseConfirmation: async signal => {

@@ -13,6 +13,8 @@ interface ExportedComment extends Annotation {
   editedAt?: string;
   editedBy?: string;
   resolution?: AnnotationRemoval;
+  closed: boolean;
+  closure?: AnnotationRemoval;
 }
 
 /** A portable discussion export. The groups also feed the existing review-writing importer. */
@@ -44,10 +46,11 @@ export function buildAnnotationExport(identity: ReviewIdentity, pageName: string
         id: comment.id, highlightId: annotation.id, rootId: root.id, parentId,
         sectionPath, sentencePos: String(annotation.anchor.start), sentenceText: quote,
         opinion: comment.text, createdBy: comment.author, createdAt: Date.parse(comment.createdAt),
-        resolved: Boolean(root.resolved),
+        resolved: Boolean(root.resolution?.resolved), closed: Boolean(root.resolved),
         ...(comment.editedAt ? { editedAt: comment.editedAt } : {}),
         ...(comment.editedBy ? { editedBy: comment.editedBy } : {}),
-        ...(root.resolved ? { resolution: root.resolved } : {}),
+        ...(root.resolution ? { resolution: root.resolution } : {}),
+        ...(root.resolved ? { closure: root.resolved } : {}),
       };
       const group = groups.get(sectionPath) ?? []; group.push(entry); groups.set(sectionPath, group);
       for (const reply of comment.replies) visit(reply, root, comment.id);

@@ -48,9 +48,10 @@ export function validateRecords(raw: unknown, validateAnchor: (anchor: SourceAnc
       if (record.parent !== null) reference(record.parent, 'c'); text(record.author); time(record.createdAt);
       const body = object(record.body); fields(body, ['text'], ['editedAt', 'editedBy']); text(body.text); edited(body, false);
     } else {
-      if (!['body', 'appearance', 'resolve', 'delete'].includes(String(record.kind))) throw new Error('Unknown record kind.');
-      fields(record, ['kind', 'stamp', 'target', 'by', 'at', ...(record.kind === 'body' ? ['text'] : record.kind === 'appearance' ? ['color'] : [])], ['reason']);
-      reference(record.target, record.kind === 'body' || record.kind === 'resolve' ? 'c' : 'h'); text(record.by); time(record.at);
+      if (!['body', 'appearance', 'resolve', 'delete', 'resolution'].includes(String(record.kind))) throw new Error('Unknown record kind.');
+      fields(record, ['kind', 'stamp', 'target', 'by', 'at', ...(record.kind === 'body' ? ['text'] : record.kind === 'appearance' ? ['color'] : record.kind === 'resolution' ? ['resolved'] : [])], ['reason']);
+      reference(record.target, ['body', 'resolve', 'resolution'].includes(record.kind) ? 'c' : 'h'); text(record.by); time(record.at);
+      if (record.kind === 'resolution' && typeof record.resolved !== 'boolean') throw new Error('Invalid resolution state.');
       if (record.reason !== undefined) text(record.reason);
       if (record.kind === 'body') text(record.text); if (record.kind === 'appearance') color(record.color);
       if (key !== recordKey(record as unknown as Parameters<typeof recordKey>[0])) throw new Error('Change key does not match its record.');
@@ -71,7 +72,7 @@ export function validateRecords(raw: unknown, validateAnchor: (anchor: SourceAnc
       while (parent !== null) { if (++depth > 100 || parent === key) throw new Error('Comment ancestry is too deep or cyclic.'); const node = records[parent]; if (node?.kind !== 'comment') throw new Error('Missing parent.'); parent = node.parent; }
     } else if (record.kind !== 'highlight') {
       const target = records[record.target]; follows(record, target);
-      if (record.kind === 'body' || record.kind === 'resolve') { if (target.kind !== 'comment') throw new Error('Invalid comment target.'); if (record.kind === 'resolve' && target.parent !== null) throw new Error('Only roots can be resolved.'); }
+      if (record.kind === 'body' || record.kind === 'resolve' || record.kind === 'resolution') { if (target.kind !== 'comment') throw new Error('Invalid comment target.'); if (record.kind !== 'body' && target.parent !== null) throw new Error('Only roots can be resolved.'); }
       else if (target.kind !== 'highlight') throw new Error('Invalid highlight target.');
     }
   }

@@ -1,6 +1,6 @@
 import { annotationMessages, type AnnotationMessages } from './i18n';
 import { commentLayout } from './comment-layout';
-import type { AnnotationComment, CommentDraft, HighlightAnnotation, ModerationReasonPrompt, RenderedView } from './types';
+import type { AnnotationComment, CommentDraft, HighlightAnnotation, ModerationReasonPrompt, RenderedView, RenderOptions } from './types';
 import type { PopupLayout } from './popup-layout';
 import { textRects } from './range-rects';
 import { canEditComment, canResolveThread, findAnnotationComment, needsModerationReason, requestActionReason, type ModerationTarget } from './permissions';
@@ -12,7 +12,9 @@ import { confirmThreadClose } from './confirm-close';
 type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string; reason?: string };
 
 /** A local comment thread for each source-anchored highlight. */
-export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages(), onDraftsChange?: (drafts: readonly CommentDraft[]) => void, confirmClose = (signal: AbortSignal) => confirmThreadClose(doc, messages, signal)) {
+export function createCommentPanel(doc: Document, view: RenderedView, column: HTMLElement, popups: PopupLayout, author: string, initialDrafts: readonly CommentDraft[] = [], groups: readonly string[] = [], promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages(), renderOptions: RenderOptions = {}) {
+  const onDraftsChange = renderOptions.onCommentDraftsChange;
+  const confirmClose = renderOptions.requestCloseConfirmation ?? ((signal: AbortSignal) => confirmThreadClose(doc, messages, signal));
   const highlighting = view.highlighting, window = doc.defaultView;
   if (!highlighting || !window) throw new Error('Comments require annotation highlighting in a browser window.');
   const state = highlighting, win = window;
@@ -158,6 +160,20 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
     };
     const message = (comment: AnnotationComment): HTMLElement => {
       const node = doc.createElement('div'); node.className = 'annotation-comment-node'; node.dataset.commentId = comment.id;
+      const root = threadRoots(annotation).some(root => root.id === comment.id);
+      const setResolution = (resolved: boolean) => state.dispatch({ type: 'set-thread-resolution', id: annotation.id, commentId: comment.id, resolved, at: new Date().toISOString() });
+      if (root && comment.resolution?.resolved && ![...drafts.values()].some(draft => 'commentId' in draft && hasComment(comment, draft.commentId))) {
+        node.dataset.resolved = '';
+        const summary = doc.createElement('div'); summary.className = 'annotation-resolved-summary';
+        const author = doc.createElement('span'); author.className = 'annotation-comment-author'; author.textContent = comment.author;
+        const text = doc.createElement('span'); text.className = 'annotation-resolved-text'; text.textContent = renderCommentMarkup(doc, comment.text).textContent;
+        summary.append(author, text); node.append(summary);
+        const status = button(messages.resolved, () => setResolution(false)); status.className = 'annotation-resolution-toggle';
+        const normal = doc.createElement('span'); normal.textContent = messages.resolved;
+        const hover = doc.createElement('span'); hover.textContent = messages.unresolve;
+        status.replaceChildren(normal, hover); status.disabled = renderOptions.commentCanWrite === false;
+        node.append(status); return node;
+      }
       const editKey = 'edit/' + comment.id, replyKey = 'reply/' + comment.id;
       const edit = drafts.get(editKey);
       if (edit && canEditComment(comment, actor)) node.append(editor(editKey, edit, comment));
@@ -167,6 +183,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         // Keyboard focus offers the same expanded reading state as hover.
         text.tabIndex = 0;
         const actions = doc.createElement('div'); actions.className = 'annotation-comment-actions';
+        if (root && renderOptions.commentCanWrite !== false) actions.append(button(messages.markResolved, () => setResolution(true)));
         if (canResolveThread(annotation, comment.id, actor)) {
           actions.append(button(messages.resolve, async () => {
             const reason = await reasonFor({ type: 'resolve-comment', commentId: comment.id }, annotation);
@@ -202,6 +219,8 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         attribution.textContent = messages.highlightedBy(annotation.author); attribution.title = attribution.textContent; element.prepend(attribution);
       }
       const rootDraft = drafts.get('root');
+      const roots = threadRoots(annotation).filter(root => !root.resolved);
+      element.toggleAttribute('data-all-resolved', Boolean(roots.length && roots.every(root => root.resolution?.resolved) && !drafts.size));
       for (const root of threadRoots(annotation)) if (!root.resolved) content.append(message(root));
       if (rootDraft) content.append(editor('root', rootDraft));
       else {

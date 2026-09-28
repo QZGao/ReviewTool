@@ -29,11 +29,13 @@ function freezeComment(comment: AnnotationComment, ids: Set<string>, root = true
     || typeof comment.text !== 'string' || !comment.text.trim() || !Array.isArray(comment.replies)) throw new Error('Invalid or duplicate comment.');
   ids.add(comment.id);
   if (!root && comment.resolved) throw new Error('Only root comments can be resolved.');
+  if (comment.resolution && (!root || typeof comment.resolution.resolved !== 'boolean')) throw new Error('Invalid thread resolution.');
   if (comment.editedBy !== undefined && (!comment.editedAt || typeof comment.editedBy !== 'string' || !comment.editedBy.trim())) throw new Error('Invalid comment editor.');
   return Object.freeze({ id: comment.id, text: comment.text, author: comment.author, createdAt: utcTimestamp(comment.createdAt),
     ...(comment.editedAt !== undefined ? { editedAt: utcTimestamp(comment.editedAt) } : {}),
     ...(comment.editedBy !== undefined ? { editedBy: comment.editedBy } : {}),
     ...(comment.resolved ? { resolved: removal(comment.resolved) } : {}),
+    ...(comment.resolution ? { resolution: { ...removal(comment.resolution), resolved: comment.resolution.resolved } } : {}),
     replies: Object.freeze(comment.replies.map((reply: AnnotationComment) => freezeComment(reply, ids, false))) });
 }
 
@@ -95,6 +97,10 @@ export function annotationState(config: HighlightOptions, validate: (anchor: Sou
         const commentId = action.type === 'resolve-comment' ? action.commentId : undefined;
         updated = action.type === 'delete-highlight' ? { ...annotation, deleted: record } : { ...annotation, threads: threadRoots(annotation).map(root => root.id === commentId ? { ...root, resolved: record } : root) };
         replace(snapshot.map(item => item === annotation ? updated : item), { ...action, at: record.at }); return;
+      } else if (action.type === 'set-thread-resolution') {
+        if (typeof action.resolved !== 'boolean') throw new Error('Invalid resolution state.');
+        const resolution = { ...removal({ by: actor.name ?? '', at: action.at }), resolved: action.resolved };
+        updated = { ...annotation, threads: threadRoots(annotation).map(root => root.id === action.commentId ? { ...root, resolution } : root) };
       } else if (action.type === 'recolor-highlight') {
         if (annotation.color === action.color) return;
         const editedBy = actor.name?.trim();

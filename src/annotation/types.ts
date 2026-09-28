@@ -82,7 +82,9 @@ export interface AnnotationComment {
   readonly editedAt?: string;
   /** Author of the most recent edit; original comment authorship remains unchanged. */
   readonly editedBy?: string;
+  /** Historical closure record: a closed discussion is hidden. */
   readonly resolved?: AnnotationRemoval;
+  readonly resolution?: AnnotationRemoval & { readonly resolved: boolean };
   readonly replies: readonly AnnotationComment[];
 }
 
@@ -117,6 +119,7 @@ export type HighlightAction =
   | { type: 'delete-highlight'; id: string; at?: string; reason?: string }
   | { type: 'add-comment'; id: string; comment: AnnotationComment; parentId?: string }
   | { type: 'edit-comment'; id: string; commentId: string; text: string; editedAt: string; reason?: string }
+  | { type: 'set-thread-resolution'; id: string; commentId: string; resolved: boolean; at: string }
   | { type: 'resolve-comment'; id: string; commentId: string; at?: string; reason?: string };
 
 export interface HighlightOptions {
@@ -162,6 +165,7 @@ export interface RenderOptions {
   commentAuthor?: string;
   /** Current user's local MediaWiki group names. Moderator edits/removals require a reason. */
   commentUserGroups?: readonly string[];
+  commentCanWrite?: boolean;
   /** Host dialog for moderator reasons; live Wikipedia uses Codex. Null means Cancel. */
   requestModerationReason?: ModerationReasonPrompt;
   requestCloseConfirmation?: (signal: AbortSignal) => Promise<boolean>;

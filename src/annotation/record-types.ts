@@ -15,9 +15,10 @@ interface Change { readonly target: string; readonly stamp: Stamp; readonly by: 
 export interface BodyRecord extends Change { readonly kind: 'body'; readonly text: string }
 export interface AppearanceRecord extends Change { readonly kind: 'appearance'; readonly color: HighlightColor }
 export interface RemovalRecord extends Change { readonly kind: 'resolve' | 'delete' }
-export type AnnotationRecord = HighlightRecord | CommentRecord | BodyRecord | AppearanceRecord | RemovalRecord;
+export interface ResolutionRecord extends Change { readonly kind: 'resolution'; readonly resolved: boolean }
+export type AnnotationRecord = HighlightRecord | CommentRecord | BodyRecord | AppearanceRecord | RemovalRecord | ResolutionRecord;
 export type RecordSet = Readonly<Record<string, AnnotationRecord>>;
 export interface RecordUpdate { readonly generation: string; readonly records: RecordSet }
-export const recordKey = (record: BodyRecord | AppearanceRecord | RemovalRecord): string => `${record.target}/${record.kind}/${record.stamp[0]}@${record.stamp[1]}`;
+export const recordKey = (record: BodyRecord | AppearanceRecord | RemovalRecord | ResolutionRecord): string => `${record.target}/${record.kind}/${record.stamp[0]}@${record.stamp[1]}`;
 export const compareText = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 export const compareStamp = (a: Stamp, b: Stamp): number => a[0] - b[0] || compareText(a[1], b[1]);
