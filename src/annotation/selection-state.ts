@@ -24,7 +24,8 @@ export function trackSelection(doc: Document, root: HTMLElement, readRange: (ran
     if (!registry || !win?.Highlight) return;
     let highlight = registry.get(highlightName);
     if (painted) highlight?.delete(painted);
-    painted = selected && gesture !== 'content' ? restoreRange(selected.anchor) : null;
+    // Block controls paint their complete padded box through data-selected.
+    painted = selected && selected.anchor.target !== 'block' && gesture !== 'content' ? restoreRange(selected.anchor) : null;
     if (painted) {
       if (!highlight) highlight = new win.Highlight();
       highlight.priority = 2147483647;

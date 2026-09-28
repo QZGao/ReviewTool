@@ -28,6 +28,7 @@ async function fixture(run) {
       const wrap = promise => ({ done(fn) { promise.then(fn, () => {}); return this; }, fail(fn) { promise.catch(fn); return this; } });
       const config = { wgNamespaceNumber: 0, wgAction: 'view', wgRevisionId: 2, wgArticleId: 1, wgPageName: 'Test', wgDBname: 'zhwiki', wgUserName: 'Example', wgUserGroups: ['user'], skin: 'vector-2022' };
       window.requestTitles = [];
+      window.notifications = [];
       window.mw = {
         config: { get: key => config[key] },
         Title: { newFromText: () => ({ getTalkPage: () => ({ getPrefixedText: () => 'Talk:Test' }) }) },
@@ -41,7 +42,7 @@ async function fixture(run) {
           postWithToken() { throw new Error('Unexpected publication'); }
           abort() {}
         },
-        notify: () => Promise.resolve({ close() {} }),
+        notify: (message, options) => { notifications.push({ message, options }); return Promise.resolve({ close() {} }); },
         util: { addPortletLink: (target, href, text, id) => {
           const li = document.createElement('li'); li.id = id; const a = document.createElement('a'); a.href = href; a.textContent = text; li.append(a); document.getElementById(target)?.append(li); return li;
         } },
@@ -77,5 +78,27 @@ test('closing while the live source request is pending immediately restores the 
     assert.equal(await page.locator('.mw-parser-output').evaluate(element => getComputedStyle(element).display), 'block');
     await page.evaluate(async () => { releaseSource(); await boot; });
     assert.equal(await page.locator('.annotation-document').count(), 0);
+  });
+});
+
+test('copying a comment link reports success or clipboard failure through MediaWiki notifications', async () => {
+  await fixture(async page => {
+    await page.evaluate(async () => {
+      releaseSource(); await boot;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedLink = text; } } });
+    });
+    const comment = page.locator('[data-comment-id="linked-reply"]');
+    await comment.locator('.annotation-comment-text').hover();
+    const copy = comment.getByRole('button', { name: '複製評論連結', exact: true });
+    await copy.click();
+    assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), 'linked-reply');
+    assert.deepEqual(await page.evaluate(() => notifications.at(-1)), {
+      message: '已複製評論連結', options: { tag: 'reviewtool-comment-link', type: 'success', autoHide: true },
+    });
+    await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new DOMException('Clipboard denied', 'NotAllowedError'); }; });
+    await copy.click();
+    assert.deepEqual(await page.evaluate(() => notifications.at(-1)), {
+      message: '無法複製連結，請允許存取剪貼簿。', options: { tag: 'reviewtool-comment-link', type: 'error', autoHide: true },
+    });
   });
 });

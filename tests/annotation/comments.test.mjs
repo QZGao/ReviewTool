@@ -141,12 +141,47 @@ test('any logged-in user can resolve and reopen another author’s root without 
       commentView.highlighting.replace([{ ...annotation, threads: [{ ...annotation.threads[0], author: 'Other' }, { ...annotation.threads[0], id: 'separate', text: 'Separate discussion' }] }]);
     });
     const first = thread.locator('.annotation-comment-node').first();
+    const normalSizes = await first.evaluate(node => ({
+      author: getComputedStyle(node.querySelector('.annotation-comment-author')).fontSize,
+      text: getComputedStyle(node.querySelector('.annotation-comment-text')).fontSize,
+    }));
     await first.locator('.annotation-comment-text').hover();
     await first.getByRole('button', { name: '標記已解決', exact: true }).click();
-    assert.equal(await first.locator('time').count(), 0);
+    await page.mouse.move(0, 0); await frames(page);
+    assert.equal(await first.locator('time').isVisible(), false);
     assert.equal(await first.locator('.annotation-resolved-summary').textContent(), 'OtherFirst discussion');
-    assert.equal(await thread.locator('.annotation-comment-text').textContent(), 'Separate discussion');
+    assert.equal(await thread.locator('.annotation-comment-node').nth(1).locator('.annotation-comment-text').textContent(), 'Separate discussion');
     assert.deepEqual(await page.evaluate(() => reasonRequests), []);
+    await page.mouse.move(0, 0); await frames(page);
+    assert.deepEqual(await first.evaluate(node => ({
+      author: getComputedStyle(node.querySelector('.annotation-comment-author')).fontSize,
+      text: getComputedStyle(node.querySelector('.annotation-resolved-text')).fontSize,
+    })), normalSizes);
+    const actions = first.locator('.annotation-comment-actions');
+    assert.equal(await actions.isVisible(), false);
+    const idleHeight = (await first.boundingBox()).height;
+    await first.hover(); await frames(page);
+    assert.equal(await actions.isVisible(), true);
+    const bounds = await first.evaluate(node => {
+      const buttons = [...node.querySelectorAll('.annotation-comment-actions button')];
+      const card = node.getBoundingClientRect(), row = node.querySelector('.annotation-comment-actions').getBoundingClientRect();
+      return {
+        height: card.height,
+        order: buttons.map(button => button.getAttribute('aria-label') ?? button.firstElementChild.textContent),
+        contained: buttons.every(button => {
+          const rect = button.getBoundingClientRect();
+          return rect.left >= card.left && rect.right <= card.right && rect.top >= card.top && rect.bottom <= card.bottom;
+        }),
+        aboveText: row.bottom <= node.querySelector('.annotation-comment-meta').getBoundingClientRect().top,
+        leftToRight: buttons[0].getBoundingClientRect().right <= buttons[1].getBoundingClientRect().left,
+      };
+    });
+    assert.deepEqual(bounds.order, ['複製評論連結', '已解決']);
+    assert.equal(bounds.contained && bounds.aboveText && bounds.leftToRight, true);
+    assert.ok(bounds.height > idleHeight);
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedLink = text; } } }));
+    await first.getByRole('button', { name: '複製評論連結', exact: true }).click();
+    assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), await first.getAttribute('data-comment-id'));
     const toggle = first.locator('.annotation-resolution-toggle'); await toggle.hover();
     assert.equal(await toggle.getByText('尚未解決？', { exact: true }).isVisible(), true);
     await toggle.click();
@@ -165,12 +200,71 @@ test('comment permalinks copy the UUID and reveal a reply inside a resolved disc
     await act(page, reply, '複製評論連結');
     assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), reply);
     await act(page, id, '標記已解決');
-    assert.equal(await thread.locator('.annotation-comment-text').count(), 0);
+    await page.mouse.move(0, 0); await frames(page);
+    assert.equal(await thread.locator('.annotation-comment-text:visible').count(), 0);
     assert.equal(await page.evaluate(id => commentView.comments.reveal(id), reply), true);
     assert.equal(await page.evaluate(() => document.activeElement.dataset.commentId), reply);
     assert.equal(await body(page, reply).locator('.annotation-comment-text').textContent(), 'Reply to link');
     assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].resolution.resolved), true);
     assert.equal(await page.evaluate(() => commentView.comments.reveal('missing')), false);
+  });
+});
+
+test('resolved discussions expand in place on hover, retain muted styling, and keep drafts open', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage');
+    await send(thread, "A '''formatted''' discussion. ".repeat(12));
+    const id = await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].id);
+    await act(page, id, '回覆'); await send(thread, 'A saved reply');
+    await act(page, id, '標記已解決');
+    const root = thread.locator('.annotation-comment-content > .annotation-comment-node');
+    const summary = root.locator('.annotation-resolved-summary');
+    const fullText = body(page, id).locator('.annotation-comment-text');
+    const replies = root.locator('.annotation-comment-replies');
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(theme => {
+        document.documentElement.style.setProperty('--background-color-neutral-subtle', theme === 'light' ? '#f8f9fa' : '#202122');
+        document.documentElement.style.setProperty('--color-subtle', theme === 'light' ? '#54595d' : '#a2a9b1');
+      }, theme);
+      await page.mouse.move(0, 0); await frames(page);
+      assert.equal(await summary.isVisible(), true);
+      assert.equal(await replies.isVisible(), false);
+      assert.equal(await fullText.isVisible(), false);
+      assert.equal(await summary.locator('.annotation-resolved-text').evaluate(el => getComputedStyle(el).textDecorationLine), 'line-through');
+      const idle = await root.evaluate(node => ({ height: node.getBoundingClientRect().height, background: getComputedStyle(node).backgroundColor, color: getComputedStyle(node).color }));
+      await page.evaluate(() => {
+        window.savedResolvedState = JSON.stringify(commentView.highlighting.annotations);
+        window.resolvedMutations = 0;
+        window.resolvedObserver = new MutationObserver(records => { resolvedMutations += records.length; });
+        resolvedObserver.observe(document.querySelector('.annotation-comment-content'), { childList: true, subtree: true });
+      });
+      await root.hover(); await frames(page);
+      assert.equal(await summary.isVisible(), false);
+      assert.equal(await fullText.isVisible(), true);
+      assert.equal(await replies.isVisible(), true);
+      assert.equal(await body(page, id).locator('time').isVisible(), true);
+      assert.equal(await fullText.evaluate(el => getComputedStyle(el).textDecorationLine), 'none');
+      const expanded = await root.evaluate(node => ({ height: node.getBoundingClientRect().height, background: getComputedStyle(node).backgroundColor, color: getComputedStyle(node).color }));
+      assert.ok(expanded.height > idle.height * 2);
+      assert.equal(expanded.background, idle.background, theme + ': muted background survives expansion');
+      assert.equal(expanded.color, idle.color, theme + ': muted foreground survives expansion');
+      await replies.hover(); await frames(page);
+      assert.equal(await fullText.isVisible(), true, 'moving into a reply keeps its resolved root expanded');
+      await page.mouse.move(0, 0); await frames(page);
+      assert.equal(await summary.isVisible(), true);
+      assert.deepEqual(await page.evaluate(() => {
+        resolvedObserver.disconnect();
+        return { mutations: resolvedMutations, unchanged: savedResolvedState === JSON.stringify(commentView.highlighting.annotations) };
+      }), { mutations: 0, unchanged: true });
+    }
+    await page.keyboard.press('Tab'); await root.focus(); await frames(page);
+    assert.equal(await fullText.isVisible(), true, 'keyboard focus also expands a resolved discussion');
+    await body(page, id).getByRole('button', { name: '回覆', exact: true }).click();
+    await thread.getByRole('textbox').fill('Unsent reply');
+    await page.mouse.move(0, 0); await page.evaluate(() => document.activeElement.blur()); await frames(page);
+    assert.equal(await thread.getByRole('textbox').isVisible(), true);
+    assert.equal(await thread.getByRole('textbox').inputValue(), 'Unsent reply');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].resolution.resolved), true);
   });
 });
 
@@ -186,7 +280,7 @@ test('a paragraph target creates a source-bound comment whose connector and outl
     assert.equal(await page.locator('.annotation-comment-highlight-outline rect').count(), 1);
     assert.ok((await page.locator('.annotation-comment-highlight-outline rect').boundingBox()).width < 30);
     const linked = await page.evaluate(() => {
-      const symbol = commentView.restoreRange(commentView.highlighting.annotations[0].anchor).getBoundingClientRect();
+      const symbol = commentView.restoreRange(commentView.highlighting.annotations[0].anchor).commonAncestorContainer.getBoundingClientRect();
       const path = document.querySelector('.annotation-comment-connectors path').getAttribute('d').match(/-?\d+(?:\.\d+)?/g).map(Number);
       return Math.abs(path[0] - symbol.right) < 3;
     });
@@ -330,7 +424,7 @@ test('hovering a card dims other annotations and outlines its passage without ch
     const initial = await bounds();
     const original = await page.evaluate(() => {
       window.originalRuns = [...commentView.element.querySelectorAll('[data-source-run]')].map(element => element.firstChild);
-      return { html: commentView.element.innerHTML, selection: commentView.selection, color: getComputedStyle(commentView.element).color };
+      return { html: [...commentView.element.querySelectorAll('[data-source-run]')].map(node => node.outerHTML).join(''), selection: commentView.selection, color: getComputedStyle(commentView.element).color };
     });
     assert.equal(await outline.locator('rect').count(), 0);
     await first.hover(); await frames(page);
@@ -342,14 +436,16 @@ test('hovering a card dims other annotations and outlines its passage without ch
     assert.equal(await second.evaluate(element => getComputedStyle(element).opacity), '0.35');
     assert.equal(await connector(secondId).evaluate(element => getComputedStyle(element).opacity), '0.35');
     assert.equal(await first.evaluate(element => getComputedStyle(element).opacity), '1');
-    assert.equal(await page.evaluate(() => [...document.querySelectorAll('style')].some(style => style.textContent.includes('color-mix(in srgb, var(--annotation-marker-blue) 35%, transparent)'))), true);
+    const backgrounds = page.locator('.annotation-highlight-backgrounds');
+    assert.equal(await backgrounds.locator('[data-engaged]').getAttribute('data-annotation-marker'), firstId);
+    assert.equal(await backgrounds.locator('[data-color="blue"]').evaluate(element => getComputedStyle(element).opacity), '0.175');
     assert.equal(await outline.evaluate(element => getComputedStyle(element).strokeWidth), '1px');
     assert.equal(await outline.evaluate(element => getComputedStyle(element).stroke), await first.evaluate(element => getComputedStyle(element).borderTopColor));
     assert.equal(await outline.locator('rect').count(), 2, 'adjacent inline fragments share one border per line');
     const initialOutline = await outline.locator('rect').evaluateAll(rects => rects.map(rect => rect.getBoundingClientRect().toJSON()));
     assert.ok(initialOutline[1].top > initialOutline[0].bottom, 'the gap between source lines stays unoutlined');
     assert.equal(await outline.evaluate(element => getComputedStyle(element).pointerEvents), 'none');
-    assert.deepEqual(await page.evaluate(() => ({ html: commentView.element.innerHTML, selection: commentView.selection, color: getComputedStyle(commentView.element).color })), original);
+    assert.deepEqual(await page.evaluate(() => ({ html: [...commentView.element.querySelectorAll('[data-source-run]')].map(node => node.outerHTML).join(''), selection: commentView.selection, color: getComputedStyle(commentView.element).color })), original);
     assert.equal(await page.evaluate(() => originalRuns.every(node => commentView.element.contains(node))), true);
 
     // The border follows reflow and scrolling, including after text wraps onto more lines.
@@ -376,6 +472,47 @@ test('hovering a card dims other annotations and outlines its passage without ch
     await page.evaluate(() => commentMount.destroy());
     assert.equal(await page.locator('.annotation-comment-connectors').count(), 0);
   });
+});
+
+test('moving within one comment on a real article reuses source geometry and leaves highlight styles and SVG unchanged', async () => {
+  await inPage(async page => {
+    await page.evaluate(() => {
+      const view = commentView, index = new annotationPageLab.annotation.SourceIndex(view.projection.source);
+      const runs = view.projection.runs.filter(run => run.mapping === 'identity' && run.text.length > 40
+        && view.element.querySelector(`[data-source-run="${run.id}"]`)?.closest('p')).slice(0, 12);
+      view.highlighting.replace(runs.map((run, i) => ({ id: `perf-${i}`, color: i % 2 ? 'blue' : 'green', author: 'Example',
+        anchor: { unit: 'utf8-byte', start: index.toByte(run.from), end: index.toByte(run.to) },
+        threads: [{ id: `comment-${i}`, text: 'A saved comment for hover performance.', author: 'Example', createdAt: '2026-09-29T00:00:00.000Z', replies: [] }],
+      })));
+    });
+    await page.mouse.move(0, 0); await frames(page);
+    const styles = () => page.evaluate(() => [...document.querySelectorAll('style')].filter(node => node.textContent.includes('::highlight(reviewtool-marker-')).map(node => node.textContent));
+    const before = await styles(), card = page.locator('.annotation-comment-thread').first();
+    await card.locator('.annotation-comment-author').hover(); await frames(page); await frames(page);
+    assert.deepEqual(await styles(), before, 'entering the card must not rewrite highlight styles');
+    await page.evaluate(() => {
+      const counts = window.hoverWork = { ranges: 0, svg: 0, styles: 0 };
+      const original = Range.prototype.getClientRects;
+      Range.prototype.getClientRects = function (...args) { counts.ranges++; return original.apply(this, args); };
+      const observer = new MutationObserver(records => { counts.svg += records.length; });
+      observer.observe(document.querySelector('.annotation-comment-connectors'), { childList: true, subtree: true, attributes: true });
+      observer.observe(document.querySelector('.annotation-highlight-backgrounds'), { childList: true, subtree: true, attributes: true });
+      const styleObserver = new MutationObserver(records => { counts.styles += records.filter(record => record.target.nodeName === 'STYLE').length; });
+      styleObserver.observe(document.head, { childList: true, subtree: true, characterData: true });
+      window.finishHoverWork = () => { Range.prototype.getClientRects = original; observer.disconnect(); styleObserver.disconnect(); return counts; };
+    });
+    for (let i = 0; i < 6; i++) {
+      await card.locator('.annotation-comment-date').hover();
+      await card.locator('.annotation-comment-author').hover();
+    }
+    await frames(page);
+    assert.deepEqual(await page.evaluate(() => finishHoverWork()), { ranges: 0, svg: 0, styles: 0 });
+    assert.deepEqual(await styles(), before);
+    await page.evaluate(() => { window.backgroundRects = [...commentView.element.querySelectorAll('.annotation-highlight-backgrounds rect')]; });
+    await page.locator('.annotation-comment-thread').nth(1).locator('.annotation-comment-author').hover(); await frames(page);
+    assert.equal(await page.evaluate(() => backgroundRects.every(rect => rect.isConnected)), true, 'switching cards reuses the painted backgrounds');
+    assert.equal(await page.evaluate(() => [...CSS.highlights.keys()].some(name => name.startsWith('reviewtool-marker-'))), false, 'persistent markers do not add per-annotation pseudo styles');
+  }, true);
 });
 
 test('comments support nested replies and editing, but only the first comment can resolve the whole thread', async () => {

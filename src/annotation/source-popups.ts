@@ -9,6 +9,15 @@ let nextPopup = 0;
 export function sourcePopups(doc: Document, root: HTMLElement, source: string, entries: WeakMap<HTMLElement, ElementNode>, images: WeakMap<HTMLElement, HTMLImageElement>, selectTrigger: (element: HTMLElement) => void, layout: PopupLayout, messages: AnnotationMessages = annotationMessages()) {
   const controller = new AbortController();
   const options = { signal: controller.signal };
+  let linkModifier = false;
+  const setLinkModifier = (pressed: boolean) => {
+    if (pressed === linkModifier) return;
+    linkModifier = pressed; root.toggleAttribute('data-link-modifier', pressed);
+  };
+  const updateLinkModifier = (event: KeyboardEvent | PointerEvent) => setLinkModifier(event.metaKey || event.ctrlKey);
+  doc.addEventListener('keydown', updateLinkModifier, options);
+  doc.addEventListener('keyup', updateLinkModifier, options);
+  doc.defaultView?.addEventListener('blur', () => setLinkModifier(false), options);
   const thumbnail = imagePreviews(controller.signal);
   const popup = doc.createElement('div');
   popup.className = 'annotation-source-popup';
@@ -100,6 +109,7 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
     }, 140);
   };
   root.addEventListener('pointerover', event => {
+    updateLinkModifier(event);
     if (event.buttons) return;
     const element = trigger(event.target);
     if (inside(doc.activeElement, popup)) { cancel(); return; }
@@ -140,6 +150,7 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   doc.addEventListener('pointerup', restoreLink, options);
   doc.addEventListener('pointercancel', restoreLink, options);
   root.addEventListener('pointermove', event => {
+    updateLinkModifier(event);
     if (down && event.buttons && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) dragged = true;
   }, options);
   root.addEventListener('keydown', event => {
@@ -162,5 +173,5 @@ export function sourcePopups(doc: Document, root: HTMLElement, source: string, e
   }, options);
   doc.addEventListener('scroll', event => { if (!layout.contains(event.target)) hide(); }, { ...options, capture: true });
   doc.defaultView?.addEventListener('resize', () => hide(), options);
-  return { hide: () => hide(), destroy: () => { restoreLink(); hide(); controller.abort(); popup.remove(); } };
+  return { hide: () => hide(), destroy: () => { setLinkModifier(false); restoreLink(); hide(); controller.abort(); popup.remove(); } };
 }

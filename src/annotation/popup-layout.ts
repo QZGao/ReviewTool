@@ -69,6 +69,7 @@ export function popupLayout(doc: Document) {
       visible.set(kind, { element, anchor }); position();
     },
     hide(kind: PopupKind) {
+      if (!visible.has(kind)) return;
       const popup = visible.get(kind)?.element;
       visible.delete(kind);
       if (popup?.matches(':popover-open')) popup.hidePopover();

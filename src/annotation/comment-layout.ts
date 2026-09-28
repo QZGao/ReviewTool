@@ -36,9 +36,45 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
   let frame = 0;
   let active: string | null = null, floatingAnchor: DOMRect | null = null;
   let compact = false;
+  let engaged: HTMLElement | null = null, outlineKey = '', sourceBoxKey = '', sourceVersion = 0;
   const paths = new Map<HTMLElement, SVGPathElement>();
-  const ranges = new Map<HTMLElement, { key: string; range: Range | null }>();
+  const ranges = new Map<HTMLElement, { key: string; range: Range | null; version: number; rects: DOMRect[]; blockTop: number | null }>();
   const naturalSizes = new Map<HTMLElement, { width: number; revision: number; height: number }>();
+  const attribute = (element: Element, name: string, value: string) => { if (element.getAttribute(name) !== value) element.setAttribute(name, value); };
+  const appearance = (target: Element, card: HTMLElement) => {
+    attribute(target, 'data-color', card.dataset.color ?? '');
+    target.toggleAttribute('data-all-resolved', card.hasAttribute('data-all-resolved'));
+  };
+  const updateOutline = () => {
+    if (!engaged || engaged.hidden || container.hidden) {
+      if (outlineKey) { outline.replaceChildren(); delete outline.dataset.annotationId; outlineKey = ''; }
+      return;
+    }
+    const geometry = ranges.get(engaged);
+    if (!geometry || geometry.version !== sourceVersion) { schedule(); return; }
+    appearance(outline, engaged);
+    attribute(outline, 'transform', `translate(${-win.scrollX} ${-win.scrollY})`);
+    const key = `${engaged.dataset.annotationId}:${geometry.key}:${sourceVersion}`;
+    if (key === outlineKey) return;
+    outlineKey = key;
+    const rects = outlineRects(geometry.rects).map(box => {
+      const rect = doc.createElementNS(svg.namespaceURI, 'rect');
+      rect.setAttribute('x', String(box.left - .5)); rect.setAttribute('y', String(box.top - .5));
+      rect.setAttribute('width', String(box.width + 1)); rect.setAttribute('height', String(box.height + 1));
+      if (geometry.range?.commonAncestorContainer.nodeType === 1 && (geometry.range.commonAncestorContainer as Element).matches('[data-block-target]')) rect.setAttribute('rx', '4');
+      return rect;
+    });
+    attribute(outline, 'data-annotation-id', engaged.dataset.annotationId ?? ''); outline.replaceChildren(...rects);
+  };
+  const engage = (next: HTMLElement | null) => {
+    if (next === engaged) return;
+    if (engaged) { engaged.removeAttribute('data-engaged'); paths.get(engaged)?.removeAttribute('data-engaged'); }
+    engaged = next;
+    if (engaged) { engaged.setAttribute('data-engaged', ''); paths.get(engaged)?.setAttribute('data-engaged', ''); }
+    container.toggleAttribute('data-engaged', Boolean(engaged)); svg.toggleAttribute('data-engaged', Boolean(engaged));
+    view.highlighting?.emphasize(engaged?.dataset.annotationId ?? null);
+    updateOutline();
+  };
   const measurement = doc.createElement('div');
   measurement.className = 'annotation-comment-measure'; measurement.inert = true; measurement.setAttribute('aria-hidden', 'true'); container.append(measurement);
   const naturalHeight = (card: CommentCard) => {
@@ -56,23 +92,40 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
     frame = 0;
     if (controller.signal.aborted || !container.isConnected) return;
     const article = view.element.getBoundingClientRect(), host = column.getBoundingClientRect();
+    const boxKey = `${article.left + win.scrollX}:${article.top + win.scrollY}:${article.width}:${article.height}`;
+    if (boxKey !== sourceBoxKey) { sourceBoxKey = boxKey; sourceVersion++; }
+    const all = cards();
     const nextCompact = host.left < article.right - 1 || host.width < 140;
     if (nextCompact !== compact) { active = null; floatingAnchor = null; }
     compact = nextCompact;
-    container.dataset.layout = compact ? 'floating' : 'margin';
+    attribute(container, 'data-layout', compact ? 'floating' : 'margin');
     if (!compact) { container.style.maxHeight = ''; container.style.maxWidth = ''; container.style.left = ''; container.style.top = ''; }
-    for (const card of cards()) card.element.hidden = compact && card.element.dataset.annotationId !== active;
-    const current = cards().find(card => card.element.dataset.annotationId === active);
-    container.hidden = cards().length === 0 || (compact && !current);
+    for (const card of all) {
+      const hidden = compact && card.element.dataset.annotationId !== active;
+      if (card.element.hidden !== hidden) card.element.hidden = hidden;
+    }
+    const current = all.find(card => card.element.dataset.annotationId === active);
+    const hidden = all.length === 0 || (compact && !current);
+    if (container.hidden !== hidden) container.hidden = hidden;
     const origin = container.getBoundingClientRect();
-    const entries = cards().map(card => {
+    const entries = all.map(card => {
       const key = `${card.anchor.start}:${card.anchor.end}:${card.anchor.target ?? 'text'}`;
-      if (ranges.get(card.element)?.key !== key) ranges.set(card.element, { key, range: view.restoreRange(card.anchor) });
-      const range = ranges.get(card.element)?.range;
-      const rects = range ? textRects(range, doc) : [];
+      let geometry = ranges.get(card.element);
+      if (!geometry || geometry.key !== key) {
+        geometry = { key, range: view.restoreRange(card.anchor), version: -1, rects: [], blockTop: null };
+        ranges.set(card.element, geometry);
+      }
+      if (geometry.version !== sourceVersion) {
+        const range = geometry.range;
+        geometry.rects = range ? textRects(range, doc).map(rect => new DOMRect(rect.x + win.scrollX, rect.y + win.scrollY, rect.width, rect.height)) : [];
+        const block = card.anchor.target === 'block' ? range?.startContainer.parentElement : null;
+        geometry.blockTop = block ? block.getBoundingClientRect().top + win.scrollY : null;
+        geometry.version = sourceVersion;
+      }
+      const rects = geometry.rects;
       const first = rects.find(rect => rect.width > 0 && rect.height > 0);
-      const line = first && { top: first.top, bottom: first.bottom, right: Math.max(...rects.filter(rect => Math.abs(rect.top - first.top) < 2).map(rect => rect.right)) };
-      return { ...card, line, rects, idealTop: Math.max(0, (line?.top ?? article.top) - origin.top), naturalHeight: compact ? 0 : naturalHeight(card) };
+      const line = first && { top: first.top - win.scrollY, bottom: first.bottom - win.scrollY, right: Math.max(...rects.filter(rect => Math.abs(rect.top - first.top) < 2).map(rect => rect.right)) - win.scrollX };
+      return { ...card, line, blockTop: geometry.blockTop, idealTop: Math.max(0, (line?.top ?? article.top) - origin.top), naturalHeight: compact ? 0 : naturalHeight(card) };
     }).sort((a, b) => (a.line?.top ?? 0) - (b.line?.top ?? 0) || a.anchor.start - b.anchor.start);
     const crowded = new Set<HTMLElement>();
     if (!compact) {
@@ -86,38 +139,27 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       finish();
     }
     for (const entry of entries) entry.element.toggleAttribute('data-crowded', crowded.has(entry.element));
-    const engaged = !container.hidden ? entries.find(entry => !entry.element.hidden && entry.element.matches(':hover'))?.element : undefined;
-    view.highlighting?.emphasize(engaged?.dataset.annotationId ?? null);
-    outline.replaceChildren(); delete outline.dataset.annotationId;
+    engage(!container.hidden ? entries.find(entry => !entry.element.hidden && entry.element.matches(':hover'))?.element ?? null : null);
+    // Read all card sizes before writing positions so each card does not force another layout.
+    const measured = entries.map(entry => ({ ...entry, box: entry.element.getBoundingClientRect() }));
     let bottom = 0;
     const routes: { y: number; start: number; middle: number; low: number; high: number; lane: number }[] = [];
-    for (const entry of entries) {
-      const { element, line } = entry;
+    for (const [order, entry] of measured.entries()) {
+      const { element, line, box } = entry;
+      const top = Math.max(bottom, entry.idealTop);
       if (compact) {
-        element.style.top = ''; element.style.order = String(entries.indexOf(entry));
+        if (element.style.top) element.style.top = '';
+        if (element.style.order !== String(order)) element.style.order = String(order);
       } else {
-        const top = Math.max(bottom, entry.idealTop);
         const value = `${top}px`; if (element.style.top !== value) element.style.top = value;
-        bottom = top + element.getBoundingClientRect().height + 12;
+        bottom = top + box.height + 12;
       }
       let path = paths.get(element);
       if (!path) { path = doc.createElementNS(svg.namespaceURI, 'path') as SVGPathElement; path.dataset.annotationId = element.dataset.annotationId; paths.set(element, path); svg.append(path); }
-      const hovered = element === engaged;
-      element.toggleAttribute('data-dimmed', Boolean(engaged && !hovered));
-      path.toggleAttribute('data-dimmed', Boolean(engaged && !hovered));
-      const color = getComputedStyle(element).borderTopColor;
-      if (hovered) {
-        outline.dataset.annotationId = element.dataset.annotationId; outline.style.stroke = color;
-        for (const box of outlineRects(entry.rects)) {
-          const rect = doc.createElementNS(svg.namespaceURI, 'rect');
-          rect.setAttribute('x', String(box.left - .5)); rect.setAttribute('y', String(box.top - .5));
-          rect.setAttribute('width', String(box.width + 1)); rect.setAttribute('height', String(box.height + 1));
-          outline.append(rect);
-        }
-      }
-      if (compact || !line) { path.setAttribute('d', ''); continue; }
-      const block = entry.anchor.target === 'block' ? ranges.get(element)?.range?.startContainer.parentElement : null;
-      const box = element.getBoundingClientRect(), baseY = block ? block.getBoundingClientRect().top - 3 : line.bottom + 2, y2 = box.top + Math.min(20, box.height / 2);
+      path.toggleAttribute('data-engaged', element === engaged); appearance(path, element);
+      if (compact || !line) { attribute(path, 'd', ''); continue; }
+      const block = entry.blockTop !== null;
+      const baseY = entry.blockTop !== null ? entry.blockTop - win.scrollY - 3 : line.bottom + 2, y2 = origin.top + top + Math.min(20, box.height / 2);
       const route = { y: baseY, start: line.right + 2, middle: (article.right + box.left) / 2, low: Math.min(baseY, y2), high: Math.max(baseY, y2), lane: 0 };
       const used = new Set(routes.filter(other =>
         (Math.abs(other.y - route.y) < 3 && Math.max(other.start, route.start) < Math.min(other.middle, route.middle))
@@ -128,8 +170,7 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       const y1 = baseY + route.lane * 3, middle = Math.max(line.right + 4, route.middle - route.lane * 3);
       const startY = block ? (line.top + line.bottom) / 2 : line.bottom;
       const lead = block ? `M ${line.right} ${startY} H ${line.right + 2} V ${y1}` : `M ${line.right} ${startY} L ${line.right + 2} ${y1}`;
-      path.setAttribute('d', `${lead} H ${middle} C ${middle + 8} ${y1}, ${middle - 8} ${y2}, ${box.left - 1} ${y2}`);
-      path.style.stroke = color;
+      attribute(path, 'd', `${lead} H ${middle} C ${middle + 8} ${y1}, ${middle - 8} ${y2}, ${box.left - 1} ${y2}`);
     }
     const minHeight = compact ? '' : `${bottom}px`;
     if (container.style.minHeight !== minHeight) container.style.minHeight = minHeight;
@@ -137,23 +178,33 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
     if (compact && current && anchor) popups.show('comment', container, () => anchor);
     else { popups.hide('comment'); container.style.maxHeight = ''; container.style.maxWidth = ''; container.style.left = ''; container.style.top = ''; }
     for (const [element, path] of paths) if (!container.contains(element)) { path.remove(); paths.delete(element); }
+    updateOutline();
   };
   const schedule = () => { if (!frame && !controller.signal.aborted) frame = win.requestAnimationFrame(layout); };
-  const observer = new win.ResizeObserver(schedule);
+  const invalidateSource = () => { sourceVersion++; schedule(); };
+  const observer = new win.ResizeObserver(entries => { if (entries.some(entry => entry.target === view.element)) sourceVersion++; schedule(); });
   observer.observe(view.element); observer.observe(column); observer.observe(container);
-  container.addEventListener('pointerover', schedule, { signal: controller.signal });
-  container.addEventListener('pointerout', schedule, { signal: controller.signal });
-  doc.addEventListener('scroll', schedule, { capture: true, passive: true, signal: controller.signal });
-  win.addEventListener('resize', schedule, { signal: controller.signal });
-  void doc.fonts.ready.then(() => { naturalSizes.clear(); schedule(); });
+  const hoveredCard = (target: EventTarget | null) => {
+    const element = (target as Element | null)?.closest?.<HTMLElement>('.annotation-comment-thread');
+    return element && container.contains(element) ? element : null;
+  };
+  container.addEventListener('pointerover', event => engage(hoveredCard(event.target)), { signal: controller.signal });
+  container.addEventListener('pointerout', event => engage(hoveredCard(event.relatedTarget)), { signal: controller.signal });
+  doc.addEventListener('scroll', event => {
+    if (event.target instanceof win.Node && view.element.contains(event.target)) invalidateSource(); else schedule();
+  }, { capture: true, passive: true, signal: controller.signal });
+  win.addEventListener('resize', invalidateSource, { signal: controller.signal });
+  const fontsChanged = () => { naturalSizes.clear(); invalidateSource(); };
+  void doc.fonts.ready.then(fontsChanged);
+  doc.fonts.addEventListener('loadingdone', fontsChanged, { signal: controller.signal });
   return {
     get compact() { return compact; },
     get active() { return active; },
-    activate(id: string, anchor: DOMRect) { active = id; floatingAnchor = anchor; schedule(); },
+    activate(id: string, anchor: DOMRect) { const changed = id !== active || anchor !== floatingAnchor; active = id; floatingAnchor = anchor; if (compact && changed) schedule(); },
     close() { active = null; schedule(); },
     schedule,
     observe(element: HTMLElement) { observer.observe(element); schedule(); },
-    unobserve(element: HTMLElement) { observer.unobserve(element); paths.get(element)?.remove(); paths.delete(element); ranges.delete(element); naturalSizes.delete(element); schedule(); },
-    destroy() { controller.abort(); observer.disconnect(); win.cancelAnimationFrame(frame); view.highlighting?.emphasize(null); popups.hide('comment'); svg.remove(); measurement.remove(); paths.clear(); ranges.clear(); naturalSizes.clear(); },
+    unobserve(element: HTMLElement) { if (engaged === element) engage(null); observer.unobserve(element); paths.get(element)?.remove(); paths.delete(element); ranges.delete(element); naturalSizes.delete(element); schedule(); },
+    destroy() { controller.abort(); observer.disconnect(); win.cancelAnimationFrame(frame); engage(null); popups.hide('comment'); svg.remove(); measurement.remove(); paths.clear(); ranges.clear(); naturalSizes.clear(); },
   };
 }

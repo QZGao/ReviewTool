@@ -64,7 +64,7 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     for (const child of model.children) { const rendered = emit(child); if (rendered) element.appendChild(rendered); }
     const blockAnchor = blockModels.get(model);
     if (!blockAnchor) return element;
-    const host = ['hr', 'ul', 'ol', 'dl'].includes(model.tag) ? doc.createElement('div') : element;
+    const host = ['hr', 'ul', 'ol', 'dl', 'pre'].includes(model.tag) ? doc.createElement('div') : element;
     if (host !== element) { host.className = 'annotation-block-container'; host.append(element); }
     host.classList.add('annotation-source-block');
     const symbol = doc.createElement('button'); symbol.type = 'button'; symbol.className = 'annotation-block-target';

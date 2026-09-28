@@ -165,25 +165,30 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       node.tabIndex = -1;
       if (expandedRoots.has(comment.id)) node.dataset.commentAnchored = '';
       const copyLink = button('#', async () => {
+        let copied = false;
         try {
           const link = renderOptions.commentLink?.(comment.id) ?? annotationCommentUrl(doc.location.href, comment.id).href;
-          await win.navigator.clipboard.writeText(link); copyLink.title = messages.linkCopied;
-        } catch { copyLink.title = messages.linkCopyFailed; }
+          await win.navigator.clipboard.writeText(link); copied = true;
+        } catch { /* The host reports unavailable or denied clipboard access. */ }
+        copyLink.title = copied ? messages.linkCopied : messages.linkCopyFailed;
+        renderOptions.onCommentLinkCopy?.(copied);
       });
       copyLink.title = messages.copyCommentLink; copyLink.setAttribute('aria-label', messages.copyCommentLink);
       const root = threadRoots(annotation).some(root => root.id === comment.id);
       const setResolution = (resolved: boolean) => state.dispatch({ type: 'set-thread-resolution', id: annotation.id, commentId: comment.id, resolved, at: new Date().toISOString() });
-      if (root && comment.resolution?.resolved && !expandedRoots.has(comment.id) && ![...drafts.values()].some(draft => 'commentId' in draft && hasComment(comment, draft.commentId))) {
+      let summary: HTMLElement | undefined, resolutionToggle: HTMLButtonElement | undefined;
+      if (root && comment.resolution?.resolved) {
         node.dataset.resolved = '';
-        const summary = doc.createElement('div'); summary.className = 'annotation-resolved-summary';
+        node.tabIndex = 0;
+        if ([...drafts.values()].some(draft => 'commentId' in draft && hasComment(comment, draft.commentId))) node.dataset.resolvedEditing = '';
+        summary = doc.createElement('div'); summary.className = 'annotation-resolved-summary';
         const author = doc.createElement('span'); author.className = 'annotation-comment-author'; author.textContent = comment.author;
         const text = doc.createElement('span'); text.className = 'annotation-resolved-text'; text.textContent = renderCommentMarkup(doc, comment.text).textContent;
-        summary.append(author, text); node.append(summary);
-        const status = button(messages.resolved, () => setResolution(false)); status.className = 'annotation-resolution-toggle';
+        summary.append(author, text);
+        resolutionToggle = button(messages.resolved, () => setResolution(false)); resolutionToggle.className = 'annotation-resolution-toggle';
         const normal = doc.createElement('span'); normal.textContent = messages.resolved;
         const hover = doc.createElement('span'); hover.textContent = messages.unresolve;
-        status.replaceChildren(normal, hover); status.disabled = renderOptions.commentCanWrite === false;
-        copyLink.classList.add('annotation-resolved-link'); node.append(status, copyLink); return node;
+        resolutionToggle.replaceChildren(normal, hover); resolutionToggle.disabled = renderOptions.commentCanWrite === false;
       }
       const editKey = 'edit/' + comment.id, replyKey = 'reply/' + comment.id;
       const edit = drafts.get(editKey);
@@ -195,7 +200,8 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         text.tabIndex = 0;
         const actions = doc.createElement('div'); actions.className = 'annotation-comment-actions';
         actions.append(copyLink);
-        if (root && renderOptions.commentCanWrite !== false) actions.append(button(comment.resolution?.resolved ? messages.unresolve : messages.markResolved, () => setResolution(!comment.resolution?.resolved)));
+        if (resolutionToggle) actions.append(resolutionToggle);
+        else if (root && renderOptions.commentCanWrite !== false) actions.append(button(messages.markResolved, () => setResolution(true)));
         if (canResolveThread(annotation, comment.id, actor)) {
           actions.append(button(messages.resolve, async () => {
             const reason = await reasonFor({ type: 'resolve-comment', commentId: comment.id }, annotation);
@@ -208,6 +214,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         }));
         const reply = button(messages.reply, () => open(replyKey, { kind: 'reply', text: '', commentId: comment.id }));
         reply.className = 'annotation-comment-reply';
+        if (summary) body.append(summary);
         body.append(metadata(comment.author, comment.createdAt, comment.editedAt, comment.editedBy), text, actions, reply); node.append(body);
       }
       if (comment.replies.length || drafts.has(replyKey)) {
