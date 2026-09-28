@@ -15,6 +15,7 @@ import { addMainPageReviewToolButtonsToDOM } from '../dom/article_page';
 import state from '../state';
 import { buildAnnotationExport, downloadAnnotationExport } from './export';
 import { annotationMessages } from './i18n';
+import { showAnnotationLoading } from './loading-view';
 
 export const activationParameter = 'reviewtool_annotation_view';
 function dataPageTitle(title: string, revision: number): string {
@@ -78,6 +79,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
   const identity: ReviewIdentity = { wiki: mw.config.get('wgDBname'), pageId: mw.config.get('wgArticleId'), revisionId: revision };
   const style = document.createElement('style'); style.textContent = styles; document.head.append(style);
   const messages = annotationMessages(text => state.convByVar(text));
+  const stopLoading = showAnnotationLoading(document, messages.loadingView);
   let exportItem: HTMLElement | null = null;
   let mount: ReturnType<typeof mountWikipediaAnnotation> | undefined, sync: ReturnType<typeof annotationSync> | undefined;
   let closed = false, polling: ReturnType<typeof setInterval> | undefined;
@@ -168,6 +170,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       if (closed) return;
       const projection = createProjection(source, { wikiBaseUrl: new URL('/wiki/', location.href).href });
       saveDrafts = (snapshot = mount?.view.comments?.drafts ?? drafts) => journal.drafts(snapshot).then(() => {}).catch(error => failure({ hant: '無法儲存草稿，請先複製文字，以免遺失。', hans: '无法保存草稿，请先复制文字，以免丢失。' }, error));
+      stopLoading();
       mount = mountWikipediaAnnotation(document, projection, {
         comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, headingAnchors: headings, commentDrafts: drafts,
         onCommentDraftsChange: snapshot => { if (!closed) void saveDrafts(snapshot); },
@@ -189,12 +192,13 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       document.addEventListener('visibilitychange', refresh, listener); window.addEventListener('online', refresh, listener);
       window.addEventListener('beforeunload', event => { if (shared.dirty) { event.preventDefault(); event.returnValue = ''; } }, listener);
       if (!canWrite) notify(state.convByVar({ hant: '登入後即可新增批註。', hans: '登录后即可添加批注。' }), 'warn');
-    } catch (error) { if (closed) return; sync?.destroy(); mount?.destroy(); failure({ hant: '無法開啟批註模式，請稍後重試。', hans: '无法开启批注模式，请稍后重试。' }, error); }
+    } catch (error) { stopLoading(); if (closed) return; sync?.destroy(); mount?.destroy(); failure({ hant: '無法開啟批註模式，請稍後重試。', hans: '无法开启批注模式，请稍后重试。' }, error); }
   })();
   let cleanup: Promise<void> | undefined;
   const close = (): Promise<void> => {
     if (cleanup !== undefined) return cleanup;
     closed = true;
+    stopLoading();
     const draftsSaved = saveDrafts();
     if (polling !== undefined) clearInterval(polling);
     controller.abort();

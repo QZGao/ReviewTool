@@ -4,6 +4,12 @@
   --annotation-marker-green: rgb(201 219 205 / 50%); /* #C9DBCD */
   --annotation-marker-blue: rgb(190 217 246 / 50%); /* #BED9F6 */
 }
+.annotation-loading { min-height: 25vh; display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--color-subtle, #54595d); }
+.annotation-loading p { margin: 0; }
+.annotation-loading-track { width: min(280px, 80%); height: 4px; overflow: hidden; border-radius: 4px; background: var(--background-color-neutral, #eaecf0); }
+.annotation-loading-track::after { content: ''; display: block; width: 45%; height: 100%; border-radius: inherit; background: var(--color-progressive, #36c); animation: annotation-loading 1.6s cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes annotation-loading { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@media (prefers-reduced-motion: reduce) { .annotation-loading-track::after { animation: none; transform: translateX(60%); } }
 .annotation-document {
   --annotation-code-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --annotation-paragraph-gap: 1.35rem;
