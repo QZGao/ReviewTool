@@ -37,8 +37,8 @@ test('exports every root and reply, including resolved/deleted discussions, with
   ]);
   assert.equal(entries[0].sentenceText, '文字');
   assert.equal(entries[0].createdBy, 'Example'); assert.equal(entries[0].createdAt, Date.parse(time));
-  assert.equal(entries[3].editedBy, 'Moderator'); assert.deepEqual(entries[3].resolution, removal);
-  assert.equal(entries[3].resolved, true); assert.equal(entries[0].resolved, false);
+  assert.equal(entries[3].editedBy, 'Moderator'); assert.deepEqual(entries[3].closure, removal);
+  assert.equal(entries[3].closed, true); assert.equal(entries[0].resolved, false);
   assert.equal(result.highlights[1].author, 'Someone');
   assert.equal(result.highlights[1].sourceText, '[[頁面|文字]]');
   assert.equal(result.highlights[2].sourceText, '細節😀'); assert.deepEqual(result.highlights[2].deleted, removal);

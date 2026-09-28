@@ -15,8 +15,10 @@ import { addMainPageReviewToolButtonsToDOM } from '../dom/article_page';
 import state from '../state';
 import { buildAnnotationExport, downloadAnnotationExport } from './export';
 import { annotationMessages } from './i18n';
+import { showAnnotationLoading } from './loading-view';
+import { activationParameter, annotationViewUrl, annotationCommentUrl, commentParameter } from './view-url';
 
-export const activationParameter = 'reviewtool_annotation_view';
+export { activationParameter } from './view-url';
 function dataPageTitle(title: string, revision: number): string {
   const talk = mw.Title.newFromText(title)?.getTalkPage()?.getPrefixedText();
   if (!talk) throw new Error('This page has no associated talk page for annotations.');
@@ -43,7 +45,8 @@ export async function initLiveAnnotation(): Promise<boolean> {
   }, storageTitle);
   const updateUrl = (active: boolean) => {
     const url = new URL(location.href);
-    if (active) url.searchParams.set(activationParameter, '1'); else url.searchParams.delete(activationParameter);
+    if (active) url.searchParams.set(activationParameter, '1');
+    else { url.searchParams.delete(activationParameter); url.searchParams.delete(commentParameter); }
     history.replaceState(history.state, '', url.href);
   };
   const toggle = async () => {
@@ -55,9 +58,9 @@ export async function initLiveAnnotation(): Promise<boolean> {
       try { await previous.close(); } finally { closing = false; navigation.update(false); }
       return;
     }
-    const url = new URL(location.href);
-    if (url.searchParams.get('oldid') !== String(revision)) {
-      url.searchParams.set('oldid', String(revision)); url.searchParams.set(activationParameter, '1');
+    const url = annotationViewUrl(location.href, revision, mw.config.get('skin'));
+    const currentUrl = new URL(location.href);
+    if (currentUrl.searchParams.get('oldid') !== String(revision) || currentUrl.searchParams.get('useskin') !== url.searchParams.get('useskin')) {
       location.assign(url.href); return;
     }
     updateUrl(true); navigation.update(true, true);
@@ -66,7 +69,7 @@ export async function initLiveAnnotation(): Promise<boolean> {
     if (session === opened) navigation.update(true);
   };
   const navigation = addMainPageReviewToolButtonsToDOM(() => { void toggle(); }); navigation.update(false);
-  if (new URL(location.href).searchParams.get(activationParameter) === '1') await toggle();
+  if (new URL(location.href).searchParams.get(activationParameter) === '1' || new URL(location.href).searchParams.has(commentParameter)) await toggle();
   return true;
 }
 
@@ -78,6 +81,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
   const identity: ReviewIdentity = { wiki: mw.config.get('wgDBname'), pageId: mw.config.get('wgArticleId'), revisionId: revision };
   const style = document.createElement('style'); style.textContent = styles; document.head.append(style);
   const messages = annotationMessages(text => state.convByVar(text));
+  const stopLoading = showAnnotationLoading(document, messages.loadingView);
   let exportItem: HTMLElement | null = null;
   let mount: ReturnType<typeof mountWikipediaAnnotation> | undefined, sync: ReturnType<typeof annotationSync> | undefined;
   let closed = false, polling: ReturnType<typeof setInterval> | undefined;
@@ -121,7 +125,8 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
     for (const entry of retained) {
       const item = document.createElement('p'), action = entry.action;
       item.textContent = action.type === 'edit-comment' ? action.text : action.type === 'add-comment' ? action.comment.text
-        : state.convByVar(action.type === 'resolve-comment' ? { hant: '結束討論', hans: '结束讨论' }
+        : state.convByVar(action.type === 'set-thread-resolution' ? { hant: action.resolved ? '標記已解決' : '標記尚未解決', hans: action.resolved ? '标记已解决' : '标记尚未解决' }
+          : action.type === 'resolve-comment' ? { hant: '結束討論', hans: '结束讨论' }
           : action.type === 'delete-highlight' ? { hant: '刪除高亮', hans: '删除高亮' }
           : action.type === 'recolor-highlight' ? { hant: '更改高亮顏色', hans: '更改高亮颜色' } : { hant: '新增高亮', hans: '添加高亮' });
       content.append(item);
@@ -168,14 +173,26 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       if (closed) return;
       const projection = createProjection(source, { wikiBaseUrl: new URL('/wiki/', location.href).href });
       saveDrafts = (snapshot = mount?.view.comments?.drafts ?? drafts) => journal.drafts(snapshot).then(() => {}).catch(error => failure({ hant: '無法儲存草稿，請先複製文字，以免遺失。', hans: '无法保存草稿，请先复制文字，以免丢失。' }, error));
+      stopLoading();
       mount = mountWikipediaAnnotation(document, projection, {
-        comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, headingAnchors: headings, commentDrafts: drafts,
+        comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, commentCanWrite: canWrite, headingAnchors: headings, commentDrafts: drafts,
+        commentLink: id => annotationCommentUrl(location.href, id, revision).href,
+        onCommentLinkCopy: copied => {
+          if (!closed) void mw.notify(copied ? messages.linkCopied : messages.linkCopyFailed, { tag: 'reviewtool-comment-link', type: copied ? 'success' : 'error', autoHide: true });
+        },
         onCommentDraftsChange: snapshot => { if (!closed) void saveDrafts(snapshot); },
         ...(requestModerationReason ? { requestModerationReason } : {}),
+        requestCloseConfirmation: async signal => {
+          const prompt = requestModerationReason ?? await createCodexReasonPrompt(document, messages);
+          return await prompt('confirm-close', signal) !== null;
+        },
         highlighting: { initial, onChange: (_next, action) => {
           try { if (!canWrite) throw new Error('Log in before saving annotations.'); shared.add(action); } catch (error) { mount?.view.highlighting?.replace(shared.annotations); failure({ hant: '修改未能儲存，請再試一次。', hans: '修改未能保存，请再试一次。' }, error); }
         } },
       });
+      const commentId = new URL(location.href).searchParams.get(commentParameter);
+      if (commentId && !await mount.view.comments?.reveal(commentId)) notify(messages.commentUnavailable, 'warn');
+      if (closed) return;
       exportItem = mw.util.addPortletLink('p-cactions', '#', state.convByVar({ hant: '匯出所有批註', hans: '导出所有批注' }), 'ca-reviewtool-export',
         state.convByVar({ hant: '匯出高亮、評論與回覆', hans: '导出高亮、评论和回复' }));
       exportItem?.querySelector('a')?.addEventListener('click', event => {
@@ -189,12 +206,13 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       document.addEventListener('visibilitychange', refresh, listener); window.addEventListener('online', refresh, listener);
       window.addEventListener('beforeunload', event => { if (shared.dirty) { event.preventDefault(); event.returnValue = ''; } }, listener);
       if (!canWrite) notify(state.convByVar({ hant: '登入後即可新增批註。', hans: '登录后即可添加批注。' }), 'warn');
-    } catch (error) { if (closed) return; sync?.destroy(); mount?.destroy(); failure({ hant: '無法開啟批註模式，請稍後重試。', hans: '无法开启批注模式，请稍后重试。' }, error); }
+    } catch (error) { stopLoading(); if (closed) return; sync?.destroy(); mount?.destroy(); failure({ hant: '無法開啟批註模式，請稍後重試。', hans: '无法开启批注模式，请稍后重试。' }, error); }
   })();
   let cleanup: Promise<void> | undefined;
   const close = (): Promise<void> => {
     if (cleanup !== undefined) return cleanup;
     closed = true;
+    stopLoading();
     const draftsSaved = saveDrafts();
     if (polling !== undefined) clearInterval(polling);
     controller.abort();

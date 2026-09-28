@@ -31,19 +31,20 @@ export function templateLink(source: string, from: number, to: number, baseUrl: 
   }
   const nonempty = (value: SourceExtent | undefined): SourceExtent | undefined => value && value.from < value.to ? value : undefined;
   const value = (key: string): SourceExtent | undefined => nonempty(args.get(key));
+  const code = value('1');
   if (translink) {
-    const code = value('1');
     if (!code || !languageCode.test(source.slice(code.from, code.to)) || !value('2')) return null;
   }
-  const target = translink ? value('3') ?? value('2') : args.has('1') ? value('1') : value('2');
-  const label = (translink ? value('4') : args.has('d') ? value('d') : value('3')) ?? target;
+  const target = translink ? value('2') : args.has('1') ? value('1') : value('2');
+  const label = (translink ? value('4') ?? value('3') : args.has('d') ? value('d') : value('3')) ?? target;
   if (!target || !label) return null;
   const title = decodeHTMLStrict(source.slice(target.from, target.to)).replace(/^:/, '');
   // Dynamic/invalid targets cannot be resolved without template execution.
   if (!title.trim() || /^[.]{1,2}$/.test(title) || /[\u0000-\u001f\u007f<>\[\]{}|]/.test(title)) return null;
   const [page, ...fragment] = title.split('#');
   if (!page.trim() || /^[.]{1,2}$/.test(page)) return null;
-  const href = new URL(encodeURIComponent(page.replace(/ /g, '_')), baseUrl);
+  const destination = translink && code ? `https://${source.slice(code.from, code.to).toLowerCase()}.wikipedia.org/wiki/` : baseUrl;
+  const href = new URL(encodeURIComponent(page.replace(/ /g, '_')), destination);
   if (fragment.length) href.hash = fragment.join('#').replace(/ /g, '_');
   return { href: href.href, label };
 }

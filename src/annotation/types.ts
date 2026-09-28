@@ -58,7 +58,7 @@ export interface ProjectionOptions {
 }
 
 /** Persistent coordinates explicitly identify their unit. Revision identity belongs to the caller. */
-export interface SourceAnchor { unit: 'utf8-byte'; start: number; end: number }
+export interface SourceAnchor { unit: 'utf8-byte'; start: number; end: number; target?: 'block' }
 
 export interface MappedSelection {
   anchor: SourceAnchor;
@@ -82,7 +82,9 @@ export interface AnnotationComment {
   readonly editedAt?: string;
   /** Author of the most recent edit; original comment authorship remains unchanged. */
   readonly editedBy?: string;
+  /** Historical closure record: a closed discussion is hidden. */
   readonly resolved?: AnnotationRemoval;
+  readonly resolution?: AnnotationRemoval & { readonly resolved: boolean };
   readonly replies: readonly AnnotationComment[];
 }
 
@@ -117,6 +119,7 @@ export type HighlightAction =
   | { type: 'delete-highlight'; id: string; at?: string; reason?: string }
   | { type: 'add-comment'; id: string; comment: AnnotationComment; parentId?: string }
   | { type: 'edit-comment'; id: string; commentId: string; text: string; editedAt: string; reason?: string }
+  | { type: 'set-thread-resolution'; id: string; commentId: string; resolved: boolean; at: string }
   | { type: 'resolve-comment'; id: string; commentId: string; at?: string; reason?: string };
 
 export interface HighlightOptions {
@@ -126,6 +129,7 @@ export interface HighlightOptions {
 
 export interface HighlightingView {
   readonly annotations: readonly HighlightAnnotation[];
+  emphasize(id: string | null): void;
   /** Replace a committed snapshot without generating a user action. Invalid anchors throw. */
   replace(annotations: readonly HighlightAnnotation[]): void;
   dispatch(action: HighlightAction): void;
@@ -138,7 +142,7 @@ export interface RenderedView {
   /** Last selection made in this view; outside selections and popups do not clear it. */
   readonly selection: MappedSelection | null;
   readonly highlighting: HighlightingView | null;
-  readonly comments: { element: HTMLElement; readonly drafts: readonly CommentDraft[] } | null;
+  readonly comments: { element: HTMLElement; readonly drafts: readonly CommentDraft[]; reveal(id: string): Promise<boolean> } | null;
   clearSelection(): void;
   readRange(range: Range): MappedSelection | null;
   restoreRange(anchor: SourceAnchor): Range | null;
@@ -161,14 +165,19 @@ export interface RenderOptions {
   commentAuthor?: string;
   /** Current user's local MediaWiki group names. Moderator edits/removals require a reason. */
   commentUserGroups?: readonly string[];
+  commentCanWrite?: boolean;
+  commentLink?: (id: string) => string;
+  /** Clipboard feedback; the Wikipedia host displays a notification. */
+  onCommentLinkCopy?: (copied: boolean) => void;
   /** Host dialog for moderator reasons; live Wikipedia uses Codex. Null means Cancel. */
   requestModerationReason?: ModerationReasonPrompt;
+  requestCloseConfirmation?: (signal: AbortSignal) => Promise<boolean>;
   commentDrafts?: readonly CommentDraft[];
   /** Private editor changes, including an empty snapshot when sending or discarding clears a draft. */
   onCommentDraftsChange?: (drafts: readonly CommentDraft[]) => void;
 }
 
-export type ModerationReasonPrompt = (action: 'edit-comment' | 'resolve-comment' | 'delete-highlight', signal: AbortSignal) => Promise<string | null>;
+export type ModerationReasonPrompt = (action: 'edit-comment' | 'resolve-comment' | 'delete-highlight' | 'confirm-close', signal: AbortSignal) => Promise<string | null>;
 
 /** Temporary navigation metadata for a heading in this exact source revision. */
 export interface WikipediaHeadingAnchor {

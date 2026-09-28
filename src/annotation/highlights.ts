@@ -4,25 +4,23 @@ import type { PopupLayout } from './popup-layout';
 import { annotationState, annotationVisible } from './annotation-state';
 import { canRemoveAnnotation, requestActionReason, type AnnotationActor } from './permissions';
 import { textRects } from './range-rects';
+import { highlightBackgrounds } from './highlight-backgrounds';
 
 const colors: readonly HighlightColor[] = ['red', 'yellow', 'green', 'blue'];
-interface Marker { annotation: HighlightAnnotation; range: Range; name: string; rects?: DOMRect[] }
+interface Marker { annotation: HighlightAnnotation; range: Range; rects?: DOMRect[] }
 type Active = { kind: 'selection'; selection: MappedSelection } | { kind: 'marker'; id: string };
 
 /** Owns only transient UI and CSS highlights; source DOM text nodes never change. */
 export function createHighlighting(doc: Document, view: RenderedView, config: HighlightOptions, popupLayout: PopupLayout, actor: AnnotationActor = {}, promptReason?: ModerationReasonPrompt, messages: AnnotationMessages = annotationMessages()) {
   const win = doc.defaultView;
   if (!win?.Highlight || !win.CSS?.highlights) throw new Error('This browser does not support text highlights.');
-  const registry = win.CSS.highlights;
   const root = view.element;
   const controller = new AbortController();
   const options = { signal: controller.signal };
-  const prefix = 'reviewtool-marker-' + win.crypto.randomUUID();
-  const style = doc.createElement('style');
   const hoverListeners = new Set<(id: string, anchor: DOMRect) => void>();
-  let serial = 0;
   let markers: Marker[] = [];
   const state = annotationState(config, anchor => { const range = view.restoreRange(anchor); return Boolean(range && !range.collapsed); }, actor);
+  const backgrounds = highlightBackgrounds(doc, root);
   let active: Active | null = null;
   let reasonPending = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -63,7 +61,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   const insideBar = (target: EventTarget | null) => Boolean(target && 'nodeType' in target && bar.contains(target as Node));
   const contentTarget = (target: EventTarget | null) => {
     const element = (target as Element | null)?.closest?.('.annotation-document');
-    return element === root && !(target as Element).closest('[data-annotation-ui], [data-annotation-popup]');
+    return element === root && !(target as Element).closest('[data-annotation-ui]:not([data-block-target]), [data-annotation-popup]');
   };
   const hit = (x: number, y: number): { marker: Marker; rect: DOMRect } | null => {
     const box = root.getBoundingClientRect();
@@ -71,7 +69,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     if (layout !== nextLayout) { layout = nextLayout; invalidate(); }
     for (let i = markers.length - 1; i >= 0; i--) {
       const marker = markers[i];
-      if (!marker.rects) {
+      if (!marker.rects && marker.annotation.anchor.target !== 'block') {
         const bounds = marker.range.getBoundingClientRect();
         if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) continue;
       }
@@ -101,23 +99,19 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   const paint = (annotations: readonly HighlightAnnotation[]) => {
     if (controller.signal.aborted) return;
     const visible = annotations.filter(annotationVisible);
-    if (visible.length === markers.length && visible.every((annotation, index) => { const previous = markers[index].annotation; return annotation.id === previous.id && annotation.color === previous.color && annotation.anchor.start === previous.anchor.start && annotation.anchor.end === previous.anchor.end; })) {
+    if (visible.length === markers.length && visible.every((annotation, index) => { const previous = markers[index].annotation; return annotation.id === previous.id && annotation.color === previous.color && annotation.anchor.start === previous.anchor.start && annotation.anchor.end === previous.anchor.end && annotation.anchor.target === previous.anchor.target; })) {
       markers.forEach((marker, index) => { marker.annotation = visible[index]; }); return;
     }
     const prepared = visible.map(annotation => {
       const range = view.restoreRange(annotation.anchor);
       if (!range) throw new Error('Highlight source is no longer available in the reading view.');
-      return { annotation, range, name: `${prefix}-${++serial}` };
+      return { annotation, range };
     });
     hide();
-    for (const marker of markers) registry.delete(marker.name);
     markers = prepared;
-    style.textContent = markers.map(marker => `.annotation-document ::highlight(${marker.name}) { background-color: var(--annotation-marker-${marker.annotation.color}); }`).join('\n');
-    if (!style.isConnected) doc.head.append(style);
-    markers.forEach((marker, index) => {
-      const highlight = new win.Highlight(marker.range); highlight.priority = index;
-      registry.set(marker.name, highlight);
-    });
+    for (const symbol of root.querySelectorAll('[data-block-target]')) symbol.removeAttribute('data-highlighted');
+    for (const marker of markers) if (marker.annotation.anchor.target === 'block') (marker.range.startContainer as HTMLElement).setAttribute('data-highlighted', '');
+    backgrounds.replace(markers);
   };
   const selectionChanged = (selection: MappedSelection | null) => {
     if (!selection) { if (active?.kind === 'selection') hide(); return; }
@@ -126,7 +120,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     const rects = textRects(range, doc);
     const rect = rects.filter(rect => rect.bottom > 0 && rect.top < doc.documentElement.clientHeight).pop();
     if (!rect) return;
-    const existing = [...markers].reverse().find(marker => marker.annotation.anchor.start === selection.anchor.start && marker.annotation.anchor.end === selection.anchor.end);
+    const existing = [...markers].reverse().find(marker => marker.annotation.anchor.start === selection.anchor.start && marker.annotation.anchor.end === selection.anchor.end && marker.annotation.anchor.target === selection.anchor.target);
     show(existing ? { kind: 'marker', id: existing.annotation.id } : { kind: 'selection', selection }, rect);
   };
   const returnFocus = () => {
@@ -199,6 +193,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     });
   }, options);
   root.addEventListener('click', event => {
+    if ((event.metaKey || event.ctrlKey) && (event.target as Element).closest('a[data-target-url]')) return;
     if (!event.detail || dragged || !contentTarget(event.target)) return;
     const match = hit(event.clientX, event.clientY);
     if (match) {
@@ -215,6 +210,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
 
   return {
     get annotations() { return state.annotations; },
+    emphasize: backgrounds.emphasize,
     replace: state.replace,
     dispatch: state.dispatch,
     subscribe: state.subscribe,
@@ -222,8 +218,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     selectionChanged,
     destroy() {
       hide(); stopState(); state.destroy(); controller.abort(); observer.disconnect(); win.cancelAnimationFrame(frame);
-      for (const marker of markers) registry.delete(marker.name);
-      markers = []; hoverListeners.clear(); style.remove(); bar.remove();
+      backgrounds.destroy(); markers = []; hoverListeners.clear(); bar.remove();
     },
   };
 }

@@ -24,7 +24,8 @@ export function trackSelection(doc: Document, root: HTMLElement, readRange: (ran
     if (!registry || !win?.Highlight) return;
     let highlight = registry.get(highlightName);
     if (painted) highlight?.delete(painted);
-    painted = selected && gesture !== 'content' ? restoreRange(selected.anchor) : null;
+    // Block controls paint their complete padded box through data-selected.
+    painted = selected && selected.anchor.target !== 'block' && gesture !== 'content' ? restoreRange(selected.anchor) : null;
     if (painted) {
       if (!highlight) highlight = new win.Highlight();
       highlight.priority = 2147483647;
@@ -32,7 +33,7 @@ export function trackSelection(doc: Document, root: HTMLElement, readRange: (ran
     } else if (highlight?.size === 0) registry.delete(highlightName);
   };
   const commit = (next: MappedSelection | null) => {
-    if (selected?.anchor.start === next?.anchor.start && selected?.anchor.end === next?.anchor.end && selected?.adjusted === next?.adjusted) return;
+    if (selected?.anchor.start === next?.anchor.start && selected?.anchor.end === next?.anchor.end && selected?.anchor.target === next?.anchor.target && selected?.adjusted === next?.adjusted) return;
     selected = next ? Object.freeze({ ...next, anchor: Object.freeze({ ...next.anchor }) }) : null;
     paint(); onChange?.(selected);
   };

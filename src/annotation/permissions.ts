@@ -60,6 +60,7 @@ export function moderationReason(action: HighlightAction, actor: AnnotationActor
 }
 
 export function assertActionAllowed(annotation: HighlightAnnotation, action: HighlightAction, actor: AnnotationActor): void {
+  if (action.type === 'set-thread-resolution' && (!actor.name?.trim() || !roots(annotation).some(root => root.id === action.commentId && !root.resolved))) throw new Error('A current user and an open root discussion are required.');
   if (action.type === 'resolve-comment' && !roots(annotation).some(root => root.id === action.commentId)) throw new Error('Only the first comment can resolve a thread.');
   if (action.type === 'resolve-comment' || action.type === 'delete-highlight') {
     if (!(action.type === 'resolve-comment' ? canResolveThread(annotation, action.commentId, actor) : canRemoveAnnotation(annotation, actor))) throw new Error(roots(annotation).length

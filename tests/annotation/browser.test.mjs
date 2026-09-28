@@ -522,15 +522,32 @@ test('link-template labels preserve native selection, destinations and serialize
     assert.equal(result.domText, result.quote);
     assert.equal(result.serializedText, result.quote);
     assert.equal(result.nestedAnchors, 0);
-    assert.deepEqual(result.selections.map(item => item.href), ['https://zh.wikipedia.org/wiki/%E7%9B%AE%E6%A0%87', 'https://zh.wikipedia.org/wiki/%E7%9B%B8%E5%90%8C']);
+    assert.deepEqual(result.selections.map(item => item.href), ['https://en.wikipedia.org/wiki/Foreign', 'https://zh.wikipedia.org/wiki/%E7%9B%B8%E5%90%8C']);
     assert.deepEqual(result.selections[1].selected.anchor, result.expectedLast);
     assert.notEqual(result.selections[0].selected.anchor.start, result.selections[1].selected.anchor.start);
     for (const item of result.selections) {
-      assert.equal(item.directHref, false);
+      assert.equal(item.directHref, true);
       assert.equal(item.selected.quote, '相同');
       assert.equal(item.selected.sourceText, '相同');
       assert.deepEqual(item.restored, item.selected);
     }
+  });
+});
+
+test('modified link clicks open the destination while ordinary clicks select the source', async () => {
+  await inPage(async page => {
+    await page.evaluate(() => {
+      annotationLab.render('[[頁面|標籤]] {{tsl|en|Water|水}}');
+      window.openedLinks = [];
+      window.open = (...args) => { openedLinks.push(args); return null; };
+    });
+    const links = page.locator('#view a');
+    await links.first().click();
+    const selected = await page.evaluate(() => annotationLab.view.selection);
+    for (const modifier of ['metaKey', 'ctrlKey']) await links.nth(1).dispatchEvent('click', { [modifier]: true });
+    assert.deepEqual(await page.evaluate(() => openedLinks), Array(2).fill(['https://en.wikipedia.org/wiki/Water', '_blank', 'noopener']));
+    assert.deepEqual(await page.evaluate(() => annotationLab.view.selection), selected);
+    assert.equal(await links.nth(1).getAttribute('href'), 'https://en.wikipedia.org/wiki/Water');
   });
 });
 
@@ -568,7 +585,7 @@ test('link source popups never navigate and their text cannot become an annotati
     });
     assert.equal(result.popupSelection, null);
     assert.equal(result.selectable, 'text');
-    assert.equal(result.directLinks, 0);
+    assert.equal(result.directLinks, 3);
     assert.equal(result.cursor, 'text');
     assert.equal(result.popupText, '連結原始碼' + snippets[2]);
     assert.equal(result.all.quote, '前标签与水与外链后');

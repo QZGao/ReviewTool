@@ -4,7 +4,15 @@
   --annotation-marker-green: rgb(201 219 205 / 50%); /* #C9DBCD */
   --annotation-marker-blue: rgb(190 217 246 / 50%); /* #BED9F6 */
 }
+.annotation-loading { min-height: 25vh; display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--color-subtle, #54595d); }
+.annotation-loading p { margin: 0; }
+.annotation-loading-track { width: min(280px, 80%); height: 4px; overflow: hidden; border-radius: 4px; background: var(--background-color-neutral, #eaecf0); }
+.annotation-loading-track::after { content: ''; display: block; width: 45%; height: 100%; border-radius: inherit; background: var(--color-progressive, #36c); animation: annotation-loading 1.6s cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes annotation-loading { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@media (prefers-reduced-motion: reduce) { .annotation-loading-track::after { animation: none; transform: translateX(60%); } }
 .annotation-document {
+  position: relative;
+  isolation: isolate;
   --annotation-code-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --annotation-paragraph-gap: 1.35rem;
   /* max-width: 48rem; */
@@ -13,25 +21,26 @@
   font: 17px/1.85 system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans CJK TC", sans-serif;
   overflow-wrap: anywhere;
 }
+.annotation-document [data-source-run] { position: relative; z-index: 1; }
+.annotation-document [data-block-target] { z-index: 1; }
+.annotation-highlight-backgrounds { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.annotation-highlight-backgrounds > g { opacity: .5; }
+.annotation-highlight-backgrounds[data-engaged] > g:not([data-engaged]) { opacity: .175; }
+.annotation-highlight-backgrounds > g[data-color="red"] { fill: #F2CEB6; }
+.annotation-highlight-backgrounds > g[data-color="yellow"] { fill: #EEDAA8; }
+.annotation-highlight-backgrounds > g[data-color="green"] { fill: #C9DBCD; }
+.annotation-highlight-backgrounds > g[data-color="blue"] { fill: #BED9F6; }
 .annotation-document :is(p, ul, ol, dl) { margin-block: 0; }
 /* The reading surface receives focus when its toolbar closes; it is not a control. */
 .annotation-document:focus { outline: none; }
 .annotation-document p { white-space: pre-line; }
 .annotation-document :is(h1, h2, h3, h4, h5, h6) { position: relative; line-height: 1.3; margin-block: 0.3em; font-weight: 650; font-family: inherit; color: var(--color-emphasized, #101418); border: 0; padding: 0; }
-.annotation-document :is(h1, h2, h3, h4, h5, h6)::before {
-  content: "#" / "";
-  position: absolute;
-  right: calc(100% + .3em);
-  top: .15em;
-  font: .75em/1.3 var(--annotation-code-font);
-  font-weight: 400;
-  color: var(--color-subtle, #54595d);
-  opacity: 0;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.annotation-document :is(h1, h2, h3, h4, h5, h6):is(:hover, :focus-within)::before { opacity: 1; }
+.annotation-source-block { position: relative; }
+.annotation-document .annotation-block-target { position: absolute; inset-inline-end: calc(100% + 4px); top: .1em; box-sizing: border-box; min-width: 24px; min-height: 24px; padding: 2px 4px; margin: 0; border: 0; border-radius: 4px; background: transparent; color: var(--color-subtle, #54595d); font: .8em/1.4 var(--annotation-code-font); text-align: center; cursor: text; opacity: 0; user-select: none; -webkit-user-select: none; }
+.annotation-document .annotation-block-target[data-selected] { background: var(--background-color-progressive-subtle, #e8eeff); box-shadow: inset 0 0 0 1px var(--border-color-progressive, #36c); }
+.annotation-document .annotation-block-target::selection { background: transparent; }
+.annotation-source-block:hover > .annotation-block-target, .annotation-block-target:is(:focus-visible, [data-highlighted], [data-selected]) { opacity: 1; }
+.annotation-source-block:has(.annotation-source-block:hover) > .annotation-block-target:not([data-highlighted]):not([data-selected]):not(:focus-visible) { opacity: 0; }
 .annotation-document h1 { font-size: 1.8rem; }
 .annotation-document h2 { font-size: 1.45rem; }
 .annotation-document [data-heading-start] { scroll-margin-top: 1rem; }
@@ -41,6 +50,7 @@
 .annotation-document :is(kbd, samp) { font-family: var(--annotation-code-font); font-size: .92em; }
 .annotation-document :is(code, kbd, samp) { border: 0; padding: 0; background: none; color: inherit; }
 .annotation-document a { color: var(--color-link, var(--color-progressive, #36c)); text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: 3px; cursor: text; }
+.annotation-document[data-link-modifier] a[data-inspect="link"] { cursor: pointer; }
 .annotation-document [data-inspect]:focus-visible { outline: 2px solid var(--border-color-progressive--focus, #36c); outline-offset: 3px; border-radius: 2px; }
 .annotation-document [data-inspect="reference"] { color: var(--color-link, var(--color-progressive, #36c)); font: .72em/1.2 system-ui, sans-serif; cursor: text; margin-inline: .12em; }
 .annotation-document :is(a, [data-inspect="reference"]):hover { color: var(--color-link--hover, #3056a9); }
@@ -156,32 +166,44 @@
 .annotation-highlight-bar [data-delete-highlight] { color: var(--color-base, #202122); background: transparent; border-color: transparent; }
 
 .annotation-comments-host { position: relative; }
+.annotation-mobile-comments-host { position: fixed; width: 0; height: 0; }
 .vector-feature-page-tools-pinned-disabled .annotation-left-pinned > .vector-page-tools-landmark,
 .vector-feature-appearance-pinned-clientpref-0 .annotation-left-pinned > .vector-appearance-landmark { display: none; }
 .annotation-comments { position: relative; width: 100%; color: var(--color-base, #202122); font: 14px/1.5 system-ui, sans-serif; }
 .annotation-comments[hidden], .annotation-comments [hidden] { display: none !important; }
 .annotation-comment-thread { position: absolute; inset-inline: 0; box-sizing: border-box; min-width: 0; border: 1px solid var(--comment-border); background: var(--comment-background); border-radius: 7px; overflow-wrap: anywhere; z-index: 2; }
-.annotation-comment-thread:hover { outline: 2px solid var(--comment-border); outline-offset: 0; }
-.annotation-comment-thread[data-color="red"] { --comment-border: #F2CEB6; --comment-background: var(--annotation-marker-red); }
-.annotation-comment-thread[data-color="yellow"] { --comment-border: #EEDAA8; --comment-background: var(--annotation-marker-yellow); }
-.annotation-comment-thread[data-color="green"] { --comment-border: #C9DBCD; --comment-background: var(--annotation-marker-green); }
-.annotation-comment-thread[data-color="blue"] { --comment-border: #BED9F6; --comment-background: var(--annotation-marker-blue); }
+.annotation-comment-thread[data-color="red"], .annotation-comment-connectors [data-color="red"] { --comment-border: #F2CEB6; --comment-background: var(--annotation-marker-red); }
+.annotation-comment-thread[data-color="yellow"], .annotation-comment-connectors [data-color="yellow"] { --comment-border: #EEDAA8; --comment-background: var(--annotation-marker-yellow); }
+.annotation-comment-thread[data-color="green"], .annotation-comment-connectors [data-color="green"] { --comment-border: #C9DBCD; --comment-background: var(--annotation-marker-green); }
+.annotation-comment-thread[data-color="blue"], .annotation-comment-connectors [data-color="blue"] { --comment-border: #BED9F6; --comment-background: var(--annotation-marker-blue); }
 .annotation-comments button { font: inherit; font-size: 11px; line-height: 1.5; border: 0; border-radius: 3px; padding: 1px 4px; color: inherit; background: transparent; cursor: pointer; }
 .annotation-comments button:enabled:hover { text-decoration: underline; }
-.annotation-comments button:focus-visible, .annotation-comment-text:focus-visible { outline: 2px solid var(--border-color-progressive--focus, #36c); outline-offset: 2px; }
+.annotation-comments button:focus-visible, .annotation-comment-text:focus-visible, .annotation-comment-node[data-resolved]:focus-visible { outline: 2px solid var(--border-color-progressive--focus, #36c); outline-offset: 2px; }
 .annotation-comments button:disabled { color: var(--color-disabled, #72777d); opacity: .65; cursor: default; text-decoration: none; }
+.annotation-close-confirm { max-width: 28rem; padding: 24px; border: 1px solid var(--border-color-subtle, #c8ccd1); border-radius: 8px; background: var(--background-color-base, #fff); color: var(--color-base, #202122); }
+.annotation-close-confirm::backdrop { background: #0005; }
+.annotation-close-confirm button { margin-inline-end: 12px; }
 .annotation-comment-body { display: flex; flex-direction: column; min-width: 0; padding: 12px 10px; }
-.annotation-comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 6px; font-size: 11px; line-height: 1.4; }
+.annotation-comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 6px; }
+.annotation-comment-meta, .annotation-resolved-summary .annotation-comment-author { font-size: 11px; line-height: 1.4; }
 .annotation-comment-author { font-weight: 600; overflow-wrap: anywhere; }
 .annotation-highlight-attribution { position: absolute; inset-inline: -1px; bottom: 100%; margin: 0; padding-bottom: 2px; color: var(--color-subtle, #54595d); font-size: 11px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; }
 .annotation-comment-thread:hover > .annotation-highlight-attribution { opacity: 1; }
 .annotation-comment-date { color: var(--color-subtle, #54595d); }
 .annotation-comment-text { white-space: pre-wrap; min-height: 21px; cursor: text; }
+.annotation-comment-text :is(p, pre, blockquote, ul, ol, dl) { margin: 0; }
+.annotation-comment-text [data-break-before="paragraph"] { margin-top: .65em; }
+.annotation-comment-text [data-break-before="line"] { display: block; }
+.annotation-comment-text :is(ul, ol) { padding-left: 1.5em; }
+.annotation-comment-text :is(pre, code) { font-family: ui-monospace, monospace; font-size: .92em; background: transparent; color: inherit; }
+.annotation-comment-text a { color: var(--color-link, #36c); }
 .annotation-comment-thread[data-crowded]:not(:hover):not(:has(:focus-visible)) .annotation-comment-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.annotation-comment-thread[data-crowded]:not(:hover):not(:has(:focus-visible)) .annotation-comment-text * { display: inline; margin: 0; padding: 0; }
 .annotation-comment-actions { order: -1; display: none; justify-content: flex-end; gap: 2px; margin-bottom: 6px; opacity: 0; pointer-events: none; }
 .annotation-comment-reply { display: none; align-self: flex-end; margin-top: 6px; opacity: 0; pointer-events: none; }
 .annotation-comment-body:hover > :is(.annotation-comment-actions, .annotation-comment-reply),
 .annotation-comment-body.annotation-comment-action-hover > :is(.annotation-comment-actions, .annotation-comment-reply),
+.annotation-comment-node[data-resolved]:focus-visible > .annotation-comment-body > :is(.annotation-comment-actions, .annotation-comment-reply),
 .annotation-comment-body:has(:focus-visible) > :is(.annotation-comment-actions, .annotation-comment-reply) { display: flex; opacity: 1; pointer-events: auto; }
 .annotation-comment-replies { margin: 0 4px 6px 12px; padding-left: 3px; border-left: 1px solid var(--border-color-base, #a2a9b1); min-width: 0; }
 .annotation-comments .annotation-comment-editor { margin: 0; padding-bottom: 8px; }
@@ -192,9 +214,10 @@
   .annotation-comment-thread:not(:hover):not(:has(:focus-visible)) > .annotation-comment-content:has(> .annotation-comment-node) > .annotation-comment-placeholder { display: none; }
 }
 .annotation-comment-connectors { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; z-index: 1; }
-.annotation-comment-connectors path { fill: none; stroke-width: 1.5; }
-.annotation-comment-connectors path[data-comment-hovered] { stroke-width: 2.5; }
-.annotation-comment-highlight-outline { fill: none; stroke-width: 2; }
+.annotation-comment-connectors path { fill: none; stroke-width: 1.5; stroke: var(--comment-border); }
+.annotation-comments[data-engaged] > .annotation-comment-thread:not([data-engaged]), .annotation-comment-connectors[data-engaged] > path:not([data-engaged]) { opacity: .35; }
+.annotation-comment-highlight-outline { fill: none; stroke-width: 1; stroke: var(--comment-border); }
+.annotation-comment-connectors [data-all-resolved] { --comment-border: var(--border-color-base, #a2a9b1); }
 .annotation-comments[data-layout="floating"] { position: fixed; display: flex; flex-direction: column; box-sizing: border-box; width: 280px; min-height: 0; z-index: 1002; overflow: visible; background: transparent; border-radius: 0; box-shadow: none; }
 .annotation-comments[data-layout="floating"] .annotation-comment-thread { position: relative; top: auto; display: flex; flex-direction: column; flex-shrink: 1; min-height: 0; background: linear-gradient(var(--comment-background), var(--comment-background)), var(--background-color-base, #fff); box-shadow: 0 4px 16px #0002; }
 /* The view restores scroll offsets; native anchoring must not add a second hover-row adjustment. */
@@ -210,3 +233,20 @@
 }
 
 .annotation-comment-content > .annotation-comment-node + .annotation-comment-node { border-top: 1px solid var(--comment-border); }
+.annotation-comment-node[data-resolved] { color: var(--color-subtle, #54595d); background: var(--background-color-neutral-subtle, #f8f9fa); border-radius: inherit; }
+.annotation-resolved-summary { display: none; align-items: baseline; gap: 8px; min-width: 0; line-height: 21px; }
+.annotation-comment-node[data-resolved]:not(:hover, :focus-visible, :has(:focus-visible), [data-comment-anchored], [data-resolved-editing]) > .annotation-comment-body { padding: 6px 10px; }
+.annotation-comment-node[data-resolved]:not(:hover, :focus-visible, :has(:focus-visible), [data-comment-anchored], [data-resolved-editing]) > .annotation-comment-body > .annotation-resolved-summary { display: flex; }
+.annotation-comment-node[data-resolved]:not(:hover, :focus-visible, :has(:focus-visible), [data-comment-anchored], [data-resolved-editing]) > .annotation-comment-body > :not(.annotation-resolved-summary),
+.annotation-comment-node[data-resolved]:not(:hover, :focus-visible, :has(:focus-visible), [data-comment-anchored], [data-resolved-editing]) > .annotation-comment-replies { display: none; }
+.annotation-resolved-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-decoration: line-through; }
+.annotation-comment-node[data-comment-anchored] .annotation-comment-text { white-space: pre-wrap !important; overflow: visible !important; }
+.annotation-comment-node[data-comment-anchored] .annotation-comment-text * { display: revert !important; }
+.annotation-resolved-summary .annotation-comment-author { flex-shrink: 0; max-width: 40%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.annotation-resolution-toggle { white-space: nowrap; }
+.annotation-resolution-toggle > span:first-child { font-weight: 700; }
+.annotation-resolution-toggle > span + span, .annotation-resolution-toggle:enabled:hover > span:first-child { display: none; }
+.annotation-resolution-toggle:enabled:hover > span + span { display: inline; }
+.annotation-comment-thread[data-all-resolved] { border-color: var(--border-color-base, #a2a9b1); background: var(--background-color-neutral-subtle, #f8f9fa); }
+.annotation-comment-thread[data-all-resolved] > .annotation-comment-content > .annotation-comment-placeholder { display: none; }
+.annotation-comment-content:has(> .annotation-comment-node) > .annotation-comment-placeholder { border-top: 1px solid var(--comment-border); border-radius: 0; }

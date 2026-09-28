@@ -3,7 +3,7 @@ import { findAnnotationComment, type AnnotationActor } from './permissions';
 import type { AnnotationComment, AnnotationRemoval, HighlightAction, HighlightAnnotation, SourceAnchor } from './types';
 import { canonicalJson } from './record-json';
 import { identifier, validateRecords } from './record-validation';
-import { compareStamp, compareText, recordKey, type AnnotationRecord, type RecordSet, type RecordUpdate, type Stamp, type CommentRecord, type HighlightRecord, type BodyRecord, type AppearanceRecord, type RemovalRecord } from './record-types';
+import { compareStamp, compareText, recordKey, type AnnotationRecord, type RecordSet, type RecordUpdate, type Stamp, type CommentRecord, type HighlightRecord, type BodyRecord, type AppearanceRecord, type RemovalRecord, type ResolutionRecord } from './record-types';
 export type { RecordSet, RecordUpdate } from './record-types';
 const required = <T>(value: T | undefined): T => { if (value === undefined) throw new Error('Missing record dependency.'); return value; };
 
@@ -28,10 +28,12 @@ export class AnnotationDocument {
     records['c/' + comment.id] = { kind: 'comment', stamp: this.stamp(), highlight, parent, author: comment.author, createdAt: comment.createdAt,
       body: { text: comment.text, ...(comment.editedAt ? { editedAt: comment.editedAt } : {}), ...(comment.editedBy ? { editedBy: comment.editedBy } : {}) } };
     if (comment.resolved) { const record = this.removal('resolve', 'c/' + comment.id, comment.resolved); records[recordKey(record)] = record; }
+    if (comment.resolution) { const record: ResolutionRecord = { kind: 'resolution', target: 'c/' + comment.id, stamp: this.stamp(), ...comment.resolution }; records[recordKey(record)] = record; }
     for (const reply of comment.replies) this.insertComment(records, highlight, 'c/' + comment.id, reply);
   }
   private insertHighlight(records: Record<string, AnnotationRecord>, annotation: HighlightAnnotation): void {
     records['h/' + annotation.id] = { kind: 'highlight', stamp: this.stamp(), source: [annotation.anchor.start, annotation.anchor.end],
+      ...(annotation.anchor.target ? { target: annotation.anchor.target } : {}),
       ...(annotation.author ? { author: annotation.author } : {}), ...(annotation.createdAt ? { createdAt: annotation.createdAt } : {}),
       appearance: { color: annotation.color, ...(annotation.editedAt && annotation.editedBy ? { editedAt: annotation.editedAt, editedBy: annotation.editedBy } : {}) } };
     if (annotation.deleted) { const record = this.removal('delete', 'h/' + annotation.id, annotation.deleted); records[recordKey(record)] = record; }
@@ -48,7 +50,7 @@ export class AnnotationDocument {
   snapshot(): readonly HighlightAnnotation[] {
     if (this.cached) return this.cached;
     const highlights = new Map<string, HighlightRecord>(), comments = new Map<string, CommentRecord>();
-    const changes = new Map<string, BodyRecord | AppearanceRecord | RemovalRecord>();
+    const changes = new Map<string, BodyRecord | AppearanceRecord | RemovalRecord | ResolutionRecord>();
     const children = new Map<string, string[]>();
     for (const [key, record] of Object.entries(this.records)) {
       if (record.kind === 'highlight') highlights.set(key, record);
@@ -64,16 +66,18 @@ export class AnnotationDocument {
     const removal = (record: RemovalRecord): AnnotationRemoval => ({ by: record.by, at: record.at, ...(record.reason ? { reason: record.reason } : {}) });
     const readComment = (key: string): AnnotationComment => {
       const initial = required(comments.get(key)), edit = changes.get(key + '/body'), resolve = changes.get(key + '/resolve');
+      const resolution = changes.get(key + '/resolution');
       const body = edit?.kind === 'body' ? { text: edit.text, editedBy: edit.by, editedAt: edit.at } : initial.body;
       return { id: key.slice(2), author: initial.author, createdAt: initial.createdAt, ...body,
         ...(resolve?.kind === 'resolve' ? { resolved: removal(resolve) } : {}),
+        ...(resolution?.kind === 'resolution' ? { resolution: { resolved: resolution.resolved, by: resolution.by, at: resolution.at } } : {}),
         replies: (children.get(JSON.stringify([initial.highlight, key])) ?? []).map(readComment) };
     };
     const snapshot = [...highlights].sort(([a], [b]) => compareText(a, b)).map(([key, initial]): HighlightAnnotation => {
       const edit = changes.get(key + '/appearance'), deleted = changes.get(key + '/delete');
       const appearance = edit?.kind === 'appearance' ? { color: edit.color, editedBy: edit.by, editedAt: edit.at } : initial.appearance;
       const threads = (children.get(JSON.stringify([key, null])) ?? []).map(readComment);
-      return { id: key.slice(2), anchor: { unit: 'utf8-byte', start: initial.source[0], end: initial.source[1] },
+      return { id: key.slice(2), anchor: { unit: 'utf8-byte', start: initial.source[0], end: initial.source[1], ...(initial.target ? { target: initial.target } : {}) },
         ...(initial.author ? { author: initial.author } : {}), ...(initial.createdAt ? { createdAt: initial.createdAt } : {}), ...appearance,
         ...(deleted?.kind === 'delete' ? { deleted: removal(deleted) } : {}), ...(threads.length ? { threads } : {}) };
     });
@@ -111,7 +115,7 @@ export class AnnotationDocument {
       if (action.type === 'add-highlight') this.insertHighlight(records, next);
       else if (action.type === 'add-comment') this.insertComment(records, 'h/' + id, action.parentId ? 'c/' + action.parentId : null, required(findAnnotationComment(next, action.comment.id)));
       else {
-        let record: BodyRecord | AppearanceRecord | RemovalRecord;
+        let record: BodyRecord | AppearanceRecord | RemovalRecord | ResolutionRecord;
         const reason = 'reason' in action && action.reason?.trim() ? { reason: action.reason.trim() } : {};
         if (action.type === 'edit-comment') {
           const comment = required(findAnnotationComment(next, action.commentId));
@@ -119,7 +123,8 @@ export class AnnotationDocument {
         } else if (action.type === 'recolor-highlight') {
           if (next.editedAt === undefined) return { generation: this.generation, records: {} };
           record = { kind: 'appearance', target: 'h/' + id, stamp: this.stamp(), by, at: next.editedAt, color: next.color };
-        } else if (action.type === 'delete-highlight') record = this.removal('delete', 'h/' + id, required(next.deleted));
+        } else if (action.type === 'set-thread-resolution') record = { kind: 'resolution', target: 'c/' + action.commentId, stamp: this.stamp(), by, at: action.at, resolved: action.resolved };
+        else if (action.type === 'delete-highlight') record = this.removal('delete', 'h/' + id, required(next.deleted));
         else record = this.removal('resolve', 'c/' + action.commentId, required(required(findAnnotationComment(next, action.commentId)).resolved));
         records[recordKey(record)] = record;
       }

@@ -40,6 +40,72 @@ async function inPage(source, callback, renderOptions = {}, beforeRender) {
 }
 const toolbar = page => page.locator('[data-annotation-toolbar]');
 const choose = (page, color) => toolbar(page).getByRole('button', { name: `${({ Red: '紅色', Yellow: '黃色', Green: '綠色', Blue: '藍色' })[color]}高亮`, exact: true }).click();
+
+test('heading and paragraph symbols are distinct persistent targets that highlight only the symbol', async () => {
+  const source = '== 標題 ==\n段落[[頁面|連結]]。\n\n* 項目一\n* 項目二';
+  await inPage(source, async page => {
+    const heading = page.locator('.annotation-document h2'), paragraph = page.locator('.annotation-document p').first();
+    await heading.hover(); await heading.getByRole('button', { name: '批註整個標題' }).click();
+    assert.equal(await page.evaluate(() => markerView.selection.sourceText), '== 標題 ==');
+    const selected = await heading.locator('[data-block-target]').evaluate(el => {
+      const style = getComputedStyle(el), box = el.getBoundingClientRect();
+      return { width: box.width, height: box.height, background: style.backgroundColor, border: style.boxShadow };
+    });
+    assert.ok(selected.width >= 24 && selected.height >= 24);
+    assert.notEqual(selected.background, 'rgba(0, 0, 0, 0)');
+    assert.notEqual(selected.border, 'none');
+    await choose(page, 'Yellow');
+    await paragraph.hover(); await paragraph.getByRole('button', { name: '批註整個段落或區塊' }).click();
+    assert.equal(await page.evaluate(() => markerView.selection.quote), '段落連結。');
+    await choose(page, 'Blue');
+    assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations.map(annotation => ({ target: annotation.anchor.target, painted: markerView.restoreRange(annotation.anchor).toString() }))), [{ target: 'block', painted: '#' }, { target: 'block', painted: '¶' }]);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations.every(annotation => {
+      const symbol = markerView.restoreRange(annotation.anchor).commonAncestorContainer;
+      const box = symbol.getBoundingClientRect(), glyphRange = document.createRange(); glyphRange.selectNodeContents(symbol);
+      const glyph = glyphRange.getBoundingClientRect();
+      const painted = [...document.querySelectorAll('.annotation-highlight-backgrounds > g')].find(group => group.dataset.annotationMarker === annotation.id).firstElementChild;
+      const rect = painted.getBoundingClientRect();
+      return box.width >= 24 && box.height >= 24 && box.width > glyph.width
+        && Math.abs(rect.left - box.left) < 1 && Math.abs(rect.top - box.top) < 1
+        && Math.abs(rect.width - box.width) < 1 && Math.abs(rect.height - box.height) < 1 && painted.getAttribute('rx') === '4';
+    })), true, 'both symbols paint their padded boxes rather than their glyphs');
+    await page.mouse.move(0, 0);
+    assert.equal(await paragraph.locator('[data-block-target]').evaluate(element => getComputedStyle(element).opacity), '1');
+    const paddedCorner = await paragraph.locator('[data-block-target]').boundingBox();
+    await page.mouse.move(paddedCorner.x + 3, paddedCorner.y + 3); await toolbar(page).waitFor({ state: 'visible' });
+    assert.equal(await toolbar(page).getAttribute('aria-label'), '更改高亮顏色');
+    await choose(page, 'Red');
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations.length), 2);
+    const from = source.indexOf('段落'), to = source.indexOf('。') + 1;
+    await select(page, from, to); await choose(page, 'Green');
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations.length), 3, 'the same extent may have separate text and block highlights');
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations[2].anchor.target), undefined);
+    assert.equal(await page.evaluate(() => originalRuns.every(node => markerView.element.contains(node))), true);
+    await page.evaluate(() => {
+      const saved = markerView.highlighting.annotations, projection = markerView.projection;
+      markerView.destroy(); markerView.element.remove();
+      window.markerView = annotationLab.annotation.createAnnotationView(document, projection, { highlighting: { initial: saved }, commentAuthor: 'Example' });
+      document.querySelector('#test-content').append(markerView.element);
+    });
+    assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations.slice(0, 2).map(annotation => markerView.restoreRange(annotation.anchor).toString())), ['#', '¶']);
+  });
+});
+test('block symbols remain reachable beside scrolling code', async () => {
+  await inPage(' ' + 'wide code '.repeat(60), async page => {
+    const code = page.locator('.annotation-document pre').first();
+    await code.evaluate(element => { element.style.whiteSpace = 'pre'; element.style.width = '160px'; });
+    await code.hover();
+    const symbol = page.locator('.annotation-block-target').first();
+    assert.equal(await symbol.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return box.width >= 24 && box.height >= 24 && document.elementFromPoint(box.left + 3, box.top + 3) === element;
+    }), true, 'the target is not clipped by the code scroller');
+    await symbol.click(); await choose(page, 'Blue');
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations[0].anchor.target), 'block');
+  });
+});
+
 async function separatePopups(page) {
   await toolbar(page).waitFor({ state: 'visible' });
   await page.locator('[data-annotation-popup]').waitFor({ state: 'visible' });
@@ -145,7 +211,7 @@ test('hover permits recoloring and deletion, including crossing the gap to the b
     await toolbar(page).getByRole('button', { name: '刪除高亮' }).click();
     assert.equal(await page.evaluate(() => markerView.highlighting.annotations[0].deleted.by), 'Example');
     assert.deepEqual(await page.evaluate(() => markerActions.map(action => action.type)), ['add-highlight', 'recolor-highlight', 'delete-highlight']);
-    assert.equal(await page.evaluate(() => [...CSS.highlights.keys()].some(name => name.startsWith('reviewtool-marker-'))), false);
+    assert.equal(await page.locator('[data-annotation-marker]').count(), 0);
   });
 });
 
@@ -188,13 +254,37 @@ test('cross-format and multiline markers preserve source slices; overlap hover e
     await select(page, 0, 3); await choose(page, 'Red');
     await hover(page, 1);
     assert.equal(await toolbar(page).getByRole('button', { name: '紅色高亮' }).getAttribute('aria-pressed'), 'true');
-    const priorities = await page.evaluate(() => [...CSS.highlights].filter(([name]) => name.startsWith('reviewtool-marker-')).map(([, value]) => value.priority));
-    assert.deepEqual(priorities, [0, 1]);
+    const paintOrder = await page.evaluate(() => [...markerView.element.querySelectorAll('[data-annotation-marker]')].map(group => group.dataset.annotationMarker));
+    assert.deepEqual(paintOrder, await page.evaluate(() => markerView.highlighting.annotations.map(annotation => annotation.id)));
     await toolbar(page).getByRole('button', { name: '刪除高亮' }).click();
     await hover(page, 0);
     assert.equal(await toolbar(page).getByRole('button', { name: '藍色高亮' }).getAttribute('aria-pressed'), 'true');
     const restored = await page.evaluate(() => markerView.readRange(markerView.restoreRange(markerView.highlighting.annotations[0].anchor)));
     assert.equal(restored.sourceText, source);
+  });
+});
+
+test('cached highlight backgrounds respect scrolling code clips and remain below the original text', async () => {
+  const source = ' ' + 'Long code fragment '.repeat(35);
+  await inPage(source, async page => {
+    await page.locator('.annotation-document pre').evaluate(element => { element.style.cssText = 'width:140px;white-space:pre;overflow:auto'; });
+    await select(page, 1, source.length); await choose(page, 'Green');
+    const check = async () => {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const measured = await page.evaluate(() => {
+        const pre = markerView.element.querySelector('pre'), box = pre.getBoundingClientRect();
+        const rectangles = [...markerView.element.querySelectorAll('.annotation-highlight-backgrounds rect')].map(rect => rect.getBoundingClientRect());
+        return { count: rectangles.length, clipped: rectangles.every(rect => rect.left >= box.left - 1 && rect.right <= box.right + 1 && rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1),
+          sourceLayer: getComputedStyle(pre.querySelector('[data-source-run]')).zIndex,
+          highlightLayer: getComputedStyle(markerView.element.querySelector('.annotation-highlight-backgrounds')).zIndex,
+        };
+      });
+      assert.ok(measured.count > 0); assert.equal(measured.clipped, true);
+      assert.ok(Number(measured.sourceLayer) > Number(measured.highlightLayer));
+    };
+    await check();
+    await page.locator('.annotation-document pre').evaluate(element => { element.scrollLeft = 150; }); await check();
+    await page.setViewportSize({ width: 800, height: 700 }); await check();
   });
 });
 
@@ -255,7 +345,7 @@ test('snapshot replacement is transactional and destroying one view preserves an
       }
       const second = annotationLab.annotation.createAnnotationView(document, markerView.projection, { highlighting: { initial } });
       document.getElementById('test-content').append(second.element);
-      const count = () => [...CSS.highlights.keys()].filter(name => name.startsWith('reviewtool-marker-')).length;
+      const count = () => document.querySelectorAll('[data-annotation-marker]').length;
       const both = count();
       markerView.destroy(); markerView.destroy();
       const one = count(), secondUnchanged = second.highlighting.annotations[0].id === initial[0].id;
@@ -407,12 +497,15 @@ test('Wikipedia markers and selections preserve text colors in light/dark modes 
       await page.mouse.move(point.x + 8, point.y + 10);
       await toolbar(page).waitFor({ state: 'visible' });
       const markers = await page.evaluate(() => {
-        return [...CSS.highlights].filter(([name]) => name.startsWith('reviewtool-marker-')).map(([name, highlight]) => {
-          const range = [...highlight][0], node = range.startContainer;
+        const view = annotationPageLab.view;
+        return view.highlighting.annotations.map(annotation => {
+          const range = view.restoreRange(annotation.anchor), node = range.startContainer;
           const element = node.nodeType === 3 ? node.parentElement : node;
-          const original = getComputedStyle(element), marked = getComputedStyle(element, `::highlight(${name})`);
+          const group = [...view.element.querySelectorAll('[data-annotation-marker]')].find(group => group.dataset.annotationMarker === annotation.id);
+          const original = getComputedStyle(element), marked = getComputedStyle(group);
+          const background = marked.fill.replace('rgb(', 'rgba(').replace(')', `, ${marked.opacity})`);
           const box = range.getBoundingClientRect();
-          return { text: range.toString(), originalColor: original.color, background: marked.backgroundColor, link: Boolean(element.closest('a')), rect: { x: box.x, y: box.y, width: box.width, height: box.height } };
+          return { text: range.toString(), originalColor: original.color, background, link: Boolean(element.closest('a')), rect: { x: box.x, y: box.y, width: box.width, height: box.height } };
         });
       });
       assert.equal(markers.length, 4);
