@@ -4,6 +4,12 @@ import { openReviewManagementDialog } from "../dialogs/review_management";
 import { openCheckWritingDialog } from "../dialogs/check_writing";
 import { appendButtonToHeading, createMwEditSectionButton, getHeadingTitle } from "./utils";
 
+const assessmentPages: Readonly<Record<string, string>> = {
+	'Wikipedia:優良條目評選': 'good',
+	'Wikipedia:典范条目评选': 'featured',
+	'Wikipedia:特色列表评选': 'featured_list'
+};
+
 /**
  * 根據討論頁名稱推斷對應的評審條目標題。
  * @param pageName {string} 討論頁名稱
@@ -50,40 +56,32 @@ function deriveSubjectArticleTitle(pageName: string): string {
 }
 
 /**
- * 根據條目標題與小節標題推斷可能的評級類型。
- * @param articleTitle {string} 評審條目標題
+ * 根據當前頁面與小節標題推斷可能的評級類型。
+ * @param pageTitle {string} 當前頁面標題
  * @param sectionTitle {string} 當前頁面的小節標題
  * @returns {string | null} 評級類型或 null
  */
-function decideAssessmentType(articleTitle: string, sectionTitle: string): string | null {
-	let assessmentType: string | null = null;
+function decideAssessmentType(pageTitle: string, sectionTitle: string): string | null {
+	const pageAssessment = assessmentPages[pageTitle];
+	if (pageAssessment) return pageAssessment;
 	if (state.inTalkPage) {
 		const sectionRegexes = getSectionRegexes();
 		for (const [key, regex] of Object.entries(sectionRegexes)) {
 			if (regex.test(sectionTitle)) {
-				assessmentType = key;
-				break;
+				return key;
 			}
 		}
-	} else if (articleTitle === 'Wikipedia:Wikipedia:優良條目評選') {
-		assessmentType = 'good';
-	} else if (articleTitle === 'Wikipedia:Wikipedia:典范条目评选') {
-		assessmentType = 'featured';
-	} else if (articleTitle === 'Wikipedia:Wikipedia:特色列表评选') {
-		assessmentType = 'featured_list';
 	}
-	return assessmentType;
+	return null;
 }
 
 /**
  * 創建「評審管理」按鈕元素。
  * @param articleTitle {string} 評審條目標題
- * @param sectionTitle {string} 當前頁面的小節標題
+ * @param assessmentType {string | null} 評級類型
  * @returns {HTMLElement} 「評審管理」按鈕元素
  */
-function createReviewManagementButton(articleTitle: string, sectionTitle: string): HTMLElement {
-	const assessmentType = decideAssessmentType(articleTitle, sectionTitle);
-
+function createReviewManagementButton(articleTitle: string, assessmentType: string | null): HTMLElement {
 	return createMwEditSectionButton(state.convByVar({
 		hant: '管理評審', hans: '管理评审'
 	}), state.convByVar({ hant: '使用 ReviewTool 小工具管理評審', hans: '使用 ReviewTool 小工具管理评审' }), () => {
@@ -96,12 +94,10 @@ function createReviewManagementButton(articleTitle: string, sectionTitle: string
 /**
  * 創建「檢查文筆」按鈕元素。
  * @param articleTitle {string} 評審條目標題
- * @param sectionTitle {string} 當前頁面的小節標題
+ * @param assessmentType {string | null} 評級類型
  * @returns {HTMLElement} 「檢查文筆」按鈕元素
  */
-function createCheckWritingButton(articleTitle: string, sectionTitle: string): HTMLElement {
-	const assessmentType = decideAssessmentType(articleTitle, sectionTitle);
-
+function createCheckWritingButton(articleTitle: string, assessmentType: string | null): HTMLElement {
 	return createMwEditSectionButton(state.convByVar({
 		hant: '檢查文筆', hans: '检查文笔'
 	}), state.convByVar({ hant: '使用 ReviewTool 小工具檢查文筆', hans: '使用 ReviewTool 小工具检查文笔' }), () => {
@@ -137,9 +133,10 @@ export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: s
 		relevantHeadings.forEach(heading => {
 			const sectionTitle = getHeadingTitle(heading);
 			if (!sectionTitle) return;
-			appendButtonToHeading(heading, createReviewManagementButton(articleTitle, sectionTitle));
-			appendButtonToHeading(heading, createCheckWritingButton(articleTitle, sectionTitle));
-			findAndAppendCheckWritingButton(heading, articleTitle, sectionTitle);
+			const assessmentType = decideAssessmentType(pageName, sectionTitle);
+			appendButtonToHeading(heading, createReviewManagementButton(articleTitle, assessmentType));
+			appendButtonToHeading(heading, createCheckWritingButton(articleTitle, assessmentType));
+			findAndAppendCheckWritingButton(heading, articleTitle, assessmentType);
 		});
 	} else { // 評選頁面
 		state.inTalkPage = false;
@@ -147,9 +144,10 @@ export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: s
 		allSectionHeadings.forEach(heading => {
 			const sectionTitle = getHeadingTitle(heading);
 			if (!sectionTitle) return;
-			appendButtonToHeading(heading, createReviewManagementButton(sectionTitle, sectionTitle));
-			appendButtonToHeading(heading, createCheckWritingButton(sectionTitle, sectionTitle));
-			findAndAppendCheckWritingButton(heading, sectionTitle, sectionTitle);
+			const assessmentType = decideAssessmentType(pageName, sectionTitle);
+			appendButtonToHeading(heading, createReviewManagementButton(sectionTitle, assessmentType));
+			appendButtonToHeading(heading, createCheckWritingButton(sectionTitle, assessmentType));
+			findAndAppendCheckWritingButton(heading, sectionTitle, assessmentType);
 		});
 	}
 	// 標記已添加按鈕
@@ -163,16 +161,16 @@ export function addTalkPageReviewToolButtonsToDOM(namespace: number, pageName: s
  * 在指定的 mw-heading2 元素下尋找所有 mw-heading 元素，並在符合「文筆」標題的章節中附加「檢查文筆」按鈕。
  * @param heading2 {Element} mw-heading2 元素
  * @param articleTitle {string} 評審條目標題
- * @param sectionTitle {string} 當前頁面的小節標題
+ * @param assessmentType {string | null} 評級類型
  */
-function findAndAppendCheckWritingButton(heading2: Element, articleTitle: string, sectionTitle: string): void {
+function findAndAppendCheckWritingButton(heading2: Element, articleTitle: string, assessmentType: string | null): void {
 	// All headings between this mw-heading2 and the next mw-heading2
 	let sibling = heading2.nextElementSibling;
 	while (sibling && !sibling.classList.contains('mw-heading2')) {
 		if (sibling.classList.contains('mw-heading')) {
 			const secTitle = getHeadingTitle(sibling);
 			if (secTitle && /文[筆笔]/.test(secTitle)) {
-				appendButtonToHeading(sibling, createCheckWritingButton(articleTitle, sectionTitle));
+				appendButtonToHeading(sibling, createCheckWritingButton(articleTitle, assessmentType));
 			}
 		}
 		sibling = sibling.nextElementSibling;
