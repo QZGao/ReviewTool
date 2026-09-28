@@ -155,6 +155,25 @@ test('any logged-in user can resolve and reopen another author’s root without 
   });
 });
 
+test('comment permalinks copy the UUID and reveal a reply inside a resolved discussion without changing its status', async () => {
+  await inPage(async page => {
+    const thread = await mark(page, 'First passage'); await send(thread, 'Root');
+    const id = await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].id);
+    await act(page, id, '回覆'); await send(thread, 'Reply to link');
+    const reply = await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].replies[0].id);
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.copiedLink = value; } } }));
+    await act(page, reply, '複製評論連結');
+    assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), reply);
+    await act(page, id, '標記已解決');
+    assert.equal(await thread.locator('.annotation-comment-text').count(), 0);
+    assert.equal(await page.evaluate(id => commentView.comments.reveal(id), reply), true);
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.commentId), reply);
+    assert.equal(await body(page, reply).locator('.annotation-comment-text').textContent(), 'Reply to link');
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].resolution.resolved), true);
+    assert.equal(await page.evaluate(() => commentView.comments.reveal('missing')), false);
+  });
+});
+
 test('highlight attribution follows the original root author, preserves creation identity, and leaves legacy data unattributed', async () => {
   await inPage(async page => {
     const thread = await mark(page, 'First passage');

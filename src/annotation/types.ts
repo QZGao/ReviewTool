@@ -142,7 +142,7 @@ export interface RenderedView {
   /** Last selection made in this view; outside selections and popups do not clear it. */
   readonly selection: MappedSelection | null;
   readonly highlighting: HighlightingView | null;
-  readonly comments: { element: HTMLElement; readonly drafts: readonly CommentDraft[] } | null;
+  readonly comments: { element: HTMLElement; readonly drafts: readonly CommentDraft[]; reveal(id: string): Promise<boolean> } | null;
   clearSelection(): void;
   readRange(range: Range): MappedSelection | null;
   restoreRange(anchor: SourceAnchor): Range | null;
@@ -166,6 +166,7 @@ export interface RenderOptions {
   /** Current user's local MediaWiki group names. Moderator edits/removals require a reason. */
   commentUserGroups?: readonly string[];
   commentCanWrite?: boolean;
+  commentLink?: (id: string) => string;
   /** Host dialog for moderator reasons; live Wikipedia uses Codex. Null means Cancel. */
   requestModerationReason?: ModerationReasonPrompt;
   requestCloseConfirmation?: (signal: AbortSignal) => Promise<boolean>;

@@ -230,6 +230,10 @@
 .annotation-comment-node[data-resolved]:first-child { margin-top: 0; }
 .annotation-resolved-summary { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; min-width: 0; line-height: 21px; }
 .annotation-resolved-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-decoration: line-through; }
+.annotation-resolved-link { position: absolute; top: 0; right: 0; opacity: 0; }
+.annotation-comment-node:hover > .annotation-resolved-link { opacity: 1; }
+.annotation-comment-node[data-comment-anchored] .annotation-comment-text { white-space: pre-wrap !important; overflow: visible !important; }
+.annotation-comment-node[data-comment-anchored] .annotation-comment-text * { display: revert !important; }
 .annotation-resolved-summary .annotation-comment-author { flex-shrink: 0; max-width: 40%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .annotation-comments .annotation-resolution-toggle { position: absolute; right: 0; bottom: 100%; padding: 0 2px; white-space: nowrap; font-size: 11px; line-height: 16px; background: var(--background-color-base, #fff); }
 .annotation-resolution-toggle > span + span, .annotation-resolution-toggle:enabled:hover > span:first-child { display: none; }

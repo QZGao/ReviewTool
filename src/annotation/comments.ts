@@ -3,11 +3,12 @@ import { commentLayout } from './comment-layout';
 import type { AnnotationComment, CommentDraft, HighlightAnnotation, ModerationReasonPrompt, RenderedView, RenderOptions } from './types';
 import type { PopupLayout } from './popup-layout';
 import { textRects } from './range-rects';
-import { canEditComment, canResolveThread, findAnnotationComment, needsModerationReason, requestActionReason, type ModerationTarget } from './permissions';
+import { canEditComment, canResolveThread, findAnnotationComment, findComment, needsModerationReason, requestActionReason, type ModerationTarget } from './permissions';
 
 import { threadRoots, annotationVisible } from './annotation-state';
 import { renderCommentMarkup } from './comment-markup';
 import { confirmThreadClose } from './confirm-close';
+import { annotationCommentUrl } from './view-url';
 
 type Draft = { text: string; kind: 'new' } | { text: string; kind: 'reply' | 'edit'; commentId: string; reason?: string };
 
@@ -45,6 +46,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   const draftKey = (draft: CommentDraft) => `${draft.annotationId}/${draft.kind}/${'commentId' in draft ? draft.commentId : ''}`;
   const retainedDrafts = new Map(initialDrafts.map(draft => [draftKey(draft), draft]));
   const threads = new Map<string, ReturnType<typeof thread>>();
+  const expandedRoots = new Set<string>();
   const readDrafts = (): readonly CommentDraft[] => Object.freeze([...retainedDrafts.values(), ...[...threads.values()].flatMap(thread => thread.drafts)].map(draft => Object.freeze({ ...draft })));
   const draftsChanged = () => onDraftsChange?.(readDrafts());
   const layout = commentLayout(doc, view, column, container, () => [...threads.values()].map(item => ({ element: item.element, anchor: item.annotation.anchor, revision: item.revision })), popups);
@@ -160,9 +162,18 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
     };
     const message = (comment: AnnotationComment): HTMLElement => {
       const node = doc.createElement('div'); node.className = 'annotation-comment-node'; node.dataset.commentId = comment.id;
+      node.tabIndex = -1;
+      if (expandedRoots.has(comment.id)) node.dataset.commentAnchored = '';
+      const copyLink = button('#', async () => {
+        try {
+          const link = renderOptions.commentLink?.(comment.id) ?? annotationCommentUrl(doc.location.href, comment.id).href;
+          await win.navigator.clipboard.writeText(link); copyLink.title = messages.linkCopied;
+        } catch { copyLink.title = messages.linkCopyFailed; }
+      });
+      copyLink.title = messages.copyCommentLink; copyLink.setAttribute('aria-label', messages.copyCommentLink);
       const root = threadRoots(annotation).some(root => root.id === comment.id);
       const setResolution = (resolved: boolean) => state.dispatch({ type: 'set-thread-resolution', id: annotation.id, commentId: comment.id, resolved, at: new Date().toISOString() });
-      if (root && comment.resolution?.resolved && ![...drafts.values()].some(draft => 'commentId' in draft && hasComment(comment, draft.commentId))) {
+      if (root && comment.resolution?.resolved && !expandedRoots.has(comment.id) && ![...drafts.values()].some(draft => 'commentId' in draft && hasComment(comment, draft.commentId))) {
         node.dataset.resolved = '';
         const summary = doc.createElement('div'); summary.className = 'annotation-resolved-summary';
         const author = doc.createElement('span'); author.className = 'annotation-comment-author'; author.textContent = comment.author;
@@ -172,7 +183,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         const normal = doc.createElement('span'); normal.textContent = messages.resolved;
         const hover = doc.createElement('span'); hover.textContent = messages.unresolve;
         status.replaceChildren(normal, hover); status.disabled = renderOptions.commentCanWrite === false;
-        node.append(status); return node;
+        copyLink.classList.add('annotation-resolved-link'); node.append(status, copyLink); return node;
       }
       const editKey = 'edit/' + comment.id, replyKey = 'reply/' + comment.id;
       const edit = drafts.get(editKey);
@@ -183,7 +194,8 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
         // Keyboard focus offers the same expanded reading state as hover.
         text.tabIndex = 0;
         const actions = doc.createElement('div'); actions.className = 'annotation-comment-actions';
-        if (root && renderOptions.commentCanWrite !== false) actions.append(button(messages.markResolved, () => setResolution(true)));
+        actions.append(copyLink);
+        if (root && renderOptions.commentCanWrite !== false) actions.append(button(comment.resolution?.resolved ? messages.unresolve : messages.markResolved, () => setResolution(!comment.resolution?.resolved)));
         if (canResolveThread(annotation, comment.id, actor)) {
           actions.append(button(messages.resolve, async () => {
             const reason = await reasonFor({ type: 'resolve-comment', commentId: comment.id }, annotation);
@@ -236,6 +248,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       get annotation() { return annotation; },
       get revision() { return revision; },
       get drafts(): readonly CommentDraft[] { return [...drafts.values()].map(draft => Object.freeze({ ...draft, annotationId: annotation.id })); },
+      reveal() { render(); },
       update(next: HighlightAnnotation) {
         annotation = next; element.dataset.color = next.color;
         const nextSignature = JSON.stringify([next.author ?? null, threadRoots(next)]);
@@ -262,6 +275,24 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   return {
     element: container,
     get drafts(): readonly CommentDraft[] { return readDrafts(); },
+    async reveal(id: string): Promise<boolean> {
+      const annotation = state.annotations.find(item => annotationVisible(item) && findAnnotationComment(item, id));
+      const root = annotation && threadRoots(annotation).find(root => !root.resolved && findComment(root, id));
+      if (!annotation || !root) return false;
+      expandedRoots.add(root.id); threads.get(annotation.id)?.reveal();
+      const range = view.restoreRange(annotation.anchor), first = range && textRects(range, doc)[0];
+      if (first) win.scrollBy({ top: first.top - win.innerHeight / 3, behavior: 'instant' });
+      await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
+      if (controller.signal.aborted) return false;
+      const anchor = range && textRects(range, doc)[0];
+      if (anchor) layout.activate(annotation.id, anchor);
+      await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
+      if (controller.signal.aborted) return false;
+      const target = [...container.querySelectorAll<HTMLElement>('[data-comment-id]')].find(node => node.dataset.commentId === id);
+      if (!target) return false;
+      target.scrollIntoView({ block: 'nearest' }); target.focus({ preventScroll: true });
+      return true;
+    },
     activate,
     destroy() {
       cancel(); stop(); controller.abort(); layout.destroy(); for (const item of threads.values()) item.destroy(); threads.clear();

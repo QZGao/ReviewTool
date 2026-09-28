@@ -16,7 +16,7 @@ import state from '../state';
 import { buildAnnotationExport, downloadAnnotationExport } from './export';
 import { annotationMessages } from './i18n';
 import { showAnnotationLoading } from './loading-view';
-import { activationParameter, annotationViewUrl } from './view-url';
+import { activationParameter, annotationViewUrl, annotationCommentUrl, commentParameter } from './view-url';
 
 export { activationParameter } from './view-url';
 function dataPageTitle(title: string, revision: number): string {
@@ -45,7 +45,8 @@ export async function initLiveAnnotation(): Promise<boolean> {
   }, storageTitle);
   const updateUrl = (active: boolean) => {
     const url = new URL(location.href);
-    if (active) url.searchParams.set(activationParameter, '1'); else url.searchParams.delete(activationParameter);
+    if (active) url.searchParams.set(activationParameter, '1');
+    else { url.searchParams.delete(activationParameter); url.searchParams.delete(commentParameter); }
     history.replaceState(history.state, '', url.href);
   };
   const toggle = async () => {
@@ -68,7 +69,7 @@ export async function initLiveAnnotation(): Promise<boolean> {
     if (session === opened) navigation.update(true);
   };
   const navigation = addMainPageReviewToolButtonsToDOM(() => { void toggle(); }); navigation.update(false);
-  if (new URL(location.href).searchParams.get(activationParameter) === '1') await toggle();
+  if (new URL(location.href).searchParams.get(activationParameter) === '1' || new URL(location.href).searchParams.has(commentParameter)) await toggle();
   return true;
 }
 
@@ -175,6 +176,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       stopLoading();
       mount = mountWikipediaAnnotation(document, projection, {
         comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, commentCanWrite: canWrite, headingAnchors: headings, commentDrafts: drafts,
+        commentLink: id => annotationCommentUrl(location.href, id, revision).href,
         onCommentDraftsChange: snapshot => { if (!closed) void saveDrafts(snapshot); },
         ...(requestModerationReason ? { requestModerationReason } : {}),
         requestCloseConfirmation: async signal => {
@@ -185,6 +187,9 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
           try { if (!canWrite) throw new Error('Log in before saving annotations.'); shared.add(action); } catch (error) { mount?.view.highlighting?.replace(shared.annotations); failure({ hant: '修改未能儲存，請再試一次。', hans: '修改未能保存，请再试一次。' }, error); }
         } },
       });
+      const commentId = new URL(location.href).searchParams.get(commentParameter);
+      if (commentId && !await mount.view.comments?.reveal(commentId)) notify(messages.commentUnavailable, 'warn');
+      if (closed) return;
       exportItem = mw.util.addPortletLink('p-cactions', '#', state.convByVar({ hant: '匯出所有批註', hans: '导出所有批注' }), 'ca-reviewtool-export',
         state.convByVar({ hant: '匯出高亮、評論與回覆', hans: '导出高亮、评论和回复' }));
       exportItem?.querySelector('a')?.addEventListener('click', event => {
