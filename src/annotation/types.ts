@@ -58,7 +58,7 @@ export interface ProjectionOptions {
 }
 
 /** Persistent coordinates explicitly identify their unit. Revision identity belongs to the caller. */
-export interface SourceAnchor { unit: 'utf8-byte'; start: number; end: number }
+export interface SourceAnchor { unit: 'utf8-byte'; start: number; end: number; target?: 'block' }
 
 export interface MappedSelection {
   anchor: SourceAnchor;

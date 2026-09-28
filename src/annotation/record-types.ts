@@ -5,6 +5,7 @@ export interface Body { readonly text: string; readonly editedAt?: string; reado
 export interface Appearance { readonly color: HighlightColor; readonly editedAt?: string; readonly editedBy?: string }
 export interface HighlightRecord {
   readonly kind: 'highlight'; readonly stamp: Stamp; readonly source: readonly [number, number];
+  readonly target?: 'block';
   readonly author?: string; readonly createdAt?: string; readonly appearance: Appearance;
 }
 export interface CommentRecord {

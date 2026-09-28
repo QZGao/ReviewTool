@@ -174,6 +174,27 @@ test('comment permalinks copy the UUID and reveal a reply inside a resolved disc
   });
 });
 
+test('a paragraph target creates a source-bound comment whose connector and outline attach only to its symbol', async () => {
+  await inPage(async page => {
+    const paragraph = page.locator('.annotation-document p').first();
+    await paragraph.hover(); await paragraph.getByRole('button', { name: '批註整個段落或區塊' }).click();
+    await page.locator('[data-annotation-toolbar]').getByRole('button', { name: '藍色高亮', exact: true }).click();
+    const thread = page.locator('.annotation-comment-thread'); await send(thread, 'Comment on the whole paragraph');
+    await thread.locator('.annotation-comment-text').hover(); await frames(page);
+    assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].anchor.target), 'block');
+    assert.equal(await page.evaluate(() => commentView.restoreRange(commentView.highlighting.annotations[0].anchor).toString()), '¶');
+    assert.equal(await page.locator('.annotation-comment-highlight-outline rect').count(), 1);
+    assert.ok((await page.locator('.annotation-comment-highlight-outline rect').boundingBox()).width < 30);
+    const linked = await page.evaluate(() => {
+      const symbol = commentView.restoreRange(commentView.highlighting.annotations[0].anchor).getBoundingClientRect();
+      const path = document.querySelector('.annotation-comment-connectors path').getAttribute('d').match(/-?\d+(?:\.\d+)?/g).map(Number);
+      return Math.abs(path[0] - symbol.right) < 3;
+    });
+    assert.equal(linked, true);
+    await page.screenshot({ path: '.cache/annotation-rnd/paragraph-comment-target.png' });
+  });
+});
+
 test('highlight attribution follows the original root author, preserves creation identity, and leaves legacy data unattributed', async () => {
   await inPage(async page => {
     const thread = await mark(page, 'First passage');

@@ -48,6 +48,16 @@ test('any user can mark and unmark a root resolved, concurrent changes converge,
   for (const doc of [document, a, b, restored]) doc.destroy();
 });
 
+test('block targets retain their kind through record storage and can coexist with text highlights at the same source interval', () => {
+  const highlights = initial();
+  highlights.push({ ...highlights[0], id: 'block', threads: [], anchor: { ...highlights[0].anchor, target: 'block' } });
+  const document = api.AnnotationDocument.seed('block-generation', highlights, valid);
+  const restored = api.decodePage(page(api.encodePage(identity, frame, document)), identity, valid).document;
+  assert.equal(restored.snapshot().find(h => h.id === 'block').anchor.target, 'block');
+  assert.equal(restored.snapshot().find(h => h.id === 'a').anchor.target, undefined);
+  document.destroy(); restored.destroy();
+});
+
 test('JSON parser rejects duplicate escaped/nested keys before any state is accepted', () => {
   for (const bad of ['{"x":1,"x":2}', '{"x":1,"\\u0078":2}', '{"a":[{"b":1,"b":2}]}']) assert.throws(() => api.parseRecordJson(bad), /Duplicate/);
   const good = '{"a":[{},[],true,null,-1.5e2,"quote\\\"slash\\\\"],"b":{"a":1}}';

@@ -87,7 +87,7 @@ test('pinned real article source and ordinary rendered HTML load into the visual
           if (!conversion) throw new Error('Phylogenetic image conversion block was not parsed.');
           conversionFiles = { files: conversion.querySelectorAll('[data-raw-kind="file"]').length, previews: conversion.querySelectorAll('[data-inspect="image"]').length, captions: [...conversion.querySelectorAll('[data-file-caption]')].map(node => node.textContent) };
           const parent = [...view.element.querySelectorAll('li')].find(item => item.querySelector(':scope > [data-source-run]')?.textContent === '國際太空站的相关影片：');
-          const nested = parent?.querySelector(':scope > ul');
+          const nested = parent?.querySelector(':scope > ul, :scope > .annotation-block-container > ul');
           if (!nested) throw new Error('Earth video entries must be a nested unordered list.');
           videoList = [...nested.children].map(item => {
             const label = item.querySelector('a');

@@ -40,6 +40,37 @@ async function inPage(source, callback, renderOptions = {}, beforeRender) {
 }
 const toolbar = page => page.locator('[data-annotation-toolbar]');
 const choose = (page, color) => toolbar(page).getByRole('button', { name: `${({ Red: '紅色', Yellow: '黃色', Green: '綠色', Blue: '藍色' })[color]}高亮`, exact: true }).click();
+
+test('heading and paragraph symbols are distinct persistent targets that highlight only the symbol', async () => {
+  const source = '== 標題 ==\n段落[[頁面|連結]]。\n\n* 項目一\n* 項目二';
+  await inPage(source, async page => {
+    const heading = page.locator('.annotation-document h2'), paragraph = page.locator('.annotation-document p').first();
+    await heading.hover(); await heading.getByRole('button', { name: '批註整個標題' }).click();
+    assert.equal(await page.evaluate(() => markerView.selection.sourceText), '== 標題 ==');
+    await choose(page, 'Yellow');
+    await paragraph.hover(); await paragraph.getByRole('button', { name: '批註整個段落或區塊' }).click();
+    assert.equal(await page.evaluate(() => markerView.selection.quote), '段落連結。');
+    await choose(page, 'Blue');
+    assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations.map(annotation => ({ target: annotation.anchor.target, painted: markerView.restoreRange(annotation.anchor).toString() }))), [{ target: 'block', painted: '#' }, { target: 'block', painted: '¶' }]);
+    await page.mouse.move(0, 0);
+    assert.equal(await paragraph.locator('[data-block-target]').evaluate(element => getComputedStyle(element).opacity), '1');
+    await paragraph.locator('[data-block-target]').hover(); await toolbar(page).waitFor({ state: 'visible' });
+    await choose(page, 'Red');
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations.length), 2);
+    const from = source.indexOf('段落'), to = source.indexOf('。') + 1;
+    await select(page, from, to); await choose(page, 'Green');
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations.length), 3, 'the same extent may have separate text and block highlights');
+    assert.equal(await page.evaluate(() => markerView.highlighting.annotations[2].anchor.target), undefined);
+    assert.equal(await page.evaluate(() => originalRuns.every(node => markerView.element.contains(node))), true);
+    await page.evaluate(() => {
+      const saved = markerView.highlighting.annotations, projection = markerView.projection;
+      markerView.destroy(); markerView.element.remove();
+      window.markerView = annotationLab.annotation.createAnnotationView(document, projection, { highlighting: { initial: saved }, commentAuthor: 'Example' });
+      document.querySelector('#test-content').append(markerView.element);
+    });
+    assert.deepEqual(await page.evaluate(() => markerView.highlighting.annotations.slice(0, 2).map(annotation => markerView.restoreRange(annotation.anchor).toString())), ['#', '¶']);
+  });
+});
 async function separatePopups(page) {
   await toolbar(page).waitFor({ state: 'visible' });
   await page.locator('[data-annotation-popup]').waitFor({ state: 'visible' });

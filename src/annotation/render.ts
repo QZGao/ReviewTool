@@ -9,7 +9,8 @@ import { createCommentPanel } from './comments';
 import { headingSourceStart } from './heading-anchors';
 import { SourceIndex } from './source-index';
 import { isModerator } from './permissions';
-import type { ElementNode, Projection, RenderedView, RenderOptions, TextRun, ViewNode } from './types';
+import { blockTargets } from './block-targets';
+import type { ElementNode, Projection, RenderedView, RenderOptions, SourceAnchor, TextRun, ViewNode } from './types';
 
 export function createAnnotationView(doc: Document, projection: Projection, options: RenderOptions = {}): RenderedView {
   const messages = options.messages ?? annotationMessages();
@@ -24,6 +25,9 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
   const inspections = new WeakMap<HTMLElement, ElementNode>();
   const previews = new WeakMap<HTMLElement, HTMLImageElement>();
   const wholeLinks = new Map<string, HTMLElement>();
+  const blockModels = options.highlighting ? blockTargets(projection) : new Map<ElementNode, SourceAnchor>();
+  const blockSymbols = new Map<string, HTMLElement>(), symbolAnchors = new WeakMap<HTMLElement, Readonly<SourceAnchor>>();
+  const blockEvents = new AbortController();
   const sourceIndex = new SourceIndex(projection.source);
   const emit = (model: ViewNode): Node | null => {
     if (model.kind === 'hidden') return null;
@@ -58,7 +62,18 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
       }
     }
     for (const child of model.children) { const rendered = emit(child); if (rendered) element.appendChild(rendered); }
-    return element;
+    const blockAnchor = blockModels.get(model);
+    if (!blockAnchor) return element;
+    const host = ['hr', 'ul', 'ol', 'dl'].includes(model.tag) ? doc.createElement('div') : element;
+    if (host !== element) { host.className = 'annotation-block-container'; host.append(element); }
+    host.classList.add('annotation-source-block');
+    const symbol = doc.createElement('button'); symbol.type = 'button'; symbol.className = 'annotation-block-target';
+    symbol.dataset.annotationUi = ''; symbol.dataset.blockTarget = '';
+    symbol.textContent = /^h[1-6]$/.test(model.tag) ? '#' : '¶';
+    symbol.setAttribute('aria-label', symbol.textContent === '#' ? messages.selectHeading : messages.selectBlock);
+    blockSymbols.set(`${blockAnchor.start}:${blockAnchor.end}`, symbol); symbolAnchors.set(symbol, blockAnchor);
+    symbol.addEventListener('click', event => { event.preventDefault(); selectTrigger(symbol); }, { signal: blockEvents.signal });
+    host.prepend(symbol); return host;
   };
   for (const block of projection.blocks) {
     const rendered = emit(block);
@@ -101,9 +116,18 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     get highlighting() { return highlighting; },
     get comments() { return comments; },
     clearSelection() { selectionState.clear(); },
-    destroy() { comments?.destroy(); highlighting?.destroy(); popups.destroy(); selectionState.destroy(); },
+    destroy() { blockEvents.abort(); comments?.destroy(); highlighting?.destroy(); popups.destroy(); selectionState.destroy(); },
     readRange(range) {
       if (range.collapsed) return null;
+      let symbol: HTMLElement | null = null;
+      if (range.startContainer === range.endContainer && range.endOffset === range.startOffset + 1) {
+        const node = range.startContainer.childNodes[range.startOffset];
+        if (node?.nodeType === 1 && symbolAnchors.has(node as HTMLElement)) symbol = node as HTMLElement;
+      }
+      const parent = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer as HTMLElement : range.commonAncestorContainer.parentElement;
+      symbol ??= parent?.closest<HTMLElement>('[data-block-target]') ?? null;
+      const block = symbol && symbolAnchors.get(symbol);
+      if (block) return selectionFromSource(projection, block);
       const from = point(range.startContainer, range.startOffset, 'start');
       const to = point(range.endContainer, range.endOffset, 'end');
       if (from === null || to === null || from >= to) return null;
@@ -119,6 +143,11 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
       return selected;
     },
     restoreRange(anchor) {
+      if (anchor.target === 'block') {
+        const symbol = blockSymbols.get(`${anchor.start}:${anchor.end}`);
+        if (!symbol || !root.contains(symbol)) return null;
+        const range = doc.createRange(); range.selectNodeContents(symbol); return range;
+      }
       if (anchor.unit === 'utf8-byte') {
         const link = wholeLinks.get(`${anchor.start}:${anchor.end}`);
         if (link && root.contains(link)) { const range = doc.createRange(); range.selectNode(link); return range; }
@@ -139,12 +168,14 @@ export function createAnnotationView(doc: Document, projection: Projection, opti
     },
   };
   const selectionState = trackSelection(doc, root, range => view.readRange(range), anchor => view.restoreRange(anchor), selection => {
+    for (const symbol of blockSymbols.values()) symbol.removeAttribute('data-selected');
+    if (selection?.anchor.target === 'block') blockSymbols.get(`${selection.anchor.start}:${selection.anchor.end}`)?.setAttribute('data-selected', '');
     if (!selection) highlighting?.selectionChanged(null);
     options.onSelectionChange?.(selection);
   }, selection => highlighting?.selectionChanged(selection));
   if (options.highlighting) {
     try { highlighting = createHighlighting(doc, view, options.highlighting, layout, actor, options.requestModerationReason, messages); }
-    catch (error) { popups.destroy(); selectionState.destroy(); throw error; }
+    catch (error) { blockEvents.abort(); popups.destroy(); selectionState.destroy(); throw error; }
   }
   if (options.commentContainer) {
     try {

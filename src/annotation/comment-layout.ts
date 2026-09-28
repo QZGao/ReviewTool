@@ -66,7 +66,7 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
     container.hidden = cards().length === 0 || (compact && !current);
     const origin = container.getBoundingClientRect();
     const entries = cards().map(card => {
-      const key = `${card.anchor.start}:${card.anchor.end}`;
+      const key = `${card.anchor.start}:${card.anchor.end}:${card.anchor.target ?? 'text'}`;
       if (ranges.get(card.element)?.key !== key) ranges.set(card.element, { key, range: view.restoreRange(card.anchor) });
       const range = ranges.get(card.element)?.range;
       const rects = range ? textRects(range, doc) : [];
@@ -116,7 +116,8 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
         }
       }
       if (compact || !line) { path.setAttribute('d', ''); continue; }
-      const box = element.getBoundingClientRect(), baseY = line.bottom + 2, y2 = box.top + Math.min(20, box.height / 2);
+      const block = entry.anchor.target === 'block' ? ranges.get(element)?.range?.startContainer.parentElement : null;
+      const box = element.getBoundingClientRect(), baseY = block ? block.getBoundingClientRect().top - 3 : line.bottom + 2, y2 = box.top + Math.min(20, box.height / 2);
       const route = { y: baseY, start: line.right + 2, middle: (article.right + box.left) / 2, low: Math.min(baseY, y2), high: Math.max(baseY, y2), lane: 0 };
       const used = new Set(routes.filter(other =>
         (Math.abs(other.y - route.y) < 3 && Math.max(other.start, route.start) < Math.min(other.middle, route.middle))
@@ -125,7 +126,9 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       route.lane = [0, 1, 2].find(lane => !used.has(lane)) ?? 0;
       routes.push(route);
       const y1 = baseY + route.lane * 3, middle = Math.max(line.right + 4, route.middle - route.lane * 3);
-      path.setAttribute('d', `M ${line.right} ${line.bottom} L ${line.right + 2} ${y1} H ${middle} C ${middle + 8} ${y1}, ${middle - 8} ${y2}, ${box.left - 1} ${y2}`);
+      const startY = block ? (line.top + line.bottom) / 2 : line.bottom;
+      const lead = block ? `M ${line.right} ${startY} H ${line.right + 2} V ${y1}` : `M ${line.right} ${startY} L ${line.right + 2} ${y1}`;
+      path.setAttribute('d', `${lead} H ${middle} C ${middle + 8} ${y1}, ${middle - 8} ${y2}, ${box.left - 1} ${y2}`);
       path.style.stroke = color;
     }
     const minHeight = compact ? '' : `${bottom}px`;

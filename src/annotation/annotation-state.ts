@@ -51,6 +51,7 @@ export function annotationState(config: HighlightOptions, validate: (anchor: Sou
       if (typeof annotation.id !== 'string' || !annotation.id.trim() || ids.has(annotation.id)
         || !['red', 'yellow', 'green', 'blue'].includes(annotation.color)) throw new Error('Invalid or duplicate highlight ID/color.');
       if (!validate(annotation.anchor)) throw new Error('Highlight anchor cannot be restored in this source revision. This may be caused by damaged annotation page data or by another gadget or user script modifying the page and disrupting text mapping.');
+      if (annotation.anchor.target !== undefined && annotation.anchor.target !== 'block') throw new Error('Invalid highlight target kind.');
       if (annotation.author !== undefined && (typeof annotation.author !== 'string' || !annotation.author.trim())) throw new Error('Invalid highlight author.');
       if ((annotation.editedAt === undefined) !== (annotation.editedBy === undefined)
         || (annotation.editedBy !== undefined && (typeof annotation.editedBy !== 'string' || !annotation.editedBy.trim()))) throw new Error('Highlight edit time and editor must be provided together.');

@@ -3,6 +3,8 @@ export type VariantConverter = (text: { hant: string; hans: string }) => string;
 export function annotationMessages(convert: VariantConverter = text => text.hant) {
   return {
     readingView: convert({ hant: '條目批註', hans: '条目批注' }),
+    selectHeading: convert({ hant: '批註整個標題', hans: '批注整个标题' }),
+    selectBlock: convert({ hant: '批註整個段落或區塊', hans: '批注整个段落或区块' }),
     loadingView: convert({ hant: '正在載入批註…', hans: '正在加载批注…' }),
     rawWikitext: convert({ hant: '維基原始碼', hans: '维基源代码' }),
     comments: convert({ hant: '評論區', hans: '评论区' }),

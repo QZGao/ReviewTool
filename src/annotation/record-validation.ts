@@ -38,10 +38,11 @@ export function validateRecords(raw: unknown, validateAnchor: (anchor: SourceAnc
     if (!Array.isArray(stamp) || stamp.length !== 2 || !Number.isSafeInteger(stamp[0]) || Number(stamp[0]) < 1) throw new Error('Invalid logical clock.');
     identifier(stamp[1]); const stampKey = JSON.stringify(stamp); if (stamps.has(stampKey)) throw new Error('Replica clock reused.'); stamps.add(stampKey);
     if (record.kind === 'highlight') {
-      fields(record, ['kind', 'stamp', 'source', 'appearance'], ['author', 'createdAt']); reference(key, 'h');
+      fields(record, ['kind', 'stamp', 'source', 'appearance'], ['author', 'createdAt', 'target']); reference(key, 'h');
+      if (record.target !== undefined && record.target !== 'block') throw new Error('Invalid highlight target kind.');
       if (record.author !== undefined) text(record.author); if (record.createdAt !== undefined) time(record.createdAt);
       const source = record.source;
-      if (!Array.isArray(source) || source.length !== 2 || !Number.isSafeInteger(source[0]) || !Number.isSafeInteger(source[1]) || source[0] < 0 || source[0] >= source[1] || !validateAnchor({ unit: 'utf8-byte', start: source[0] as number, end: source[1] as number })) throw new Error('Invalid source interval.');
+      if (!Array.isArray(source) || source.length !== 2 || !Number.isSafeInteger(source[0]) || !Number.isSafeInteger(source[1]) || source[0] < 0 || source[0] >= source[1] || !validateAnchor({ unit: 'utf8-byte', start: source[0] as number, end: source[1] as number, ...(record.target === 'block' ? { target: 'block' } : {}) })) throw new Error('Invalid source interval.');
       const appearance = object(record.appearance); fields(appearance, ['color'], ['editedAt', 'editedBy']); color(appearance.color); edited(appearance, true);
     } else if (record.kind === 'comment') {
       fields(record, ['kind', 'stamp', 'highlight', 'parent', 'author', 'createdAt', 'body']); reference(key, 'c'); reference(record.highlight, 'h');

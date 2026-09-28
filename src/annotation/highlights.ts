@@ -26,7 +26,8 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   const updateStyles = () => {
     style.textContent = markers.map(marker => {
       const color = `var(--annotation-marker-${marker.annotation.color})`;
-      return `.annotation-document ::highlight(${marker.name}) { background-color: ${emphasized && marker.annotation.id !== emphasized ? `color-mix(in srgb, ${color} 35%, transparent)` : color}; }`;
+      const fill = emphasized && marker.annotation.id !== emphasized ? `color-mix(in srgb, ${color} 35%, transparent)` : color;
+      return `.annotation-document ::highlight(${marker.name}) { background-color: ${fill}; }\n.annotation-document .annotation-block-target::highlight(${marker.name}) { background-color: ${marker.annotation.anchor.target === 'block' ? fill : 'transparent'}; }`;
     }).join('\n');
   };
   const state = annotationState(config, anchor => { const range = view.restoreRange(anchor); return Boolean(range && !range.collapsed); }, actor);
@@ -70,7 +71,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   const insideBar = (target: EventTarget | null) => Boolean(target && 'nodeType' in target && bar.contains(target as Node));
   const contentTarget = (target: EventTarget | null) => {
     const element = (target as Element | null)?.closest?.('.annotation-document');
-    return element === root && !(target as Element).closest('[data-annotation-ui], [data-annotation-popup]');
+    return element === root && !(target as Element).closest('[data-annotation-ui]:not([data-block-target]), [data-annotation-popup]');
   };
   const hit = (x: number, y: number): { marker: Marker; rect: DOMRect } | null => {
     const box = root.getBoundingClientRect();
@@ -108,7 +109,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
   const paint = (annotations: readonly HighlightAnnotation[]) => {
     if (controller.signal.aborted) return;
     const visible = annotations.filter(annotationVisible);
-    if (visible.length === markers.length && visible.every((annotation, index) => { const previous = markers[index].annotation; return annotation.id === previous.id && annotation.color === previous.color && annotation.anchor.start === previous.anchor.start && annotation.anchor.end === previous.anchor.end; })) {
+    if (visible.length === markers.length && visible.every((annotation, index) => { const previous = markers[index].annotation; return annotation.id === previous.id && annotation.color === previous.color && annotation.anchor.start === previous.anchor.start && annotation.anchor.end === previous.anchor.end && annotation.anchor.target === previous.anchor.target; })) {
       markers.forEach((marker, index) => { marker.annotation = visible[index]; }); return;
     }
     const prepared = visible.map(annotation => {
@@ -119,6 +120,8 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     hide();
     for (const marker of markers) registry.delete(marker.name);
     markers = prepared;
+    for (const symbol of root.querySelectorAll('[data-block-target]')) symbol.removeAttribute('data-highlighted');
+    for (const marker of markers) if (marker.annotation.anchor.target === 'block') (marker.range.startContainer as HTMLElement).setAttribute('data-highlighted', '');
     updateStyles();
     if (!style.isConnected) doc.head.append(style);
     markers.forEach((marker, index) => {
@@ -133,7 +136,7 @@ export function createHighlighting(doc: Document, view: RenderedView, config: Hi
     const rects = textRects(range, doc);
     const rect = rects.filter(rect => rect.bottom > 0 && rect.top < doc.documentElement.clientHeight).pop();
     if (!rect) return;
-    const existing = [...markers].reverse().find(marker => marker.annotation.anchor.start === selection.anchor.start && marker.annotation.anchor.end === selection.anchor.end);
+    const existing = [...markers].reverse().find(marker => marker.annotation.anchor.start === selection.anchor.start && marker.annotation.anchor.end === selection.anchor.end && marker.annotation.anchor.target === selection.anchor.target);
     show(existing ? { kind: 'marker', id: existing.annotation.id } : { kind: 'selection', selection }, rect);
   };
   const returnFocus = () => {

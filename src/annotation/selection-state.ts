@@ -32,7 +32,7 @@ export function trackSelection(doc: Document, root: HTMLElement, readRange: (ran
     } else if (highlight?.size === 0) registry.delete(highlightName);
   };
   const commit = (next: MappedSelection | null) => {
-    if (selected?.anchor.start === next?.anchor.start && selected?.anchor.end === next?.anchor.end && selected?.adjusted === next?.adjusted) return;
+    if (selected?.anchor.start === next?.anchor.start && selected?.anchor.end === next?.anchor.end && selected?.anchor.target === next?.anchor.target && selected?.adjusted === next?.adjusted) return;
     selected = next ? Object.freeze({ ...next, anchor: Object.freeze({ ...next.anchor }) }) : null;
     paint(); onChange?.(selected);
   };

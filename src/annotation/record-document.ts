@@ -33,6 +33,7 @@ export class AnnotationDocument {
   }
   private insertHighlight(records: Record<string, AnnotationRecord>, annotation: HighlightAnnotation): void {
     records['h/' + annotation.id] = { kind: 'highlight', stamp: this.stamp(), source: [annotation.anchor.start, annotation.anchor.end],
+      ...(annotation.anchor.target ? { target: annotation.anchor.target } : {}),
       ...(annotation.author ? { author: annotation.author } : {}), ...(annotation.createdAt ? { createdAt: annotation.createdAt } : {}),
       appearance: { color: annotation.color, ...(annotation.editedAt && annotation.editedBy ? { editedAt: annotation.editedAt, editedBy: annotation.editedBy } : {}) } };
     if (annotation.deleted) { const record = this.removal('delete', 'h/' + annotation.id, annotation.deleted); records[recordKey(record)] = record; }
@@ -76,7 +77,7 @@ export class AnnotationDocument {
       const edit = changes.get(key + '/appearance'), deleted = changes.get(key + '/delete');
       const appearance = edit?.kind === 'appearance' ? { color: edit.color, editedBy: edit.by, editedAt: edit.at } : initial.appearance;
       const threads = (children.get(JSON.stringify([key, null])) ?? []).map(readComment);
-      return { id: key.slice(2), anchor: { unit: 'utf8-byte', start: initial.source[0], end: initial.source[1] },
+      return { id: key.slice(2), anchor: { unit: 'utf8-byte', start: initial.source[0], end: initial.source[1], ...(initial.target ? { target: initial.target } : {}) },
         ...(initial.author ? { author: initial.author } : {}), ...(initial.createdAt ? { createdAt: initial.createdAt } : {}), ...appearance,
         ...(deleted?.kind === 'delete' ? { deleted: removal(deleted) } : {}), ...(threads.length ? { threads } : {}) };
     });

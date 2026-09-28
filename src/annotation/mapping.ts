@@ -1,4 +1,5 @@
 import { scalarBoundary, SourceIndex } from './source-index';
+import { blockTargets } from './block-targets';
 import type { MappedSelection, Projection, SourceAnchor, TextRun, ViewNode } from './types';
 
 function sourcePosition(projection: Projection, run: TextRun, position: number, side: 'start' | 'end'): number {
@@ -39,6 +40,12 @@ export function selectionFromSource(projection: Projection, anchor: SourceAnchor
   const from = index.toUtf16(anchor.start);
   const to = index.toUtf16(anchor.end);
   if (from === to) return null;
+  if (anchor.target === 'block') {
+    if (![...blockTargets(projection).values()].some(block => block.start === anchor.start && block.end === anchor.end)) return null;
+    const runs = projection.runs.filter(run => run.from >= from && run.to <= to);
+    const viewFrom = runs[0]?.viewFrom ?? 0, viewTo = runs[runs.length - 1]?.viewTo ?? viewFrom;
+    return { anchor, quote: projection.text.slice(viewFrom, viewTo) || projection.source.slice(from, to), sourceText: projection.source.slice(from, to), viewFrom, viewTo, adjusted: false };
+  }
   const first = projection.runs.find(run => from >= run.from && from < run.to);
   const last = [...projection.runs].reverse().find(run => to > run.from && to <= run.to);
   if (!first || !last) {

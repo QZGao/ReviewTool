@@ -24,20 +24,10 @@
 .annotation-document:focus { outline: none; }
 .annotation-document p { white-space: pre-line; }
 .annotation-document :is(h1, h2, h3, h4, h5, h6) { position: relative; line-height: 1.3; margin-block: 0.3em; font-weight: 650; font-family: inherit; color: var(--color-emphasized, #101418); border: 0; padding: 0; }
-.annotation-document :is(h1, h2, h3, h4, h5, h6)::before {
-  content: "#" / "";
-  position: absolute;
-  right: calc(100% + .3em);
-  top: .15em;
-  font: .75em/1.3 var(--annotation-code-font);
-  font-weight: 400;
-  color: var(--color-subtle, #54595d);
-  opacity: 0;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.annotation-document :is(h1, h2, h3, h4, h5, h6):is(:hover, :focus-within)::before { opacity: 1; }
+.annotation-source-block { position: relative; }
+.annotation-document .annotation-block-target { position: absolute; inset-inline-start: -1.4em; top: .1em; width: 1.2em; padding: 0; margin: 0; border: 0; background: transparent; color: var(--color-subtle, #54595d); font: .8em/1.4 var(--annotation-code-font); cursor: text; opacity: 0; user-select: none; -webkit-user-select: none; }
+.annotation-source-block:hover > .annotation-block-target, .annotation-block-target:is(:focus-visible, [data-highlighted], [data-selected]) { opacity: 1; }
+.annotation-source-block:has(.annotation-source-block:hover) > .annotation-block-target:not([data-highlighted]):not([data-selected]):not(:focus-visible) { opacity: 0; }
 .annotation-document h1 { font-size: 1.8rem; }
 .annotation-document h2 { font-size: 1.45rem; }
 .annotation-document [data-heading-start] { scroll-margin-top: 1rem; }
