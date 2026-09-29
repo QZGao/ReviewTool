@@ -190,8 +190,6 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
           try { if (!canWrite) throw new Error('Log in before saving annotations.'); shared.add(action); } catch (error) { mount?.view.highlighting?.replace(shared.annotations); failure({ hant: '修改未能儲存，請再試一次。', hans: '修改未能保存，请再试一次。' }, error); }
         } },
       });
-      const commentId = new URL(location.href).searchParams.get(commentParameter);
-      if (commentId && !await mount.view.comments?.reveal(commentId)) notify(messages.commentUnavailable, 'warn');
       if (closed) return;
       exportItem = mw.util.addPortletLink('p-cactions', '#', state.convByVar({ hant: '匯出所有批註', hans: '导出所有批注' }), 'ca-reviewtool-export',
         state.convByVar({ hant: '匯出高亮、評論與回覆', hans: '导出高亮、评论和回复' }));
@@ -206,6 +204,9 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       document.addEventListener('visibilitychange', refresh, listener); window.addEventListener('online', refresh, listener);
       window.addEventListener('beforeunload', event => { if (shared.dirty) { event.preventDefault(); event.returnValue = ''; } }, listener);
       if (!canWrite) notify(state.convByVar({ hant: '登入後即可新增批註。', hans: '登录后即可添加批注。' }), 'warn');
+      // Finish startup DOM changes before navigating to the linked passage and discussion.
+      const commentId = new URL(location.href).searchParams.get(commentParameter);
+      if (commentId && !await mount.view.comments?.reveal(commentId)) notify(messages.commentUnavailable, 'warn');
     } catch (error) { stopLoading(); if (closed) return; sync?.destroy(); mount?.destroy(); failure({ hant: '無法開啟批註模式，請稍後重試。', hans: '无法开启批注模式，请稍后重试。' }, error); }
   })();
   let cleanup: Promise<void> | undefined;

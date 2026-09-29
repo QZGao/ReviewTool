@@ -139,7 +139,8 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
       finish();
     }
     for (const entry of entries) entry.element.toggleAttribute('data-crowded', crowded.has(entry.element));
-    engage(!container.hidden ? entries.find(entry => !entry.element.hidden && entry.element.matches(':hover'))?.element ?? null : null);
+    engage(!container.hidden ? entries.find(entry => !entry.element.hidden && entry.element.contains(doc.activeElement))?.element
+      ?? entries.find(entry => !entry.element.hidden && entry.element.matches(':hover'))?.element ?? null : null);
     // Read all card sizes before writing positions so each card does not force another layout.
     const measured = entries.map(entry => ({ ...entry, box: entry.element.getBoundingClientRect() }));
     let bottom = 0;
@@ -184,12 +185,14 @@ export function commentLayout(doc: Document, view: RenderedView, column: HTMLEle
   const invalidateSource = () => { sourceVersion++; schedule(); };
   const observer = new win.ResizeObserver(entries => { if (entries.some(entry => entry.target === view.element)) sourceVersion++; schedule(); });
   observer.observe(view.element); observer.observe(column); observer.observe(container);
-  const hoveredCard = (target: EventTarget | null) => {
+  const cardAt = (target: EventTarget | null) => {
     const element = (target as Element | null)?.closest?.<HTMLElement>('.annotation-comment-thread');
-    return element && container.contains(element) ? element : null;
+    return element && element.parentElement === container && !element.hidden && !container.hidden ? element : null;
   };
-  container.addEventListener('pointerover', event => engage(hoveredCard(event.target)), { signal: controller.signal });
-  container.addEventListener('pointerout', event => engage(hoveredCard(event.relatedTarget)), { signal: controller.signal });
+  container.addEventListener('pointerover', event => engage(cardAt(doc.activeElement) ?? cardAt(event.target)), { signal: controller.signal });
+  container.addEventListener('pointerout', event => engage(cardAt(doc.activeElement) ?? cardAt(event.relatedTarget)), { signal: controller.signal });
+  container.addEventListener('focusin', event => engage(cardAt(event.target)), { signal: controller.signal });
+  container.addEventListener('focusout', event => engage(cardAt(event.relatedTarget) ?? cardAt(container.querySelector(':scope > .annotation-comment-thread:hover'))), { signal: controller.signal });
   doc.addEventListener('scroll', event => {
     if (event.target instanceof win.Node && view.element.contains(event.target)) invalidateSource(); else schedule();
   }, { capture: true, passive: true, signal: controller.signal });

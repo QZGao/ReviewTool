@@ -75,7 +75,11 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   }, options);
   doc.addEventListener('pointerdown', event => { if (!reasonPending && layout.compact && !popups.contains(event.target) && !atHighlight(event)) { cancel(); layout.close(); } }, options);
   doc.addEventListener('keydown', event => { if (!reasonPending && event.key === 'Escape') { cancel(); layout.close(); } }, options);
-  doc.addEventListener('scroll', event => { if (!reasonPending && layout.compact && !popups.contains(event.target)) { cancel(); layout.close(); } }, { ...options, capture: true });
+  doc.addEventListener('scroll', event => {
+    // Startup layout changes can scroll the page after a permalink receives focus.
+    // Keep a focused discussion open, just as pointer movement outside already does.
+    if (!reasonPending && layout.compact && !container.contains(doc.activeElement) && !popups.contains(event.target)) { cancel(); layout.close(); }
+  }, { ...options, capture: true });
 
   function thread(initial: HighlightAnnotation) {
     const element = doc.createElement('section'); element.className = 'annotation-comment-thread';
@@ -287,17 +291,29 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       const root = annotation && threadRoots(annotation).find(root => !root.resolved && findComment(root, id));
       if (!annotation || !root) return false;
       expandedRoots.add(root.id); threads.get(annotation.id)?.reveal();
+      // Measure the passage after the article and responsive comment layout have mounted.
+      await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
+      if (controller.signal.aborted) return false;
       const range = view.restoreRange(annotation.anchor), first = range && textRects(range, doc)[0];
       if (first) win.scrollBy({ top: first.top - win.innerHeight / 3, behavior: 'instant' });
       await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
       if (controller.signal.aborted) return false;
       const anchor = range && textRects(range, doc)[0];
-      if (anchor) layout.activate(annotation.id, anchor);
+      if (anchor) activate(annotation.id, anchor);
       await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
       if (controller.signal.aborted) return false;
       const target = [...container.querySelectorAll<HTMLElement>('[data-comment-id]')].find(node => node.dataset.commentId === id);
       if (!target) return false;
-      target.scrollIntoView({ block: 'nearest' }); target.focus({ preventScroll: true });
+      if (layout.compact) {
+        // scrollIntoView can also move the page behind a popover, triggering its scroll-to-close handler.
+        // Keep navigation inside the open panel, including replies below a long root comment.
+        const content = target.closest<HTMLElement>('.annotation-comment-content');
+        if (content) {
+          const box = target.getBoundingClientRect(), viewport = content.getBoundingClientRect();
+          if (box.top < viewport.top || box.bottom > viewport.bottom) content.scrollBy({ top: box.top - viewport.top, behavior: 'instant' });
+        }
+      } else target.scrollIntoView({ block: 'nearest' });
+      target.focus({ preventScroll: true });
       return true;
     },
     activate,
