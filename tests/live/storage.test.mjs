@@ -42,6 +42,25 @@ async function client(server, name = 'Alice', journal = memoryJournal(), groups 
 function snapshot(server) { const stored = api.decodePage(server.pages.at(-1), identity, valid); const value = stored.document.snapshot(); stored.document.destroy(); return value; }
 function mutate(text, change) { const value = JSON.parse(text); change(value); return JSON.stringify(value); }
 
+test('an unmarked initial import preserves its generation, stamps, and complete edit history', async () => {
+  const doc = seed();
+  doc.dispatch({ type: 'edit-comment', id: marker.id, commentId: 'root', text: 'First edit', editedAt: time }, actor);
+  doc.dispatch({ type: 'edit-comment', id: marker.id, commentId: 'root', text: 'Latest edit', editedAt: '2026-09-26T00:00:01.000Z' }, actor);
+  const original = encoded(doc), records = doc.toJSON(), server = wiki(original);
+  server.pages[0].summary = 'ReviewTool migration'; server.pages[0].tags = ['wikieditor'];
+  const c = await client(server);
+  try {
+    assert.equal(server.writes.length, 0);
+    assert.equal(server.pages[0].text, original);
+    assert.deepEqual(c.sync.annotations, doc.snapshot());
+    c.sync.add({ type: 'add-comment', id: marker.id, comment: message('After import') }); await c.sync.sync();
+    const saved = JSON.parse(server.pages.at(-1).text);
+    assert.equal(saved.generation, doc.generation); assert.equal(saved.baseline, 0);
+    for (const [id, record] of Object.entries(records)) assert.deepEqual(saved.records[id], record);
+    assert.equal(server.writes.length, 1, 'only the new comment requires an edit');
+  } finally { c.sync.destroy(); doc.destroy(); }
+});
+
 test('a failed talk-index update retries after JSON acknowledgement without duplicating annotation edits', async () => {
   const server = wiki(), c = await client(server);
   let attempts = 0;
@@ -187,6 +206,8 @@ test('tag availability is checked once and summary fallback stays recognizable a
 test('intervening manual edits are noticed even when the head is tagged, and formatting-only edits are preserved', async () => {
   const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const c = await client(server);
   try {
+    server.commit(server.pages.at(-1).text, 'Moved page to a new title');
+    await c.sync.sync(); assert.equal(server.writes.length, 0);
     server.commit(JSON.stringify(JSON.parse(server.pages.at(-1).text), null, 4) + '\n', 'Manual formatting');
     await c.sync.sync(); assert.equal(server.writes.length, 0);
     c.sync.add({ type: 'recolor-highlight', id: marker.id, color: 'green', editedAt: time }); await c.sync.sync(); assert.equal(snapshot(server)[0].color, 'green');

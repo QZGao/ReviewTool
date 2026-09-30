@@ -72,12 +72,14 @@ export function annotationSync(options: SyncOptions) {
     base.document.destroy(); base = next; current = revision; initialized = true; rebuild();
   };
   const parse = (page: DataPage, manual = false) => decodePage(page, options.identity, options.validate, manual);
+  // A first revision imports its existing record history; it does not replace an earlier document.
+  const isManual = (revision: PageRevision): boolean => revision.parentId !== 0 && !recognizedEdit(revision);
   const validBefore = async (head: PageRevision): Promise<StoredDocument> => {
     const history = await options.source.history(head.revision);
     for (const revision of history) {
       if (revision.revision === head.revision) continue;
       const page = await options.source.read(revision.revision);
-      try { return parse(page, !recognizedEdit(page)); }
+      try { return parse(page, isManual(page)); }
       catch (error) { if (!(error instanceof MalformedData)) throw error; }
     }
     throw new Error('No valid annotation revision is available for automatic repair.');
@@ -87,11 +89,11 @@ export function annotationSync(options: SyncOptions) {
     let stored: StoredDocument;
     try { stored = parse(page); }
     catch (error) {
-      if (!(error instanceof MalformedData) || recognizedEdit(page)) throw error;
+      if (!(error instanceof MalformedData) || !isManual(page)) throw error;
       return { stored: await validBefore(head), rewrite: true };
     }
     const revisions = initialized && current ? await options.source.history(head.revision, current.revision) : [head];
-    const manual = revisions.find(revision => !recognizedEdit(revision));
+    const manual = revisions.find(isManual);
     if (manual) {
       const external = manual.revision === head.revision ? page : await options.source.read(manual.revision);
       const recordedManual = stored.baseline;
