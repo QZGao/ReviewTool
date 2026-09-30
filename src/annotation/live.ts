@@ -2,7 +2,7 @@ import type { UnknownApiParams } from 'types-mediawiki/api_params';
 import { createApi, mode } from '../mediawiki';
 import { createProjection } from './projection';
 import { mountWikipediaAnnotation } from './wikipedia-view';
-import type { ReviewIdentity } from './live-storage';
+import { dataPageTitle, type ReviewIdentity } from './live-storage';
 import { wikiSource, type WikiSource } from './wiki-source';
 import { annotationSync } from './sync';
 import { syncJournal } from './sync-journal';
@@ -19,11 +19,6 @@ import { showAnnotationLoading } from './loading-view';
 import { activationParameter, annotationViewUrl, annotationCommentUrl, commentParameter } from './view-url';
 
 export { activationParameter } from './view-url';
-function dataPageTitle(title: string, revision: number): string {
-  const talk = mw.Title.newFromText(title)?.getTalkPage()?.getPrefixedText();
-  if (!talk) throw new Error('This page has no associated talk page for annotations.');
-  return `${talk}/ReviewTool/${revision}`;
-}
 interface ParsedRevision { parse: { title: string; pageid: number; revid: number; wikitext: string; tocdata?: { sections?: { fromTitle?: string; codepointOffset?: number; hLevel: number; anchor: string }[] } } }
 function response<T>(request: mw.Api.AbortablePromise): Promise<T> {
   return new Promise((resolve, reject) => { request.done(value => resolve(value as T)).fail((code: unknown) => reject(new Error(typeof code === 'string' ? code : 'MediaWiki request failed'))); });
@@ -38,11 +33,13 @@ export async function initLiveAnnotation(): Promise<boolean> {
   const revision = mw.config.get('wgRevisionId');
   const api = createApi(), author = mw.config.get('wgUserName') || (mode === 'dry-run' ? 'Example' : 'Anonymous');
   const canWrite = mode === 'dry-run' || Boolean(mw.config.get('wgUserName'));
-  const storageTitle = dataPageTitle(mw.config.get('wgPageName'), revision);
+  const storageTitle = dataPageTitle(revision);
+  const talkTitle = mw.Title.newFromText(mw.config.get('wgPageName'))?.getTalkPage()?.getPrefixedText();
+  if (!talkTitle) throw new Error('This page has no associated talk page for annotations.');
   const sourceApi = wikiSource(async (params, write) => {
     if (write && !canWrite) throw new Error('Log in before saving annotations.');
     return response(write ? api.postWithToken('csrf', { ...params, ...(mode === 'normal' ? { assert: 'user', assertuser: author } : {}) }) : api.get(params as UnknownApiParams));
-  }, storageTitle);
+  }, storageTitle, { talkTitle, revisionId: revision, summary: state.convByVar({ hant: '更新批註版本索引', hans: '更新批注版本索引' }) });
   const updateUrl = (active: boolean) => {
     const url = new URL(location.href);
     if (active) url.searchParams.set(activationParameter, '1');
@@ -148,7 +145,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       const journalKey = [mode, identity.wiki, identity.pageId, revision, author].join('/');
       const draftSlot = 'reviewtool-draft-session/' + journalKey;
       const draftSession = sessionStorage.getItem(draftSlot) ?? crypto.randomUUID(); sessionStorage.setItem(draftSlot, draftSession);
-      const journal = syncJournal(journalKey, draftSession);
+      const journal = syncJournal(journalKey + '/' + dataPageTitle(revision), draftSession, journalKey);
       const configuredVariant: unknown = mw.config.get('wgUserVariant');
       const [parsed, requestModerationReason, drafts] = await Promise.all([
         response<ParsedRevision>(api.get({ action: 'parse', oldid: revision, prop: 'wikitext|tocdata|revid', formatversion: 2, variant: typeof configuredVariant === 'string' ? configuredVariant : 'zh' })),

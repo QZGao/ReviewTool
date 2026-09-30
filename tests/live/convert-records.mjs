@@ -20,7 +20,7 @@ const identity = { wiki: source.wiki, pageId: source.pageId, revisionId: source.
 const validate = anchor => anchor?.unit === 'utf8-byte' && Number.isSafeInteger(anchor.start) && Number.isSafeInteger(anchor.end) && anchor.start >= 0 && anchor.end > anchor.start;
 const expected = normalizeAnnotations(source.annotations, validate);
 const doc = AnnotationDocument.seed(crypto.randomUUID(), expected, validate);
-const target = encodePage(identity, { baseline, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>\n' }, doc);
+const target = encodePage(identity, { baseline }, doc);
 const decoded = decodePage({ text: target, revision: baseline, parentId: 0, timestamp: '', summary: '/* ReviewTool */', tags: [] }, identity, validate);
 assert.deepStrictEqual(decoded.annotations, [...expected].sort((a,b)=>a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 await writeFile(output, target);

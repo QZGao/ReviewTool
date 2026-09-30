@@ -26,7 +26,7 @@ export function annotationSync(options: SyncOptions) {
   const notify = () => {
     options.changed(model.snapshot());
     if (options.journal.checkpoint) {
-      const checkpoint = { generation: base.generation, baseline: base.baseline, base: base.document.toJSON(), local: model.toJSON(), revision: current, prefix: base.prefix, suffix: base.suffix };
+      const checkpoint = { generation: base.generation, baseline: base.baseline, base: base.document.toJSON(), local: model.toJSON(), revision: current };
       void persist(async () => { await options.journal.checkpoint?.(checkpoint); }).catch(error => options.status(`Local recovery storage failed: ${String(error)}`, true));
     }
   };
@@ -155,6 +155,7 @@ export function annotationSync(options: SyncOptions) {
           if (await refresh()) { attempt--; continue; }
           if (closed) return;
           if (await acknowledge(base.document)) rebuild();
+          if (current && options.canWrite) await options.source.ensureIndexed?.();
           const first = pending.find(entry => !entry.held);
           if (!first || !options.canWrite) { report(); return; }
           const batch: PendingUpdate[] = [];

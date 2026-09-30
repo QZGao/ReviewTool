@@ -61,7 +61,7 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     assert.equal(await page.locator('.annotation-highlight-attribution').count(), 0);
     const originalText = await page.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();
-      const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+      const title = `Wikipedia:ReviewTool/data/${mw.config.get('wgRevisionId')}.json`;
       const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'content', formatversion: 2 });
       const raw = result.query.pages[0].revisions[0].slots.main.content;
       return raw;
@@ -113,12 +113,13 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     assert.ok(alignment <= 1, 'live appearance controls do not displace comments');
     const data = await page.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();
-      const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+      const title = `Wikipedia:ReviewTool/data/${mw.config.get('wgRevisionId')}.json`;
       const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|timestamp|content|comment', curtimestamp: true, formatversion: 2 });
       return { title, page: result.query.pages[0], readAt: result.curtimestamp };
     });
     const stored = data.page.revisions[0].slots.main.content;
-    assert.ok(stored.startsWith('{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">'));
+    assert.equal(JSON.parse(stored).format, 'reviewtool.annotation-records/1');
+    assert.equal(data.page.revisions[0].slots.main.contentmodel, 'json');
     assert.match(stored, /A local-only live Wikipedia test/);
     assert.match(data.page.revisions[0].comment, /^(?:\/\* ReviewTool \*\/ )?修正引用，保留原作者$/);
     const savedHighlight = (await readSnapshot(stored))[0];
@@ -167,7 +168,7 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
     await reopened.reload({ waitUntil: 'domcontentloaded' }); await waitForAnnotation(reopened);
     const recoloredText = await reopened.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();
-      const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+      const title = `Wikipedia:ReviewTool/data/${mw.config.get('wgRevisionId')}.json`;
       const result = await api.get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'content', formatversion: 2 });
       return result.query.pages[0].revisions[0].slots.main.content;
     });
@@ -200,10 +201,10 @@ test('normal is the default build and delegates writes to the real mw.Api (inter
     await page.waitForFunction(() => Boolean(window.__reviewToolDev));
     const result = await page.evaluate(async () => {
       const api = window.__reviewToolDev.createApi();
-      const response = await api.post({ action: 'edit', title: 'Talk:ReviewTool test/ReviewTool/1', text: 'Intercepted; never posted', token: 'not-a-real-token' });
+      const response = await api.post({ action: 'edit', title: 'Wikipedia:ReviewTool/data/1.json', text: '{}', contentmodel: 'json', token: 'not-a-real-token' });
       return { mode: window.__reviewToolDev.mode, native: Object.getPrototypeOf(api) === mw.Api.prototype, result: response.edit.result };
     });
     assert.deepEqual(result, { mode: 'normal', native: true, result: 'Success' });
-    assert.equal(edits.length, 1); assert.equal(edits[0].text, 'Intercepted; never posted');
+    assert.equal(edits.length, 1); assert.equal(edits[0].text, '{}'); assert.equal(edits[0].contentmodel, 'json');
   } finally { await context.close(); }
 });

@@ -8,11 +8,11 @@ import { launch, root } from './launch.mjs';
 const url = 'https://zh.wikipedia.org/wiki/孫中山?reviewtool_annotation_view=1&oldid=94447348&uselang=zh-tw';
 async function readData(page) {
   const result = await page.evaluate(async () => {
-    const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+    const title = `Wikipedia:ReviewTool/data/${mw.config.get('wgRevisionId')}.json`;
     const result = await __reviewToolDev.createApi().get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|content|tags|comment', formatversion: 2 });
-    const revision = result.query.pages[0].revisions[0], match = revision.slots.main.content.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/); return { title, revision, data: match ? JSON.parse(match[1]) : null };
+    const revision = result.query.pages[0].revisions[0]; return { title, revision, data: JSON.parse(revision.slots.main.content) };
   });
-  return { ...result, annotations: result.data ? await readSnapshot(result.revision.slots.main.content) : null };
+  return { ...result, annotations: result.data?.format === 'reviewtool.annotation-records/1' ? await readSnapshot(result.revision.slots.main.content) : null };
 }
 test('live dry-run peers receive concurrent roots within ten seconds, retain a draft, and repair manual damage', async () => {
   const profile = await fs.mkdtemp(path.join(root, '.cache/records-live-peers-'));
@@ -44,7 +44,7 @@ test('live dry-run peers receive concurrent roots within ten seconds, retain a d
     await alice.locator('.annotation-comment-thread').hover();
     await alice.getByRole('button', { name: '另寫評論…', exact: true }).click(); await alice.locator('.annotation-comments textarea').fill('A private unfinished draft');
     await alice.locator('.annotation-comments textarea').evaluate(input => input.setSelectionRange(2, 8));
-    const rootBody = bob.getByText('Alice root', { exact: true }).locator('..'); await rootBody.hover(); await rootBody.getByRole('button', { name: '回覆', exact: true }).click();
+    const rootBody = bob.locator('.annotation-comment-body').filter({ has: bob.getByText('Alice root', { exact: true }) }); await rootBody.hover(); await rootBody.getByRole('button', { name: '回覆', exact: true }).click();
     await bob.locator('.annotation-comments textarea').fill('Bob reply'); await bob.locator('.annotation-comments').getByRole('button', { name: '送出', exact: true }).click();
     await alice.getByText('Bob reply', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
     assert.deepEqual(await alice.locator('.annotation-comments textarea').evaluate(input => ({ value: input.value, start: input.selectionStart, end: input.selectionEnd, focus: document.activeElement === input })), { value: 'A private unfinished draft', start: 2, end: 8, focus: true });
@@ -54,7 +54,7 @@ test('live dry-run peers receive concurrent roots within ten seconds, retain a d
     const before = await readData(alice);
     assert.equal(before.revision.slots.main.content.includes('A private unfinished draft'), false, 'private drafts are not published to the annotation page');
     assert.equal(before.data.format, 'reviewtool.annotation-records/1'); assert.equal(before.annotations[0].threads.length, 2);
-    await bob.evaluate(async ({ title, revision }) => { await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title, text: 'Malformed manual test edit', summary: 'Manual test edit', baserevid: revision.revid }); }, before);
+    await bob.evaluate(async ({ title, revision }) => { await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title, text: '{}', summary: 'Manual test edit', baserevid: revision.revid }); }, before);
     let repaired;
     const repairStart = Date.now();
     do {

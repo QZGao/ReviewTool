@@ -1,4 +1,4 @@
-export interface LocalPage { title: string; pageid: number; revid: number; timestamp: string; content: string; summary?: string; tags?: string[]; parentid?: number }
+export interface LocalPage { title: string; pageid: number; revid: number; timestamp: string; content: string; contentmodel?: string; contentformat?: string; summary?: string; tags?: string[]; parentid?: number }
 export class LocalApiError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
 }
@@ -67,14 +67,19 @@ export class LocalWiki {
           if (enabled(parameters.nocreate) && !current) throw new LocalApiError('missingtitle', 'The local page does not exist.');
           if (parameters.baserevid !== undefined && Number(parameters.baserevid) !== (current?.revid ?? 0)) throw new LocalApiError('editconflict', 'The local page changed since it was read.');
           if (typeof parameters.basetimestamp === 'string' && current && Date.parse(parameters.basetimestamp) !== Date.parse(current.timestamp)) throw new LocalApiError('editconflict', 'The local page timestamp changed.');
-          if (current?.content === content) { result = { edit: { result: 'Success', nochange: true, title, pageid: current.pageid, contentmodel: 'wikitext' } }; return; }
+          const contentmodel = typeof parameters.contentmodel === 'string' ? parameters.contentmodel : current?.contentmodel ?? 'wikitext';
+          const contentformat = typeof parameters.contentformat === 'string' ? parameters.contentformat : contentmodel === 'json' ? 'application/json' : current?.contentformat ?? 'text/x-wiki';
+          if (contentmodel === 'json') {
+            try { JSON.parse(content); } catch { throw new LocalApiError('invalid-content-data', 'Invalid JSON content.'); }
+          }
+          if (current?.content === content && (current.contentmodel ?? 'wikitext') === contentmodel) { result = { edit: { result: 'Success', nochange: true, title, pageid: current.pageid, contentmodel } }; return; }
           const counter = meta.get('revision');
           counter.onsuccess = () => {
             if (aborted()) { failure = new LocalApiError('aborted', 'Request aborted.'); transaction.abort(); return; }
             const revid = Math.max(Number(counter.result) || 1000000000, current?.revid ?? 0) + 1;
-            const page: LocalPage = { title, pageid: current?.pageid ?? revid, revid, timestamp: new Date().toISOString(), content, summary: typeof parameters.summary === 'string' ? parameters.summary : '', parentid: current?.revid ?? 0, tags: typeof parameters.tags === 'string' ? parameters.tags.split('|') : [] };
+            const page: LocalPage = { title, pageid: current?.pageid ?? revid, revid, timestamp: new Date().toISOString(), content, contentmodel, contentformat, summary: typeof parameters.summary === 'string' ? parameters.summary : '', parentid: current?.revid ?? 0, tags: typeof parameters.tags === 'string' ? parameters.tags.split('|') : [] };
             meta.put(revid, 'revision'); pages.put(page); if (current) revisions.put(current); revisions.put(page);
-            result = { edit: { result: 'Success', pageid: page.pageid, title, oldrevid: current?.revid ?? 0, newrevid: revid, newtimestamp: page.timestamp, contentmodel: 'wikitext' } };
+            result = { edit: { result: 'Success', pageid: page.pageid, title, oldrevid: current?.revid ?? 0, newrevid: revid, newtimestamp: page.timestamp, contentmodel } };
           };
         } catch (error) { failure = error; transaction.abort(); }
       };

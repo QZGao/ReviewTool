@@ -6,20 +6,21 @@ import type { HighlightAnnotation, SourceAnchor } from './types';
 export interface ReviewIdentity { wiki: string; pageId: number; revisionId: number }
 export interface PageRevision { revision: number; parentId: number; timestamp: string; tags: readonly string[]; summary: string }
 export interface DataPage extends PageRevision { text: string }
-export interface StoredDocument { generation: string; baseline: number; document: AnnotationDocument; annotations: readonly HighlightAnnotation[]; prefix: string; suffix: string }
+export interface StoredDocument { generation: string; baseline: number; document: AnnotationDocument; annotations: readonly HighlightAnnotation[] }
 export const recordFormat = 'reviewtool.annotation-records/1';
-export const dataTemplate = '{{ReviewTool annotation data page}}';
 export const summaryMarker = '/* ReviewTool */';
+export function dataPageTitle(revision: number): string {
+  if (!Number.isSafeInteger(revision) || revision < 1) throw new TypeError('Invalid article revision ID.');
+  return `Wikipedia:ReviewTool/data/${revision}.json`;
+}
 export class IncompatibleData extends Error {}
 export class MalformedData extends Error {}
 export const recognizedEdit = (revision: Pick<PageRevision, 'tags' | 'summary'>): boolean => revision.tags.includes('ReviewTool') || revision.summary === summaryMarker || revision.summary.startsWith(summaryMarker + ' ');
 export const sameData = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonicalJson(b);
 
 export function decodePage(page: DataPage, identity: ReviewIdentity, validate: (anchor: SourceAnchor) => boolean, manual = false): StoredDocument {
-  const matches = [...page.text.matchAll(/<syntaxhighlight\s+lang="json">([\s\S]*?)<\/syntaxhighlight>/g)];
-  if (matches.length !== 1) throw new MalformedData('Expected one annotation JSON block.');
-  const match = matches[0]; let value: Record<string, unknown>;
-  try { value = object(parseRecordJson(match[1])); } catch (error) { throw new MalformedData(error instanceof Error ? error.message : 'Invalid annotation JSON.'); }
+  let value: Record<string, unknown>;
+  try { value = object(parseRecordJson(page.text)); } catch (error) { throw new MalformedData(error instanceof Error ? error.message : 'Invalid annotation JSON.'); }
   if (typeof value.format !== 'string') {
     if ('schemaVersion' in value) throw new IncompatibleData('This development data uses an old format. Convert it with the development converter.');
     throw new MalformedData('Missing record format.');
@@ -39,19 +40,18 @@ export function decodePage(page: DataPage, identity: ReviewIdentity, validate: (
   catch (error) { throw new MalformedData(error instanceof Error ? error.message : 'Invalid shared records.'); }
   const annotations = document.snapshot();
   if (manual) { document.destroy(); document = AnnotationDocument.seed(crypto.randomUUID(), annotations, validate); }
-  return { generation: document.generation, baseline: manual ? page.revision : Number(value.baseline ?? 0), document, annotations,
-    prefix: page.text.slice(0, match.index) + '<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>' + page.text.slice((match.index ?? 0) + match[0].length) };
+  return { generation: document.generation, baseline: manual ? page.revision : Number(value.baseline ?? 0), document, annotations };
 }
 
 /** One immutable record per line; only generation changes rewrite the fixed header. */
-export function encodePage(identity: ReviewIdentity, stored: Pick<StoredDocument, 'baseline' | 'prefix' | 'suffix'>, document: AnnotationDocument): string {
+export function encodePage(identity: ReviewIdentity, stored: Pick<StoredDocument, 'baseline'>, document: AnnotationDocument): string {
   const json = (value: unknown) => canonicalJson(value).replace(/</g, '\\u003c');
   const records = document.toJSON(), keys = Object.keys(records).sort();
-  return stored.prefix + ['{', `  "format": ${json(recordFormat)},`, `  "document": ${json({ ...identity, offsetUnit: 'utf8-byte' })},`,
+  return ['{', `  "format": ${json(recordFormat)},`, `  "document": ${json({ ...identity, offsetUnit: 'utf8-byte' })},`,
     `  "generation": ${json(document.generation)},`, `  "baseline": ${stored.baseline},`, '  "records": {',
-    ...keys.map((key, index) => `    ${json(key)}: ${json(records[key])}${index + 1 < keys.length ? ',' : ''}`), '  }', '}'].join('\n') + stored.suffix;
+    ...keys.map((key, index) => `    ${json(key)}: ${json(records[key])}${index + 1 < keys.length ? ',' : ''}`), '  }', '}'].join('\n') + '\n';
 }
 export function emptyDocument(validate: (anchor: SourceAnchor) => boolean): StoredDocument {
   const generation = crypto.randomUUID(), document = new AnnotationDocument(generation, validate);
-  return { generation, baseline: 0, document, annotations: [], prefix: dataTemplate + '\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>\n' };
+  return { generation, baseline: 0, document, annotations: [] };
 }

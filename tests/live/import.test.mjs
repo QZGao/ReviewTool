@@ -5,7 +5,7 @@ import path from 'node:path';
 import { launch, root } from './launch.mjs';
 import { recordTestApi } from './record-test-api.mjs';
 const time = '2026-09-26T00:00:00.000Z';
-const prefix = 'Talk:孫中山/ReviewTool/';
+const prefix = 'Wikipedia:ReviewTool/data/';
 
 test('Check writing overlays a revision picker, imports the chosen comments, and preserves the form on cancellation or failure', async () => {
   const records = await recordTestApi(), sources = new Map(), pages = new Map();
@@ -17,7 +17,7 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
     const rootComment = comment('root-' + id, `版本 ${id} 的評論`, [comment('reply-' + id, `版本 ${id} 的回覆`)]);
     const start = Buffer.byteLength(source.slice(0, source.indexOf(quote)));
     const doc = records.AnnotationDocument.seed('fixture-' + id, [{ id: 'h-' + id, color: 'yellow', anchor: { unit: 'utf8-byte', start, end: start + Buffer.byteLength(quote) }, author: 'Example', createdAt: time, threads: [rootComment] }], () => true);
-    pages.set(prefix + id, records.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId: id }, { baseline: 0, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>' }, doc)); doc.destroy();
+    pages.set(prefix + id + '.json', records.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId: id }, { baseline: 0 }, doc)); doc.destroy();
   }
   const profile = await fs.mkdtemp(path.join(root, '.cache/revision-picker-test-'));
   const { context } = await launch({ dryRun: true, headless: true, profile });
@@ -30,18 +30,16 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
       const json = value => route.fulfill({ contentType: 'application/json', body: JSON.stringify(value) });
       if (params.action && !['query', 'parse', 'compare', 'paraminfo', 'help', 'expandtemplates', 'opensearch'].includes(params.action)) { externalWrites.push(params.action); return route.abort(); }
       if (params.action === 'query' && params.titles === '孫中山' && params.prop === 'info') return json({ query: { pages: [{ pageid: 139, ns: 0, title: '孫中山' }] } });
-      if (params.action === 'query' && params.list === 'allpages' && params.apprefix === '孫中山/ReviewTool/') {
+      if (params.action === 'query' && params.titles === 'Talk:孫中山') {
         reads.push(params);
-        const available = empty ? [] : ['10', 'notes'].map(id => ({ pageid: 7000, ns: 1, title: prefix + id })).filter(p => p.title.slice(5) >= (params.apcontinue || ''));
-        const limit = params.aplimit === 'max' ? 500 : Number(params.aplimit || 10), next = available[limit];
-        return json({ query: { allpages: available.slice(0, limit) }, ...(next ? { continue: { continue: '-||', apcontinue: next.title.slice(5) } } : {}) });
+        return json({ query: { pages: [{ pageid: 7000, title: 'Talk:孫中山', revisions: [{ revid: 8001, slots: { main: { content: empty ? 'Existing discussion' : '{{ReviewTool talk page notice|9|100|10}}\nExisting discussion', contentmodel: 'wikitext' } } }] }] } });
       }
       if (params.action === 'query' && params.revids?.split('|').every(id => sources.has(Number(id)))) {
         reads.push(params); return json({ query: { pages: [{ pageid: 139, title: '孫中山', revisions: params.revids.split('|').map(id => ({ revid: Number(id), timestamp: time })) }] } });
       }
       if (params.action === 'query' && params.titles?.startsWith(prefix)) {
-        const text = params.titles === prefix + '10' ? pages.get(params.titles) : undefined;
-        return json({ query: { pages: [text ? { pageid: 7000, title: params.titles, revisions: [{ revid: 8000, timestamp: time, slots: { main: { content: text } } }] } : { missing: true, title: params.titles }] } });
+        const text = params.titles === prefix + '10.json' ? pages.get(params.titles) : undefined;
+        return json({ query: { pages: [text ? { pageid: 7000, title: params.titles, revisions: [{ revid: 8000, timestamp: time, slots: { main: { content: text, contentmodel: 'json', contentformat: 'application/json' } } }] } : { missing: true, title: params.titles }] } });
       }
       if (params.action === 'parse' && sources.has(Number(params.oldid))) {
         reads.push(params);
@@ -62,14 +60,7 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
       heading.querySelector('.mw-editsection').style.setProperty('display', 'inline', 'important');
       content.prepend(heading); document.getElementById('review-tool-buttons-added').remove(); mw.hook('wikipage.content').fire($(content));
     });
-    await page.evaluate(async entries => { for (const [title, text] of entries) await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title, text, summary: '/* ReviewTool */' }); }, [...pages].filter(([title]) => title !== prefix + '10'));
-    // Dry-run prefix pagination must combine remote and local pages without losing or duplicating entries.
-    const listed = await page.evaluate(async () => {
-      const api = __reviewToolDev.createApi(), titles = []; let continuation = {};
-      do { const r = await api.get({ action: 'query', list: 'allpages', apnamespace: 1, apprefix: '孫中山/ReviewTool/', aplimit: 1, formatversion: 2, ...continuation }); titles.push(...r.query.allpages.map(p => p.title)); continuation = r.continue; } while (continuation?.apcontinue);
-      return titles;
-    });
-    assert.deepEqual(listed, [prefix + '10', prefix + '100', prefix + '9', prefix + 'notes']);
+    await page.evaluate(async entries => { for (const [title, text] of entries) await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title, text, contentmodel: 'json', summary: '/* ReviewTool */' }); }, [...pages].filter(([title]) => title !== prefix + '10.json'));
     // Trigger the synthetic review entry; the picker itself is exercised with normal mouse/keyboard input.
     await page.locator('#reviewtool-import-fixture').getByRole('link', { name: '檢查文筆', exact: true }).dispatchEvent('click');
     const main = page.locator('.review-tool-check-writing-dialog'), picker = page.getByRole('dialog', { name: '選擇批註版本', exact: true });

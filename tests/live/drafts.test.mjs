@@ -6,7 +6,7 @@ import { launch, root } from './launch.mjs';
 import { waitForAnnotation, waitForSaved } from './ui.mjs';
 import { recordTestApi, readSnapshot } from './record-test-api.mjs';
 const url = 'https://zh.wikipedia.org/wiki/孫中山?oldid=94447348&uselang=zh-tw';
-const title = 'Talk:孫中山/ReviewTool/94447348';
+const title = 'Wikipedia:ReviewTool/data/94447348.json';
 
 async function storedDrafts(page) {
   return page.evaluate(async () => {
@@ -35,8 +35,8 @@ async function fixture(run) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }); await page.locator('#ca-annotate').waitFor();
     const api = await recordTestApi(), time = '2026-09-26T00:00:00.000Z';
     const doc = api.AnnotationDocument.seed('draft-lifecycle', [{ id: 'h', color: 'yellow', author: 'Example', createdAt: time, anchor: { unit: 'utf8-byte', start: 0, end: 14 } }], () => true);
-    const text = api.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId: 94447348 }, { baseline: 0, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>' }, doc); doc.destroy();
-    await page.evaluate(async ({ title, text }) => { await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title, text, summary: '/* ReviewTool */' }); }, { title, text });
+    const text = api.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId: 94447348 }, { baseline: 0 }, doc); doc.destroy();
+    await page.evaluate(async ({ title, text }) => { await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title, text, contentmodel: 'json', contentformat: 'application/json', summary: '/* ReviewTool */' }); }, { title, text });
     await page.locator('#ca-annotate a').click(); await waitForAnnotation(page);
     await run(page, context);
   } finally { await context.close(); }

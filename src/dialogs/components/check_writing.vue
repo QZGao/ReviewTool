@@ -513,9 +513,7 @@ export default {
 				if (!article) { this.annotationPickerError = this.$options.i18n.annotationArticleMissing; return; }
 				const talk = mw.Title.newFromText(article.title)?.getTalkPage();
 				if (!talk) throw new Error('Article has no talk page.');
-				const revisions = await listAnnotatedRevisions(reader.request, article, {
-					namespace: talk.getNamespaceId(), mainText: talk.getMainText() + '/ReviewTool/', title: talk.getPrefixedText() + '/ReviewTool/',
-				});
+				const revisions = await listAnnotatedRevisions(reader.request, article, talk.getPrefixedText());
 				if (token !== this.annotationImportToken) return;
 				this.annotationArticle = article; this.annotationRevisions = revisions;
 				this.selectedAnnotationRevision = revisions[0]?.revisionId ?? null;

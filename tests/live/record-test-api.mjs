@@ -11,7 +11,7 @@ export function recordTestApi() {
   })();
 }
 export async function readSnapshot(text) {
-  const payload = JSON.parse(text.match(/<syntaxhighlight lang="json">\s*([\s\S]*?)\s*<\/syntaxhighlight>/)[1]);
+  const payload = JSON.parse(text);
   const api = await recordTestApi();
   const stored = api.decodePage({ text, revision: 0, parentId: 0, timestamp: '', summary: '/* ReviewTool */', tags: [] }, payload.document, a => a.unit === 'utf8-byte' && a.start >= 0 && a.end > a.start);
   const result = stored.annotations; stored.document.destroy(); return result;

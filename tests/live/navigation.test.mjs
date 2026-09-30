@@ -43,9 +43,9 @@ test('the custom article tab replaces the old mode, restores the page, retains p
     const annotation = { id: 'h', color: 'yellow', author: 'Example', createdAt: time, anchor: { unit: 'utf8-byte', start: 0, end: 14 }, threads: [comment('root', [comment('reply', [comment('nested')])]), { ...comment('closed'), resolved: { by: 'Example', at: time } }] };
     const deleted = { ...annotation, id: 'deleted', threads: [comment('removed')], deleted: { by: 'Example', at: time } };
     const model = api.AnnotationDocument.seed('test-generation', [annotation, deleted], () => true);
-    const text = api.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId: revision }, { baseline: 0, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>\n' }, model); model.destroy();
+    const text = api.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId: revision }, { baseline: 0 }, model); model.destroy();
     await page.evaluate(async text => {
-      await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title: 'Talk:孫中山/ReviewTool/94447348', text, summary: '/* ReviewTool */' });
+      await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title: 'Wikipedia:ReviewTool/data/94447348.json', text, contentmodel: 'json', summary: '/* ReviewTool */' });
     }, text);
     await page.locator('#ca-annotate a').click(); await ready(page);
     assert.equal(await page.locator('#ca-annotate').evaluate(e => e.classList.contains('selected')), true);

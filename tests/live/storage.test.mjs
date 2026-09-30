@@ -19,7 +19,7 @@ const message = (id, author = 'Alice') => ({ id, text: id, author, createdAt: ti
 const rootComment = message('root');
 const valid = anchor => anchor?.unit === 'utf8-byte' && anchor.start >= 0 && anchor.end > anchor.start && anchor.end <= 100;
 const seed = (annotations = [{ ...marker, threads: [rootComment] }]) => api.AnnotationDocument.seed('shared', annotations, valid);
-const shell = { baseline: 0, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>\n' };
+const shell = { baseline: 0 };
 const encoded = doc => api.encodePage(identity, shell, doc);
 function memoryJournal() { const records = new Map(); return { records, load: async () => [...records.values()].map(value => structuredClone(value)), put: async value => { records.set(value.id, structuredClone(value)); }, remove: async id => { records.delete(id); } }; }
 function wiki(initial) {
@@ -40,7 +40,23 @@ async function client(server, name = 'Alice', journal = memoryJournal(), groups 
   await sync.start(); return { sync, journal, snapshots, statuses };
 }
 function snapshot(server) { const stored = api.decodePage(server.pages.at(-1), identity, valid); const value = stored.document.snapshot(); stored.document.destroy(); return value; }
-function mutate(text, change) { const match = /<syntaxhighlight lang="json">\n([\s\S]*?)\n<\/syntaxhighlight>/.exec(text); const value = JSON.parse(match[1]); change(value); return text.replace(match[1], JSON.stringify(value)); }
+function mutate(text, change) { const value = JSON.parse(text); change(value); return JSON.stringify(value); }
+
+test('a failed talk-index update retries after JSON acknowledgement without duplicating annotation edits', async () => {
+  const server = wiki(), c = await client(server);
+  let attempts = 0;
+  server.source.ensureIndexed = async () => { if (++attempts === 1) throw new Error('Talk page temporarily unavailable'); };
+  try {
+    c.sync.add({ type: 'add-highlight', highlight: marker }); await c.sync.sync();
+    assert.equal(snapshot(server)[0].id, marker.id);
+    assert.equal(server.writes.length, 1);
+    assert.equal(c.sync.dirty, false, 'the annotation save was acknowledged');
+    assert.match(c.statuses.at(-1).text, /Talk page temporarily unavailable/);
+    await c.sync.sync();
+    assert.equal(attempts, 2); assert.equal(server.writes.length, 1);
+    assert.equal(c.statuses.at(-1).text, 'Up to date');
+  } finally { c.sync.destroy(); }
+});
 
 test('independent roots and replies converge under reverse/duplicate update delivery', () => {
   const initial = seed(), a = initial.clone(), b = initial.clone();
@@ -158,7 +174,7 @@ test('tag availability is checked once and summary fallback stays recognizable a
       if (!write) return { query: { tags: [{ name: 'ReviewTool', ...(active ? { active: true } : {}), source: ['manual'] }] } };
       if (reject) { reject = false; throw new Error('badtags'); }
       return { edit: { result: 'Success' } };
-    }, 'Talk:Page/ReviewTool/456');
+    }, 'Wikipedia:ReviewTool/data/456.json');
     await source.write('data', null); await source.write('data2', { revision: 12 }, 'Moderator reason');
     assert.equal(calls.filter(call => call.list === 'tags').length, 1);
     assert.equal(calls.at(-1).summary, '/* ReviewTool */ Moderator reason'); assert.equal(calls.at(-1).baserevid, 12); assert.equal(calls.at(-1).basetimestamp, undefined);
@@ -171,9 +187,9 @@ test('tag availability is checked once and summary fallback stays recognizable a
 test('intervening manual edits are noticed even when the head is tagged, and formatting-only edits are preserved', async () => {
   const doc = seed(), server = wiki(encoded(doc)); doc.destroy(); const c = await client(server);
   try {
-    server.commit(server.pages.at(-1).text + '\n<!-- manual notice -->', 'Manual formatting');
+    server.commit(JSON.stringify(JSON.parse(server.pages.at(-1).text), null, 4) + '\n', 'Manual formatting');
     await c.sync.sync(); assert.equal(server.writes.length, 0);
-    c.sync.add({ type: 'recolor-highlight', id: marker.id, color: 'green', editedAt: time }); await c.sync.sync(); assert.ok(server.pages.at(-1).text.endsWith('<!-- manual notice -->'));
+    c.sync.add({ type: 'recolor-highlight', id: marker.id, color: 'green', editedAt: time }); await c.sync.sync(); assert.equal(snapshot(server)[0].color, 'green');
     const before = server.pages.at(-1).text;
     server.commit(mutate(before, value => { value.records['c/root'].body.text = 'Manual correction between polls'; }), 'Manual edit');
     server.commit(before, '/* ReviewTool */');

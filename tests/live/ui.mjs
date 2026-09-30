@@ -18,7 +18,7 @@ export async function waitForSaved(page, expectedContent) {
     let saved;
     try {
       saved = await new Promise((resolve, reject) => {
-        const title = `Talk:${mw.config.get('wgPageName').replace(/_/g, ' ')}/ReviewTool/${mw.config.get('wgRevisionId')}`;
+      const title = `Wikipedia:ReviewTool/data/${mw.config.get('wgRevisionId')}.json`;
         const request = wiki.transaction('pages').objectStore('pages').get(title);
         request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
       });

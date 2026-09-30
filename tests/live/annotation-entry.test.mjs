@@ -10,7 +10,7 @@ before(async () => {
   script = bundle.outputFiles[0].text;
   const api = await recordTestApi(), at = '2026-09-29T00:00:00.000Z';
   const model = api.AnnotationDocument.seed('entry-test', [{ id: 'h', color: 'green', author: 'Example', createdAt: at, anchor: { unit: 'utf8-byte', start: 0, end: 15 }, threads: [{ id: 'root', text: 'Saved root', author: 'Example', createdAt: at, resolution: { resolved: true, by: 'Example', at }, replies: [{ id: 'linked-reply', text: 'Linked reply', author: 'Other', createdAt: at, replies: [] }] }] }, { id: 'other', color: 'yellow', author: 'Example', createdAt: at, anchor: { unit: 'utf8-byte', start: 17, end: 29 }, threads: [] }], () => true);
-  data = api.encodePage({ wiki: 'zhwiki', pageId: 1, revisionId: 2 }, { baseline: 0, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>' }, model); model.destroy();
+  data = api.encodePage({ wiki: 'zhwiki', pageId: 1, revisionId: 2 }, { baseline: 0 }, model); model.destroy();
   browser = await chromium.launch({ channel: 'chrome', headless: true });
 });
 after(async () => { await browser?.close(); });
@@ -39,6 +39,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', tall = false, 
             if (params.action === 'parse') return wrap(gate.then(() => ({ parse: { pageid: 1, revid: 2, title: 'Test', wikitext: '段落內容。\n\n第二段。' } })));
             if (params.list === 'tags') return wrap(Promise.resolve({ query: { tags: [] } }));
             if (params.titles) requestTitles.push(params.titles);
+            if (params.titles === 'Talk:Test') return wrap(Promise.resolve({ query: { pages: [{ title: 'Talk:Test', revisions: [{ ...revision, revid: 101, slots: { main: { content: '{{ReviewTool talk page notice|2}}\nExisting discussion', contentmodel: 'wikitext' } } }] }] } }));
             return wrap(Promise.resolve({ query: { pages: [{ revisions: [revision] }] } }));
           }
           postWithToken() { throw new Error('Unexpected publication'); }
@@ -59,13 +60,13 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', tall = false, 
   } finally { await page.close(); }
 }
 
-test('live entry waits with progress, loads the existing Talk data page, and navigates to the comment UUID', async () => {
+test('live entry waits with progress, loads JSON data and the talk notice, and navigates to the comment UUID', async () => {
   await fixture(async page => {
     await page.evaluate(async () => { releaseSource(); await boot; });
     assert.equal(await page.getByRole('progressbar').count(), 0);
     assert.equal(await page.locator('.annotation-document').count(), 1);
     assert.equal(await page.evaluate(() => document.activeElement.dataset.commentId), 'linked-reply');
-    assert.ok((await page.evaluate(() => requestTitles)).every(title => title === 'Talk:Test/ReviewTool/2'));
+    assert.deepEqual([...new Set(await page.evaluate(() => requestTitles))], ['Wikipedia:ReviewTool/data/2.json', 'Talk:Test']);
     await page.locator('#ca-annotate a').click();
     await page.waitForFunction(() => !document.querySelector('.annotation-document'));
     assert.equal(await page.locator('.mw-parser-output').evaluate(element => getComputedStyle(element).display), 'block');

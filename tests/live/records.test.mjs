@@ -7,7 +7,7 @@ import { recordTestApi } from './record-test-api.mjs';
 let api;
 before(async () => { api = await recordTestApi(); });
 const time = '2026-09-26T00:00:00.000Z', actor = { name: 'Alice' };
-const identity = { wiki: 'zhwiki', pageId: 123, revisionId: 456 }, frame = { baseline: 0, prefix: '{{ReviewTool annotation data page}}\n<syntaxhighlight lang="json">\n', suffix: '\n</syntaxhighlight>\n' };
+const identity = { wiki: 'zhwiki', pageId: 123, revisionId: 456 }, frame = { baseline: 0 };
 const valid = anchor => anchor?.unit === 'utf8-byte' && anchor.start >= 0 && anchor.start < anchor.end && anchor.end <= 100;
 const comment = id => ({ id, text: `Original ${id}`, author: 'Alice', createdAt: time, replies: [] });
 const initial = () => [
@@ -19,7 +19,8 @@ const page = text => ({ text, revision: 1, parentId: 0, summary: '/* ReviewTool 
 
 test('one record per line preserves the entire snapshot without a materialized mirror', () => {
   const document = seed(), text = api.encodePage(identity, frame, document);
-  const raw = api.parseRecordJson(text.match(/<syntaxhighlight lang="json">\n([\s\S]*?)\n<\/syntaxhighlight>/)[1]);
+  const raw = api.parseRecordJson(text);
+  assert.equal(text.trimStart()[0], '{'); assert.ok(!text.includes('<syntaxhighlight'));
   assert.equal(raw.format, api.recordFormat); assert.equal(raw.yjs, undefined); assert.equal(raw.annotations, undefined);
   assert.equal(text.split('\n').filter(line => /^    "/.test(line)).length, 4);
   const result = api.decodePage(page(text), identity, valid);
@@ -130,9 +131,9 @@ test('actual text-merged independent edits decode to the application union', asy
 
 test('runtime rejects unpublished legacy formats; the standalone converter preserves old data', async () => {
   const old={schemaVersion:2,...identity,annotations:initial(),yjs:'not needed by one-time converter'};
-  const directory=await mkdtemp(path.resolve('.cache/record-conversion-')), input=path.join(directory,'old.json'), output=path.join(directory,'new.wikitext');
+  const directory=await mkdtemp(path.resolve('.cache/record-conversion-')), input=path.join(directory,'old.json'), output=path.join(directory,'new.json');
   await writeFile(input,JSON.stringify(old));
-  assert.throws(()=>api.decodePage(page(frame.prefix+JSON.stringify(old)+frame.suffix),identity,valid),api.IncompatibleData);
+  assert.throws(()=>api.decodePage(page(JSON.stringify(old)),identity,valid),api.IncompatibleData);
   const converted=spawnSync(process.execPath,['tests/live/convert-records.mjs',input,output,'46'],{encoding:'utf8'});
   assert.equal(converted.status,0,converted.stderr);const result=api.decodePage(page(await readFile(output,'utf8')),identity,valid);
   assert.equal(result.baseline,46);assert.deepEqual(result.annotations,initial());result.document.destroy();

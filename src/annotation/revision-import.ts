@@ -1,17 +1,16 @@
 import type { AnnotationGroup } from '../annotations';
 import { buildAnnotationExport } from './export';
-import { decodePage } from './live-storage';
+import { dataPageTitle, decodePage } from './live-storage';
+import { noticeRevisions } from './talk-notice';
 import { createProjection } from './projection';
 import { SourceIndex } from './source-index';
 
 export type AnnotationReadRequest = (params: Record<string, unknown>) => Promise<unknown>;
 export interface AnnotationArticle { pageId: number; title: string }
-export interface AnnotationPagePrefix { namespace: number; mainText: string; title: string }
 export interface AnnotatedRevision { revisionId: number; dataTitle: string; timestamp?: string }
 interface Revision { revid: number; parentid?: number; timestamp?: string; comment?: string; tags?: string[]; slots?: { main?: { content?: string } } }
 interface QueryResult {
-  query?: { pages?: { pageid: number; title: string; missing?: boolean; revisions?: Revision[] }[]; allpages?: { title: string; ns: number }[] };
-  continue?: { apcontinue?: string; continue?: string };
+  query?: { pages?: { pageid: number; title: string; missing?: boolean; revisions?: Revision[] }[] };
 }
 
 export async function resolveAnnotationArticle(request: AnnotationReadRequest, title: string): Promise<AnnotationArticle | null> {
@@ -22,24 +21,17 @@ export async function resolveAnnotationArticle(request: AnnotationReadRequest, t
   return { pageId: page.pageid, title: page.title };
 }
 
-/** Enumerate exact revision subpages, following every continuation before sorting numerically. */
-export async function listAnnotatedRevisions(request: AnnotationReadRequest, article: AnnotationArticle, prefix: AnnotationPagePrefix): Promise<AnnotatedRevision[]> {
-  const choices = new Map<number, AnnotatedRevision>();
-  let continuation: QueryResult['continue'];
-  do {
-    const result = await request({ action: 'query', list: 'allpages', apnamespace: prefix.namespace, apprefix: prefix.mainText, aplimit: 'max', formatversion: 2, ...continuation }) as QueryResult;
-    if (!Array.isArray(result.query?.allpages)) throw new Error('Annotation page listing is unavailable.');
-    for (const page of result.query.allpages) {
-      if (page.ns !== prefix.namespace || !page.title.startsWith(prefix.title)) continue;
-      const suffix = page.title.slice(prefix.title.length), revisionId = Number(suffix);
-      if (!/^[1-9]\d*$/.test(suffix) || !Number.isSafeInteger(revisionId)) continue;
-      choices.set(revisionId, { revisionId, dataTitle: page.title });
-    }
-    if (result.continue?.apcontinue && result.continue.apcontinue === continuation?.apcontinue) throw new Error('Annotation page listing did not advance.');
-    continuation = result.continue;
-  } while (continuation?.apcontinue);
+/** Read the article's notice; only revision metadata is fetched until the user chooses a revision. */
+export async function listAnnotatedRevisions(request: AnnotationReadRequest, article: AnnotationArticle, talkTitle: string): Promise<AnnotatedRevision[]> {
+  const result = await request({ action: 'query', titles: talkTitle, prop: 'revisions', rvslots: 'main', rvprop: 'content', redirects: true, formatversion: 2 }) as QueryResult;
+  const page = result.query?.pages?.[0];
+  if (page?.missing) return [];
+  const text = page?.revisions?.[0]?.slots?.main?.content;
+  if (typeof text !== 'string') throw new Error('The article talk page is unavailable.');
+  const choices = new Map<number, AnnotatedRevision>(noticeRevisions(text).map(revisionId => [revisionId, { revisionId, dataTitle: dataPageTitle(revisionId) }]));
   const revisions = [...choices.values()].sort((a, b) => b.revisionId - a.revisionId);
   // Only metadata is loaded for the selector; source and discussion text wait until selection.
+  const belonging = new Set<number>();
   for (let offset = 0; offset < revisions.length; offset += 50) {
     const batch = revisions.slice(offset, offset + 50);
     const result = await request({ action: 'query', prop: 'revisions', revids: batch.map(item => item.revisionId).join('|'), rvprop: 'ids|timestamp', formatversion: 2 }) as QueryResult;
@@ -47,11 +39,12 @@ export async function listAnnotatedRevisions(request: AnnotationReadRequest, art
       if (page.pageid !== article.pageId) continue;
       for (const revision of page.revisions ?? []) {
         const choice = choices.get(revision.revid);
+        if (choice) belonging.add(revision.revid);
         if (choice && revision.timestamp && Number.isFinite(Date.parse(revision.timestamp))) choice.timestamp = revision.timestamp;
       }
     }
   }
-  return revisions;
+  return revisions.filter(choice => belonging.has(choice.revisionId));
 }
 
 /** Read-only import, using the fixed article source and the same complete comment projection as export. */
