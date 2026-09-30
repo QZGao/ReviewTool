@@ -174,6 +174,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       mount = mountWikipediaAnnotation(document, projection, {
         comments: true, messages, commentAuthor: author, commentUserGroups: actor.groups, commentCanWrite: canWrite, headingAnchors: headings, commentDrafts: drafts,
         commentLink: id => annotationCommentUrl(location.href, id, revision).href,
+        onCommentLinkUnavailable: () => { if (!closed) notify(messages.commentUnavailable, 'warn'); },
         onCommentLinkCopy: copied => {
           if (!closed) void mw.notify(copied ? messages.linkCopied : messages.linkCopyFailed, { tag: 'reviewtool-comment-link', type: copied ? 'success' : 'error', autoHide: true });
         },

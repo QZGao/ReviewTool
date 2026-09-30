@@ -171,6 +171,7 @@ export interface RenderOptions {
   commentLink?: (id: string) => string;
   /** Clipboard feedback; the Wikipedia host displays a notification. */
   onCommentLinkCopy?: (copied: boolean) => void;
+  onCommentLinkUnavailable?: () => void;
   /** Host dialog for moderator reasons; live Wikipedia uses Codex. Null means Cancel. */
   requestModerationReason?: ModerationReasonPrompt;
   requestCloseConfirmation?: (signal: AbortSignal) => Promise<boolean>;

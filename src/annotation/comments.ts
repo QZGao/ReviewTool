@@ -63,6 +63,19 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   };
   const cancel = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
   const activate = (id: string, anchor: DOMRect) => { cancel(); layout.activate(id, anchor); };
+  container.addEventListener('click', event => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = (event.target as Element | null)?.closest<HTMLAnchorElement>('a[data-comment-link]');
+    const id = link?.dataset.commentLink;
+    if (!link || !id || !container.contains(link)) return;
+    event.preventDefault();
+    void view.comments?.reveal(id).then(found => {
+      if (!found && !controller.signal.aborted) {
+        link.title = messages.commentUnavailable;
+        renderOptions.onCommentLinkUnavailable?.();
+      }
+    });
+  }, options);
   const atHighlight = (event: MouseEvent) => {
     const annotation = state.annotations.find(item => item.id === layout.active);
     const range = annotation && view.restoreRange(annotation.anchor);
@@ -199,7 +212,7 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
       if (edit && canEditComment(comment, actor)) node.append(editor(editKey, edit, comment));
       else {
         const body = doc.createElement('div'); body.className = 'annotation-comment-body';
-        const text = doc.createElement('div'); text.className = 'annotation-comment-text'; text.append(renderCommentMarkup(doc, comment.text));
+        const text = doc.createElement('div'); text.className = 'annotation-comment-text'; text.append(renderCommentMarkup(doc, comment.text, renderOptions.commentLink?.(comment.id)));
         // Keyboard focus offers the same expanded reading state as hover.
         text.tabIndex = 0;
         const actions = doc.createElement('div'); actions.className = 'annotation-comment-actions';

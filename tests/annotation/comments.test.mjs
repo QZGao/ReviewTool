@@ -24,13 +24,14 @@ async function inPage(callback, real = false, fixtureSource = source, contextOpt
       document.body.innerHTML = '<div id="comment-fixture"><div id="mw-content-text"><div class="mw-parser-output">Original article</div></div><div class="vector-column-end no-font-mode-scale"></div></div>';
       const style = document.createElement('style'); style.textContent = '#comment-fixture {display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:30px;margin:80px 30px} @media(max-width:800px){#comment-fixture{display:block;margin:80px 16px}}'; document.head.append(style);
       window.commentEvents = [];
+      window.commentLinkFailures = 0;
       window.reasonRequests = [];
       const requestModerationReason = (action, signal) => new Promise(resolve => {
         reasonRequests.push(action);
         window.pendingReason = reason => { window.pendingReason = null; resolve(reason); };
         signal.addEventListener('abort', () => { if (window.pendingReason) window.pendingReason(null); }, { once: true });
       });
-      window.commentMount = api.mountWikipediaAnnotation(document, api.createProjection(source), { comments: true, commentAuthor: 'Example', commentUserGroups, requestModerationReason, highlighting: { onChange: (annotations, action) => commentEvents.push({ annotations, action }) } });
+      window.commentMount = api.mountWikipediaAnnotation(document, api.createProjection(source), { comments: true, commentAuthor: 'Example', commentUserGroups, requestModerationReason, onCommentLinkUnavailable: () => commentLinkFailures++, highlighting: { onChange: (annotations, action) => commentEvents.push({ annotations, action }) } });
       window.commentView = commentMount.view;
     }, { source: fixtureSource, commentUserGroups });
     else await page.evaluate(() => { window.commentView = annotationPageLab.view; });
@@ -275,6 +276,61 @@ test('comment permalinks copy the UUID and reveal a reply inside a resolved disc
     assert.equal(await body(page, reply).locator('.annotation-comment-text').textContent(), 'Reply to link');
     assert.equal(await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].resolution.resolved), true);
     assert.equal(await page.evaluate(() => commentView.comments.reveal('missing')), false);
+  });
+});
+
+for (const width of [1440, 390]) test(`comment links jump to a resolved reply in place at ${width}px`, async () => {
+  const article = 'First passage.\n\n' + Array.from({ length: 35 }, (_, i) => `Paragraph ${i}.`).join('\n\n') + '\n\nDestination passage.';
+  await inPage(async page => {
+    await page.evaluate(() => history.replaceState(null, '', '?oldid=123&reviewtool_annotation_view=1'));
+    const reply = 'linked-reply', sourceComment = 'source-comment';
+    const link = new URL(page.url()); link.searchParams.set('reviewtool_annotation_comment_id', reply);
+    const other = new URL(link); other.searchParams.set('oldid', '456');
+    await page.evaluate(({ link, other }) => {
+      const at = '2026-10-01T00:00:00.000Z', author = 'Example';
+      const comment = (id, text) => ({ id, text, author, createdAt: at, replies: [] });
+      const source = commentView.projection.source;
+      commentView.highlighting.replace([
+        { id: 'destination', color: 'yellow', author, anchor: { unit: 'utf8-byte', start: source.lastIndexOf('Destination passage.'), end: source.length }, threads: [{ ...comment('destination-root', 'Destination root'), resolution: { resolved: true, by: author, at }, replies: [comment('linked-reply', 'The linked reply')] }] },
+        { id: 'source', color: 'blue', author, anchor: { unit: 'utf8-byte', start: 0, end: 14 }, threads: [comment('source-comment', `See [${link} '''that reply'''] or [${other} another revision].`)] },
+      ]);
+    }, { link: link.href, other: other.href });
+    const destination = page.locator('.annotation-comment-thread[data-annotation-id="destination"]');
+    const source = page.locator('.annotation-comment-thread[data-annotation-id="source"]');
+    const before = page.url(), pages = page.context().pages().length;
+    await page.evaluate(() => { window.originalArticle = commentView.element; window.savedComments = JSON.stringify(commentView.highlighting.annotations); });
+    if (width === 390) await page.setViewportSize({ width, height: 800 });
+    await page.evaluate(id => commentView.comments.reveal(id), sourceComment);
+    const localLink = source.getByRole('link', { name: 'that reply', exact: true });
+    assert.equal(await localLink.getAttribute('target'), '_self');
+    assert.equal(await source.getByRole('link', { name: 'another revision', exact: true }).getAttribute('target'), '_blank');
+    await localLink.locator('strong').click();
+    await page.waitForFunction(id => document.activeElement?.dataset.commentId === id, reply);
+    await frames(page);
+    assert.equal(page.url(), before); assert.equal(page.context().pages().length, pages);
+    assert.equal(await page.evaluate(() => commentView.element === originalArticle && JSON.stringify(commentView.highlighting.annotations) === savedComments), true);
+    assert.equal(await body(page, reply).locator('.annotation-comment-text').isVisible(), true);
+    assert.equal(await destination.locator('.annotation-resolved-summary').isVisible(), false);
+    assert.equal(await destination.getAttribute('data-engaged'), '');
+    if (width === 390) assert.equal(await page.locator('.annotation-comments').evaluate(el => el.matches(':popover-open')), true);
+    // Keyboard activation follows the same in-page path.
+    await page.evaluate(id => commentView.comments.reveal(id), sourceComment);
+    await localLink.focus(); await page.keyboard.press('Enter');
+    await page.waitForFunction(id => document.activeElement?.dataset.commentId === id, reply);
+    assert.equal(page.context().pages().length, pages);
+  }, false, article);
+});
+
+test('missing same-page comment links report unavailability without opening or replacing the page', async () => {
+  await inPage(async page => {
+    await page.evaluate(() => history.replaceState(null, '', '?oldid=123'));
+    const thread = await mark(page, 'First passage');
+    const url = new URL(page.url()); url.searchParams.set('reviewtool_annotation_comment_id', 'missing');
+    await send(thread, `[${url.href} missing comment]`);
+    const before = page.url(), pages = page.context().pages().length;
+    await thread.getByRole('link', { name: 'missing comment' }).click();
+    await page.waitForFunction(() => commentLinkFailures === 1);
+    assert.equal(page.url(), before); assert.equal(page.context().pages().length, pages);
   });
 });
 
