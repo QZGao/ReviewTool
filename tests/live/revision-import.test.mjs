@@ -50,28 +50,89 @@ test('metadata queries stay within the ordinary-user batch limit and empty listi
   assert.deepEqual(await api.listAnnotatedRevisions(async () => ({ query: { pages: [{ missing: true }] } }), article, talkTitle), []);
 });
 
-function fixture(revisionId = 100) {
+const comment = (id, text, replies = [], author = 'Example') => ({ id, text, author, createdAt: time, replies });
+const closed = { by: 'Example', at: time };
+function fixture(revisionId = 100, { threads, deletedThreads = [] } = {}) {
   const source = '前言。\n== 生平 ==\n[[頁面|原文😀]]。';
   const start = Buffer.byteLength(source.slice(0, source.indexOf('[['))), end = Buffer.byteLength(source.slice(0, source.indexOf(']]') + 2));
-  const comment = (id, text, replies = []) => ({ id, text, author: 'Example', createdAt: time, replies });
-  const threads = [comment('root', 'Root review', [comment('reply', 'Reply review', [comment('nested', 'Nested review')])]), { ...comment('closed', 'Resolved review'), resolved: { by: 'Example', at: time } }];
-  const model = records.AnnotationDocument.seed('test-generation', [{ id: 'h', color: 'yellow', author: 'Example', createdAt: time, anchor: { unit: 'utf8-byte', start, end }, threads }], () => true);
+  threads ??= [comment('root', 'Root review', [comment('reply', 'Reply review', [comment('nested', 'Nested review')])]), { ...comment('closed', 'Closed review'), resolved: closed }];
+  const annotation = { id: 'h', color: 'yellow', author: 'Example', createdAt: time, anchor: { unit: 'utf8-byte', start, end }, threads };
+  const model = records.AnnotationDocument.seed('test-generation', [annotation, ...(deletedThreads.length ? [{ ...annotation, id: 'deleted', deleted: closed, threads: deletedThreads }] : [])], () => true);
   const text = records.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId }, { baseline: 0 }, model); model.destroy();
   return { source, text, choice: { revisionId, dataTitle: records.dataPageTitle(revisionId) } };
 }
 const dataResponse = text => ({ query: { pages: [{ revisions: [{ revid: 1000000001, timestamp: time, slots: { main: { content: text } } }] }] } });
+const importFixture = ({ source, text, choice }, options) => api.loadAnnotationRevision(async params => params.action === 'parse'
+  ? { parse: { pageid: 139, revid: choice.revisionId, wikitext: source } } : dataResponse(text), 'zhwiki', article, choice, options);
+const opinions = groups => groups.flatMap(group => group.annotations.map(annotation => annotation.opinion));
 
-test('imports every saved root and reply from the selected revision with its readable quote and source section', async () => {
+test('defaults to own unresolved roots while preserving the chosen revision, readable quote and source section', async () => {
   const { source, text, choice } = fixture(), calls = [];
   const groups = await api.loadAnnotationRevision(async params => {
     calls.push(params);
     return params.action === 'parse' ? { parse: { pageid: 139, revid: 100, wikitext: source } } : dataResponse(text);
-  }, 'zhwiki', article, choice);
+  }, 'zhwiki', article, choice, { currentUser: 'Example' });
   assert.deepEqual(calls.map(c => c.action), ['parse', 'query']); assert.equal(calls[0].oldid, 100); assert.equal(calls[1].titles, choice.dataTitle);
   assert.deepEqual(groups.map(g => g.sectionPath), ['生平']);
-  assert.deepEqual(groups[0].annotations.map(a => a.opinion), ['Root review', 'Reply review', 'Nested review', 'Resolved review']);
+  assert.deepEqual(opinions(groups), ['Root review']);
   assert.ok(groups[0].annotations.every(a => a.sentenceText === '原文😀'));
-  assert.equal(groups[0].annotations[1].parentId, 'root'); assert.equal(groups[0].annotations[3].closed, true);
+  const withReplies = await importFixture({ source, text, choice }, { currentUser: 'Example', topLevelOnly: false });
+  assert.deepEqual(opinions(withReplies), ['Root review / Reply review / Nested review']);
+});
+
+test('Bob imports his reply under Example; including other authors attributes each of their comments', async () => {
+  const data = fixture(100, { threads: [comment('root', 'Needs a source.', [
+    comment('reply', 'Try reference 3.', [comment('nested', 'That reference supports it.')], 'Bob'),
+  ])] });
+  assert.deepEqual(await importFixture(data, { currentUser: 'Bob' }), []);
+  assert.deepEqual(opinions(await importFixture(data, { currentUser: 'Bob', topLevelOnly: false })), ['Try reference 3.']);
+  assert.deepEqual(opinions(await importFixture(data, { currentUser: 'Bob', onlyOwn: false, topLevelOnly: false })), [
+    '@[[User:Example|]]: Needs a source. / Try reference 3. / @[[User:Example|]]: That reference supports it.',
+  ]);
+  // A second import must not carry text or attribution from the previous filter choice.
+  assert.deepEqual(opinions(await importFixture(data, { currentUser: 'Example', topLevelOnly: false })), ['Needs a source. / That reference supports it.']);
+});
+
+test('all filter combinations keep independent discussions separate and always omit closed or deleted data', async t => {
+  const data = fixture(100, {
+    threads: [
+      comment('own', 'Own root', [comment('their-reply', 'Their reply')], 'Bob'),
+      comment('their', 'Their root', [comment('own-reply', 'Own reply', [], 'Bob')]),
+      { ...comment('resolved', 'Resolved root', [comment('resolved-reply', 'Resolved reply')], 'Bob'), resolution: { ...closed, resolved: true } },
+      { ...comment('closed', 'Closed root', [comment('closed-reply', 'Closed reply', [], 'Bob')], 'Bob'), resolved: closed },
+    ],
+    deletedThreads: [comment('deleted-root', 'Deleted root', [comment('deleted-reply', 'Deleted reply')], 'Bob')],
+  });
+  const cases = [
+    [true, true, true, ['Own root']],
+    [true, true, false, ['Own root', 'Resolved root']],
+    [true, false, true, ['Own root', 'Own reply']],
+    [true, false, false, ['Own root', 'Own reply', 'Resolved root']],
+    [false, true, true, ['Own root', '@[[User:Example|]]: Their root']],
+    [false, true, false, ['Own root', '@[[User:Example|]]: Their root', 'Resolved root']],
+    [false, false, true, ['Own root / @[[User:Example|]]: Their reply', '@[[User:Example|]]: Their root / Own reply']],
+    [false, false, false, ['Own root / @[[User:Example|]]: Their reply', '@[[User:Example|]]: Their root / Own reply', 'Resolved root / @[[User:Example|]]: Resolved reply']],
+  ];
+  for (const [onlyOwn, topLevelOnly, unresolvedOnly, expected] of cases) {
+    await t.test(`onlyOwn=${onlyOwn}, topLevelOnly=${topLevelOnly}, unresolvedOnly=${unresolvedOnly}`, async () => {
+      const groups = await importFixture(data, { currentUser: 'Bob', onlyOwn, topLevelOnly, unresolvedOnly });
+      assert.deepEqual(opinions(groups), expected);
+      assert.deepEqual(groups.map(group => group.sectionPath), ['生平']);
+      assert.ok(groups[0].annotations.every(entry => entry.sentenceText === '原文😀'));
+    });
+  }
+});
+
+test('ownership follows the original author, normalizes username spaces, and handles a logged-out viewer', async () => {
+  const data = fixture(100, { threads: [
+    { ...comment('edited-own', 'My edited comment', [], 'Bob Smith'), editedBy: 'Example', editedAt: time },
+    { ...comment('edited-other', 'Their edited comment'), editedBy: 'Bob Smith', editedAt: time },
+  ] });
+  assert.deepEqual(opinions(await importFixture(data, { currentUser: 'Bob_Smith' })), ['My edited comment']);
+  assert.deepEqual(await importFixture(data, { currentUser: null }), []);
+  assert.deepEqual(opinions(await importFixture(data, { currentUser: null, onlyOwn: false })), [
+    '@[[User:Bob Smith|]]: My edited comment', '@[[User:Example|]]: Their edited comment',
+  ]);
 });
 
 test('rejects missing, malformed, foreign and source-mismatched data instead of importing the wrong revision', async () => {
@@ -79,6 +140,6 @@ test('rejects missing, malformed, foreign and source-mismatched data instead of 
   for (const [sourcePageId, sourceRevisionId, data] of [[1, 100, text], [139, 9, text], [139, 100, 'broken'], [139, 100, fixture(9).text], [139, 100, undefined]]) {
     await assert.rejects(api.loadAnnotationRevision(async params => params.action === 'parse'
       ? { parse: { pageid: sourcePageId, revid: sourceRevisionId, wikitext: source } }
-      : data === undefined ? { query: { pages: [{ missing: true }] } } : dataResponse(data), 'zhwiki', article, choice));
+      : data === undefined ? { query: { pages: [{ missing: true }] } } : dataResponse(data), 'zhwiki', article, choice, { currentUser: 'Example' }));
   }
 });

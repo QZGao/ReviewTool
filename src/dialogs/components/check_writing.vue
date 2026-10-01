@@ -2,7 +2,7 @@
 import state from "../../state";
 import type { AnnotationGroup, Annotation } from "../../annotations";
 import type { UnknownApiParams } from "types-mediawiki/api_params";
-import { createApi } from "../../mediawiki";
+import { createApi, mode } from "../../mediawiki";
 import { resolveAnnotationArticle, listAnnotatedRevisions, loadAnnotationRevision, type AnnotationReadRequest, type AnnotationArticle, type AnnotatedRevision } from "../../annotation/revision-import";
 import { compareOrderKeys } from "../../dom/numeric_pos";
 import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../../api";
@@ -42,6 +42,10 @@ type CheckWritingI18n = {
 	loadSelectedAnnotations: string;
 	noAnnotations: string;
 	noComments: string;
+	annotationFilters: string;
+	annotationOnlyOwn: string;
+	annotationTopLevelOnly: string;
+	annotationUnresolvedOnly: string;
 	annotationListFailed: string;
 	annotationLoadFailed: string;
 	annotationArticleMissing: string;
@@ -64,6 +68,9 @@ type CheckWritingDialogVm = {
 	annotationReader: ReturnType<typeof createAnnotationReader> | null;
 	annotationImportToken: number;
 	annotationPickerError: string;
+	annotationOnlyOwn: boolean;
+	annotationTopLevelOnly: boolean;
+	annotationUnresolvedOnly: boolean;
 	currentStep: number;
 	chapters: CheckWritingChapter[];
 	previewWikitext: string;
@@ -152,7 +159,11 @@ function buildI18n(): CheckWritingI18n {
 		loadingAnnotations: state.convByVar({ hant: "載入中…", hans: "载入中…" }),
 		loadSelectedAnnotations: state.convByVar({ hant: "載入", hans: "载入" }),
 		noAnnotations: state.convByVar({ hant: "這個條目還沒有批註。", hans: "这个条目还没有批注。" }),
-		noComments: state.convByVar({ hant: "這個版本尚無可載入的評論。", hans: "这个版本尚无可载入的评论。" }),
+		noComments: state.convByVar({ hant: "沒有符合條件的評論，請調整選項或選擇其他版本。", hans: "没有符合条件的评论，请调整选项或选择其他版本。" }),
+		annotationFilters: state.convByVar({ hant: "載入範圍", hans: "载入范围" }),
+		annotationOnlyOwn: state.convByVar({ hant: "只載入我的評論", hans: "只载入我的评论" }),
+		annotationTopLevelOnly: state.convByVar({ hant: "只載入各討論串的首則評論", hans: "只载入各讨论串的首条评论" }),
+		annotationUnresolvedOnly: state.convByVar({ hant: "只載入尚未解決的評論", hans: "只载入尚未解决的评论" }),
 		annotationListFailed: state.convByVar({ hant: "無法取得批註版本，請重試。", hans: "无法获取批注版本，请重试。" }),
 		annotationLoadFailed: state.convByVar({ hant: "無法載入這個版本的批註，請重試或選擇其他版本。", hans: "无法载入这个版本的批注，请重试或选择其他版本。" }),
 		annotationArticleMissing: state.convByVar({ hant: "找不到這個條目。", hans: "找不到这个条目。" }),
@@ -189,6 +200,9 @@ export default {
 			annotationReader: null as ReturnType<typeof createAnnotationReader> | null,
 			annotationImportToken: 0,
 			annotationPickerError: "",
+			annotationOnlyOwn: true,
+			annotationTopLevelOnly: true,
+			annotationUnresolvedOnly: true,
 			currentStep: 0,
 			chapters: [{ title: "", suggestions: [{ quote: "", suggestion: "" }] }],
 			previewWikitext: "",
@@ -529,7 +543,10 @@ export default {
 			const token = this.annotationImportToken;
 			this.isLoadingAnnotations = true; this.annotationPickerError = "";
 			try {
-				const groups = await loadAnnotationRevision(this.annotationReader.request, mw.config.get('wgDBname'), this.annotationArticle, selected);
+				const groups = await loadAnnotationRevision(this.annotationReader.request, mw.config.get('wgDBname'), this.annotationArticle, selected, {
+					currentUser: mw.config.get('wgUserName') || (mode === 'dry-run' ? 'Example' : null),
+					onlyOwn: this.annotationOnlyOwn, topLevelOnly: this.annotationTopLevelOnly, unresolvedOnly: this.annotationUnresolvedOnly,
+				});
 				if (token !== this.annotationImportToken || !this.open || !this.annotationPickerOpen) return;
 				if (!groups.length) { this.annotationPickerError = this.$options.i18n.noComments; return; }
 				this.applyAnnotationChapters(this.buildChaptersFromAnnotationGroups(groups));
@@ -852,6 +869,12 @@ export default {
 					{{ annotationRevisionLabel(revision) }}<span v-if="index === 0"> · {{ $options.i18n.newest }}</span>
 				</cdx-radio>
 			</div>
+			<fieldset class="review-tool-annotation-import-filters" :disabled="isLoadingAnnotations">
+				<legend>{{ $options.i18n.annotationFilters }}</legend>
+				<cdx-checkbox v-model="annotationOnlyOwn" :disabled="isLoadingAnnotations">{{ $options.i18n.annotationOnlyOwn }}</cdx-checkbox>
+				<cdx-checkbox v-model="annotationTopLevelOnly" :disabled="isLoadingAnnotations">{{ $options.i18n.annotationTopLevelOnly }}</cdx-checkbox>
+				<cdx-checkbox v-model="annotationUnresolvedOnly" :disabled="isLoadingAnnotations">{{ $options.i18n.annotationUnresolvedOnly }}</cdx-checkbox>
+			</fieldset>
 		</template>
 		<p v-else-if="!isLoadingAnnotations && !annotationPickerError">{{ $options.i18n.noAnnotations }}</p>
 	</cdx-dialog>

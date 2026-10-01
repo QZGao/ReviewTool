@@ -1,4 +1,4 @@
-import type { AnnotationGroup } from '../annotations';
+import type { Annotation, AnnotationGroup } from '../annotations';
 import { buildAnnotationExport } from './export';
 import { dataPageTitle, decodePage } from './live-storage';
 import { noticeRevisions } from './talk-notice';
@@ -8,6 +8,12 @@ import { SourceIndex } from './source-index';
 export type AnnotationReadRequest = (params: Record<string, unknown>) => Promise<unknown>;
 export interface AnnotationArticle { pageId: number; title: string }
 export interface AnnotatedRevision { revisionId: number; dataTitle: string; timestamp?: string }
+export interface AnnotationImportOptions {
+  currentUser: string | null;
+  onlyOwn?: boolean;
+  topLevelOnly?: boolean;
+  unresolvedOnly?: boolean;
+}
 interface Revision { revid: number; parentid?: number; timestamp?: string; comment?: string; tags?: string[]; slots?: { main?: { content?: string } } }
 interface QueryResult {
   query?: { pages?: { pageid: number; title: string; missing?: boolean; revisions?: Revision[] }[] };
@@ -47,8 +53,28 @@ export async function listAnnotatedRevisions(request: AnnotationReadRequest, art
   return revisions.filter(choice => belonging.has(choice.revisionId));
 }
 
-/** Read-only import, using the fixed article source and the same complete comment projection as export. */
-export async function loadAnnotationRevision(request: AnnotationReadRequest, wiki: string, article: AnnotationArticle, choice: AnnotatedRevision): Promise<AnnotationGroup[]> {
+/** Select individual comments, then combine each discussion into one review-writing row. */
+function filterImport(groups: ReturnType<typeof buildAnnotationExport>['groups'], options: AnnotationImportOptions): AnnotationGroup[] {
+  const normalizeUser = (name: string) => name.replace(/_/g, ' ').trim();
+  const user = normalizeUser(options.currentUser ?? '');
+  return groups.flatMap(group => {
+    const discussions = new Map<string, Annotation>();
+    for (const comment of group.annotations) {
+      if (comment.closed || ((options.unresolvedOnly ?? true) && comment.resolved)) continue;
+      if ((options.topLevelOnly ?? true) && comment.parentId !== null) continue;
+      const own = Boolean(user) && normalizeUser(comment.createdBy) === user;
+      if ((options.onlyOwn ?? true) && !own) continue;
+      const opinion = (own ? '' : `@[[User:${comment.createdBy}|]]: `) + comment.opinion;
+      const first = discussions.get(comment.rootId);
+      if (first) first.opinion += ' / ' + opinion;
+      else discussions.set(comment.rootId, { ...comment, opinion });
+    }
+    return discussions.size ? [{ sectionPath: group.sectionPath, annotations: [...discussions.values()] }] : [];
+  });
+}
+
+/** Read-only import; source mapping is shared with export, while filtering is specific to check-writing. */
+export async function loadAnnotationRevision(request: AnnotationReadRequest, wiki: string, article: AnnotationArticle, choice: AnnotatedRevision, options: AnnotationImportOptions): Promise<AnnotationGroup[]> {
   const [source, data] = await Promise.all([
     request({ action: 'parse', oldid: choice.revisionId, prop: 'wikitext|revid', formatversion: 2 }),
     request({ action: 'query', titles: choice.dataTitle, prop: 'revisions', rvslots: 'main', rvprop: 'ids|timestamp|content|tags|comment', formatversion: 2 }),
@@ -62,6 +88,9 @@ export async function loadAnnotationRevision(request: AnnotationReadRequest, wik
   const stored = decodePage({ text: content, revision: revision.revid, parentId: revision.parentid ?? 0, timestamp: revision.timestamp ?? '', tags: revision.tags ?? [], summary: revision.comment ?? '' }, identity, anchor => {
     try { return anchor.unit === 'utf8-byte' && index.toUtf16(anchor.start) < index.toUtf16(anchor.end); } catch { return false; }
   });
-  try { return buildAnnotationExport(identity, article.title, createProjection(parsed.wikitext), stored.annotations).groups; }
+  try {
+    const exported = buildAnnotationExport(identity, article.title, createProjection(parsed.wikitext), stored.annotations.filter(annotation => !annotation.deleted));
+    return filterImport(exported.groups, options);
+  }
   finally { stored.document.destroy(); }
 }

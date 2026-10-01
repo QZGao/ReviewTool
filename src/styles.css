@@ -497,3 +497,15 @@ html.rt-selecting .review-tool-annotation-ui.sentence {
 	width: calc(100vw - 32px);
 	max-width: 32rem;
 }
+
+.review-tool-annotation-import-filters {
+	margin: 1rem 0 0;
+	padding: 0;
+	border: 0;
+}
+
+.review-tool-annotation-import-filters legend {
+	margin-bottom: 0.5rem;
+	padding: 0;
+	font-weight: 700;
+}

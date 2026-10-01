@@ -13,10 +13,17 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
     const section = id === 9 ? '舊章節' : '新章節', quote = id === 9 ? '舊版原文' : '新版原文';
     const source = `前言。\n== ${section} ==\n${quote}。`;
     sources.set(id, source);
-    const comment = (key, text, replies = []) => ({ id: key, text, author: 'Example', createdAt: time, replies });
+    const comment = (key, text, replies = [], author = 'Example') => ({ id: key, text, author, createdAt: time, replies });
     const rootComment = comment('root-' + id, `版本 ${id} 的評論`, [comment('reply-' + id, `版本 ${id} 的回覆`)]);
     const start = Buffer.byteLength(source.slice(0, source.indexOf(quote)));
-    const doc = records.AnnotationDocument.seed('fixture-' + id, [{ id: 'h-' + id, color: 'yellow', anchor: { unit: 'utf8-byte', start, end: start + Buffer.byteLength(quote) }, author: 'Example', createdAt: time, threads: [rootComment] }], () => true);
+    const threads = id === 10 ? [
+      comment('example-root', 'Needs a source.', [comment('bob-reply', 'Try reference 3.', [comment('example-reply', 'That reference supports it.')], 'Bob')]),
+      { ...comment('resolved-root', 'Resolved comment.', [], 'Bob'), resolution: { resolved: true, by: 'Bob', at: time } },
+      { ...comment('closed-root', 'Closed comment.', [], 'Bob'), resolved: { by: 'Bob', at: time } },
+    ] : [rootComment];
+    const highlight = { id: 'h-' + id, color: 'yellow', anchor: { unit: 'utf8-byte', start, end: start + Buffer.byteLength(quote) }, author: 'Example', createdAt: time, threads };
+    const deleted = { ...highlight, id: 'deleted', deleted: { by: 'Bob', at: time }, threads: [comment('deleted-root', 'Deleted comment.', [], 'Bob')] };
+    const doc = records.AnnotationDocument.seed('fixture-' + id, [highlight, ...(id === 10 ? [deleted] : [])], () => true);
     pages.set(prefix + id + '.json', records.encodePage({ wiki: 'zhwiki', pageId: 139, revisionId: id }, { baseline: 0 }, doc)); doc.destroy();
   }
   const profile = await fs.mkdtemp(path.join(root, '.cache/revision-picker-test-'));
@@ -70,6 +77,8 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
     await picker.getByRole('radio').first().waitFor();
     assert.deepEqual(await picker.getByRole('radio').evaluateAll(inputs => inputs.map(input => input.value)), ['100', '10', '9']);
     assert.equal(await picker.getByRole('radio').first().isChecked(), true);
+    assert.deepEqual(await picker.getByRole('checkbox').evaluateAll(inputs => inputs.map(input => input.checked)), [true, true, true]);
+    assert.equal(await main.getByRole('checkbox').count(), 0, 'filters belong only to the revision picker');
     assert.ok((await picker.boundingBox()).width < (await main.boundingBox()).width);
     assert.equal(await picker.evaluate(element => { const box = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)); }), true);
     assert.equal(reads.filter(p => p.action === 'parse').length, 0, 'listing does not fetch every article source');
@@ -87,8 +96,8 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
     await picker.getByRole('button', { name: '載入', exact: true }).click();
     await picker.waitFor({ state: 'hidden' });
     assert.deepEqual(await main.locator('.chapter-title-input input').evaluateAll(inputs => inputs.map(input => input.value)), ['舊章節']);
-    assert.deepEqual(await main.locator('.suggestion-area textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['版本 9 的評論', '版本 9 的回覆']);
-    assert.deepEqual(await main.locator('.quote-area textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['舊版原文', '舊版原文']);
+    assert.deepEqual(await main.locator('.suggestion-area textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['版本 9 的評論']);
+    assert.deepEqual(await main.locator('.quote-area textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['舊版原文']);
     failSource = true;
     await main.getByRole('button', { name: '載入批註', exact: true }).click();
     await picker.getByRole('radio').first().waitFor(); assert.equal(await picker.getByRole('radio').first().isChecked(), true);
@@ -100,10 +109,33 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
     sourceGate = new Promise(resolve => { release = resolve; });
     await main.getByRole('button', { name: '載入批註', exact: true }).click();
     await picker.getByRole('radio').first().waitFor(); await picker.getByRole('button', { name: '載入', exact: true }).click();
+    assert.deepEqual(await picker.getByRole('checkbox').evaluateAll(inputs => inputs.map(input => input.disabled)), [true, true, true]);
     await picker.getByRole('button', { name: '取消', exact: true }).click(); release(); sourceGate = undefined;
     await picker.waitFor({ state: 'hidden' });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.equal(await main.locator('.suggestion-area textarea').first().inputValue(), '版本 9 的評論');
+
+    // Bob has only a reply and a resolved root in revision 10. Defaults must leave the form intact.
+    await page.evaluate(() => mw.config.set('wgUserName', 'Bob'));
+    await main.getByRole('button', { name: '載入批註', exact: true }).click();
+    await picker.getByRole('radio', { name: /^版本 10 ·/ }).check();
+    await picker.getByRole('button', { name: '載入', exact: true }).click();
+    await picker.getByText('沒有符合條件的評論，請調整選項或選擇其他版本。', { exact: true }).waitFor();
+    assert.equal(await main.locator('.suggestion-area textarea').first().inputValue(), '版本 9 的評論');
+    await picker.getByRole('checkbox', { name: '只載入各討論串的首則評論', exact: true }).uncheck();
+    await picker.getByRole('button', { name: '載入', exact: true }).click();
+    await picker.waitFor({ state: 'hidden' });
+    assert.deepEqual(await main.locator('.suggestion-area textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['Try reference 3.']);
+    await main.getByRole('button', { name: '載入批註', exact: true }).click();
+    await picker.getByRole('radio', { name: /^版本 10 ·/ }).check();
+    await picker.getByRole('checkbox', { name: '只載入我的評論', exact: true }).uncheck();
+    await picker.getByRole('checkbox', { name: '只載入尚未解決的評論', exact: true }).uncheck();
+    await picker.getByRole('button', { name: '載入', exact: true }).click();
+    await picker.waitFor({ state: 'hidden' });
+    const combined = '@[[User:Example|]]: Needs a source. / Try reference 3. / @[[User:Example|]]: That reference supports it.';
+    assert.deepEqual(await main.locator('.suggestion-area textarea').evaluateAll(inputs => inputs.map(input => input.value)), [combined, 'Resolved comment.']);
+    assert.deepEqual(await main.locator('.quote-area textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['新版原文', '新版原文']);
+
     empty = true;
     await page.evaluate(async () => {
       const db = await new Promise(resolve => { const r = indexedDB.open('reviewtool-dry-run-v1', 2); r.onsuccess = () => resolve(r.result); });
@@ -113,7 +145,7 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
     await picker.getByText('這個條目還沒有批註。', { exact: true }).waitFor();
     assert.equal(await picker.getByRole('radio').count(), 0); assert.equal(await picker.getByRole('button', { name: '載入', exact: true }).count(), 0);
     await picker.getByRole('button', { name: '關閉', exact: true }).last().click();
-    assert.equal(await main.locator('.suggestion-area textarea').first().inputValue(), '版本 9 的評論');
+    assert.equal(await main.locator('.suggestion-area textarea').first().inputValue(), combined);
     await main.getByRole('button', { name: '取消', exact: true }).click(); await main.waitFor({ state: 'hidden' });
     await page.locator('#review-tool-dialog-mount').waitFor({ state: 'detached' });
     assert.deepEqual(externalWrites.filter(action => action !== 'options'), []);
