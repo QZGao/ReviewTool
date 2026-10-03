@@ -24,4 +24,4 @@ const target = encodePage(identity, { baseline }, doc);
 const decoded = decodePage({ text: target, revision: baseline, parentId: 0, timestamp: '', summary: '/* ReviewTool */', tags: [] }, identity, validate);
 assert.deepStrictEqual(decoded.annotations, [...expected].sort((a,b)=>a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 await writeFile(output, target);
-console.log(JSON.stringify({ output, format: 'reviewtool.annotation-records/1', highlights: decoded.annotations.length, threads: decoded.annotations.flatMap(a=>a.threads??[]).length, records: Object.keys(doc.toJSON()).length, bytes: Buffer.byteLength(target), exactSnapshot: true }));
+console.log(JSON.stringify({ output, format: JSON.parse(target).format, highlights: decoded.annotations.length, threads: decoded.annotations.flatMap(a=>a.threads??[]).length, records: Object.keys(doc.toJSON()).length, bytes: Buffer.byteLength(target), exactSnapshot: true }));

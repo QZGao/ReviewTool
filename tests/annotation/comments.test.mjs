@@ -250,7 +250,7 @@ test('any logged-in user can resolve and reopen another author’s root without 
     assert.ok(bounds.height > idleHeight);
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedLink = text; } } }));
     await first.getByRole('button', { name: '複製評論連結', exact: true }).click();
-    assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), await first.getAttribute('data-comment-id'));
+    assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), Buffer.from((await first.getAttribute('data-comment-id')).replaceAll('-', ''), 'hex').toString('base64url'));
     const toggle = first.locator('.annotation-resolution-toggle'); await toggle.hover();
     assert.equal(await toggle.getByText('尚未解決？', { exact: true }).isVisible(), true);
     await toggle.click();
@@ -267,7 +267,7 @@ test('comment permalinks copy the UUID and reveal a reply inside a resolved disc
     const reply = await page.evaluate(() => commentView.highlighting.annotations[0].threads[0].replies[0].id);
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.copiedLink = value; } } }));
     await act(page, reply, '複製評論連結');
-    assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), reply);
+    assert.equal(new URL(await page.evaluate(() => copiedLink)).searchParams.get('reviewtool_annotation_comment_id'), Buffer.from(reply.replaceAll('-', ''), 'hex').toString('base64url'));
     await act(page, id, '標記已解決');
     await page.mouse.move(0, 0); await frames(page);
     assert.equal(await thread.locator('.annotation-comment-text:visible').count(), 0);
@@ -283,18 +283,18 @@ for (const width of [1440, 390]) test(`comment links jump to a resolved reply in
   const article = 'First passage.\n\n' + Array.from({ length: 35 }, (_, i) => `Paragraph ${i}.`).join('\n\n') + '\n\nDestination passage.';
   await inPage(async page => {
     await page.evaluate(() => history.replaceState(null, '', '?oldid=123&reviewtool_annotation_view=1'));
-    const reply = 'linked-reply', sourceComment = 'source-comment';
-    const link = new URL(page.url()); link.searchParams.set('reviewtool_annotation_comment_id', reply);
+    const reply = '550e8400-e29b-41d4-a716-446655440001', sourceComment = 'source-comment';
+    const link = new URL(page.url()); link.searchParams.set('reviewtool_annotation_comment_id', width === 390 ? Buffer.from(reply.replaceAll('-', ''), 'hex').toString('base64url') : reply);
     const other = new URL(link); other.searchParams.set('oldid', '456');
-    await page.evaluate(({ link, other }) => {
+    await page.evaluate(({ link, other, reply }) => {
       const at = '2026-10-01T00:00:00.000Z', author = 'Example';
       const comment = (id, text) => ({ id, text, author, createdAt: at, replies: [] });
       const source = commentView.projection.source;
       commentView.highlighting.replace([
-        { id: 'destination', color: 'yellow', author, anchor: { unit: 'utf8-byte', start: source.lastIndexOf('Destination passage.'), end: source.length }, threads: [{ ...comment('destination-root', 'Destination root'), resolution: { resolved: true, by: author, at }, replies: [comment('linked-reply', 'The linked reply')] }] },
+        { id: 'destination', color: 'yellow', author, anchor: { unit: 'utf8-byte', start: source.lastIndexOf('Destination passage.'), end: source.length }, threads: [{ ...comment('destination-root', 'Destination root'), resolution: { resolved: true, by: author, at }, replies: [comment(reply, 'The linked reply')] }] },
         { id: 'source', color: 'blue', author, anchor: { unit: 'utf8-byte', start: 0, end: 14 }, threads: [comment('source-comment', `See [${link} '''that reply'''] or [${other} another revision].`)] },
       ]);
-    }, { link: link.href, other: other.href });
+    }, { link: link.href, other: other.href, reply });
     const destination = page.locator('.annotation-comment-thread[data-annotation-id="destination"]');
     const source = page.locator('.annotation-comment-thread[data-annotation-id="source"]');
     const before = page.url(), pages = page.context().pages().length;

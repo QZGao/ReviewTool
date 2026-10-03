@@ -3,6 +3,8 @@ import state from "../../state";
 import type { AnnotationGroup, Annotation } from "../../annotations";
 import type { UnknownApiParams } from "types-mediawiki/api_params";
 import { createApi, mode } from "../../mediawiki";
+import { annotationExportFormat } from "../../annotation/export";
+import { decodeId } from "../../annotation/uuid";
 import { resolveAnnotationArticle, listAnnotatedRevisions, loadAnnotationRevision, type AnnotationReadRequest, type AnnotationArticle, type AnnotatedRevision } from "../../annotation/revision-import";
 import { compareOrderKeys } from "../../dom/numeric_pos";
 import { findSectionInfoFromHeading, appendTextToSection, retrieveFullText, parseWikitextToHtml, compareWikitext } from "../../api";
@@ -106,7 +108,7 @@ type CheckWritingDialogVm = {
 	buildDiffLines: (oldText: string, appendedFragment: string) => string[];
 	handleImportClick: () => void;
 	generateImportAnnotationId: () => string;
-	normalizeImportedAnnotation: (raw: unknown, fallbackSection?: string) => Annotation;
+	normalizeImportedAnnotation: (raw: unknown, fallbackSection?: string, compactIds?: boolean) => Annotation;
 	onAnnotationFileSelected: (ev: Event) => void;
 	loadAnnotationsIntoForm: () => Promise<void>;
 	loadSelectedAnnotations: () => Promise<void>;
@@ -434,7 +436,7 @@ export default {
 		generateImportAnnotationId(this: CheckWritingDialogVm): string {
 			return `import-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 		},
-		normalizeImportedAnnotation(this: CheckWritingDialogVm, raw: unknown, fallbackSection = ""): Annotation {
+		normalizeImportedAnnotation(this: CheckWritingDialogVm, raw: unknown, fallbackSection = "", compactIds = false): Annotation {
 			const record = isRecord(raw) ? raw : {};
 			const id = typeof record.id === "string" && record.id.trim()
 				? record.id.trim()
@@ -443,7 +445,7 @@ export default {
 				? record.sectionPath.trim()
 				: (fallbackSection || "");
 			return {
-				id,
+				id: compactIds ? decodeId(id) : id,
 				sectionPath,
 				sentencePos: typeof record.sentencePos === "string" ? record.sentencePos : "",
 				sentenceText: typeof record.sentenceText === "string" ? record.sentenceText : (typeof record.quote === "string" ? record.quote : ""),
@@ -463,6 +465,7 @@ export default {
 					const result = event.target?.result;
 					const text = typeof result === "string" ? result : "";
 					const parsed: unknown = JSON.parse(text);
+					const compactIds = isRecord(parsed) && parsed.format === annotationExportFormat;
 					const pageName = state.articleTitle || "";
 					if (!pageName) {
 						this.reportAnnotationLoadFailure(state.convByVar({ hant: "無法識別條目名稱，無法載入檔案中的批註。", hans: "无法识别条目名称，无法载入文件中的批注。" }));
@@ -472,7 +475,7 @@ export default {
 					const importedAnnotations: Annotation[] = [];
 					if (isRecord(parsed) && Array.isArray((parsed as { annotations?: unknown[] }).annotations)) {
 						for (const a of (parsed as { annotations: unknown[] }).annotations) {
-							importedAnnotations.push(this.normalizeImportedAnnotation(a));
+							importedAnnotations.push(this.normalizeImportedAnnotation(a, "", compactIds));
 						}
 					} else if (isRecord(parsed) && Array.isArray((parsed as { groups?: unknown[] }).groups)) {
 						for (const g of (parsed as { groups: unknown[] }).groups) {
@@ -483,7 +486,7 @@ export default {
 								const record = isRecord(a) ? a : {};
 								const sectionPath = typeof record.sectionPath === "string" ? record.sectionPath : section;
 								const merged = { ...record, sectionPath };
-								importedAnnotations.push(this.normalizeImportedAnnotation(merged, section));
+								importedAnnotations.push(this.normalizeImportedAnnotation(merged, section, compactIds));
 							}
 						}
 					} else {

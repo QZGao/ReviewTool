@@ -17,6 +17,7 @@ import { buildAnnotationExport, downloadAnnotationExport } from './export';
 import { annotationMessages } from './i18n';
 import { showAnnotationLoading } from './loading-view';
 import { activationParameter, annotationViewUrl, annotationCommentUrl, commentParameter } from './view-url';
+import { commentIdFromUrl } from './uuid';
 
 export { activationParameter } from './view-url';
 interface ParsedRevision { parse: { title: string; pageid: number; revid: number; wikitext: string; tocdata?: { sections?: { fromTitle?: string; codepointOffset?: number; hLevel: number; anchor: string }[] } } }
@@ -203,8 +204,8 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       window.addEventListener('beforeunload', event => { if (shared.dirty) { event.preventDefault(); event.returnValue = ''; } }, listener);
       if (!canWrite) notify(state.convByVar({ hant: '登入後即可新增批註。', hans: '登录后即可添加批注。' }), 'warn');
       // Finish startup DOM changes before navigating to the linked passage and discussion.
-      const commentId = new URL(location.href).searchParams.get(commentParameter);
-      if (commentId && !await mount.view.comments?.reveal(commentId)) notify(messages.commentUnavailable, 'warn');
+      const requestedId = new URL(location.href).searchParams.get(commentParameter), commentId = commentIdFromUrl(requestedId);
+      if (requestedId && (!commentId || !await mount.view.comments?.reveal(commentId))) notify(messages.commentUnavailable, 'warn');
     } catch (error) { stopLoading(); if (closed) return; sync?.destroy(); mount?.destroy(); failure({ hant: '無法開啟批註模式，請稍後重試。', hans: '无法开启批注模式，请稍后重试。' }, error); }
   })();
   let cleanup: Promise<void> | undefined;

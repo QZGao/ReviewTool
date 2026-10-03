@@ -5,6 +5,9 @@ import { headingSourceStart } from './heading-anchors';
 import { selectionFromSource } from './mapping';
 import { SourceIndex } from './source-index';
 import type { AnnotationComment, AnnotationRemoval, HighlightAnnotation, Projection, ViewNode } from './types';
+import { encodeId } from './uuid';
+
+export const annotationExportFormat = 'reviewtool.annotation-export/2';
 
 interface ExportedComment extends Annotation {
   highlightId: string;
@@ -66,8 +69,18 @@ export function buildAnnotationExport(identity: ReviewIdentity, pageName: string
   };
 }
 
+/** Keep the projection canonical for in-process imports; compact IDs only in the downloaded file. */
+export function serializeAnnotationExport(payload: ReturnType<typeof buildAnnotationExport>): string {
+  return JSON.stringify({ ...payload, format: annotationExportFormat,
+    highlights: payload.highlights.map(highlight => ({ ...highlight, id: encodeId(highlight.id) })),
+    groups: payload.groups.map(group => ({ ...group, annotations: group.annotations.map(comment => ({ ...comment,
+      id: encodeId(comment.id), highlightId: encodeId(comment.highlightId), rootId: encodeId(comment.rootId), parentId: comment.parentId === null ? null : encodeId(comment.parentId),
+    })) })),
+  }, null, 2);
+}
+
 export function downloadAnnotationExport(doc: Document, payload: ReturnType<typeof buildAnnotationExport>): void {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }));
+  const url = URL.createObjectURL(new Blob([serializeAnnotationExport(payload)], { type: 'application/json;charset=utf-8' }));
   const link = doc.createElement('a'); link.href = url;
   link.download = `review-tool-annotations-${payload.document.revisionId}-${new Date(payload.exportedAt).toISOString().replace(/[:.]/g, '')}.json`;
   doc.body.append(link); link.click(); link.remove();

@@ -118,7 +118,7 @@ test('the Chrome extension preserves moderator summaries and edited dates locall
       return { title, page: result.query.pages[0], readAt: result.curtimestamp };
     });
     const stored = data.page.revisions[0].slots.main.content;
-    assert.equal(JSON.parse(stored).format, 'reviewtool.annotation-records/1');
+    assert.equal(JSON.parse(stored).format, 'reviewtool.annotation-records/2');
     assert.equal(data.page.revisions[0].slots.main.contentmodel, 'json');
     assert.match(stored, /A local-only live Wikipedia test/);
     assert.match(data.page.revisions[0].comment, /^(?:\/\* ReviewTool \*\/ )?修正引用，保留原作者$/);

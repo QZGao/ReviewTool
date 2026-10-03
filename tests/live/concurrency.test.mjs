@@ -12,7 +12,7 @@ async function readData(page) {
     const result = await __reviewToolDev.createApi().get({ action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|content|tags|comment', formatversion: 2 });
     const revision = result.query.pages[0].revisions[0]; return { title, revision, data: JSON.parse(revision.slots.main.content) };
   });
-  return { ...result, annotations: result.data?.format === 'reviewtool.annotation-records/1' ? await readSnapshot(result.revision.slots.main.content) : null };
+  return { ...result, annotations: result.data?.format === 'reviewtool.annotation-records/2' ? await readSnapshot(result.revision.slots.main.content) : null };
 }
 test('live dry-run peers receive concurrent roots within ten seconds, retain a draft, and repair manual damage', async () => {
   const profile = await fs.mkdtemp(path.join(root, '.cache/records-live-peers-'));
@@ -53,13 +53,13 @@ test('live dry-run peers receive concurrent roots within ten seconds, retain a d
     assert.equal(await alice.locator('.annotation-comments textarea').inputValue(), 'A private unfinished draft');
     const before = await readData(alice);
     assert.equal(before.revision.slots.main.content.includes('A private unfinished draft'), false, 'private drafts are not published to the annotation page');
-    assert.equal(before.data.format, 'reviewtool.annotation-records/1'); assert.equal(before.annotations[0].threads.length, 2);
+    assert.equal(before.data.format, 'reviewtool.annotation-records/2'); assert.equal(before.annotations[0].threads.length, 2);
     await bob.evaluate(async ({ title, revision }) => { await __reviewToolDev.createApi().postWithToken('csrf', { action: 'edit', title, text: '{}', summary: 'Manual test edit', baserevid: revision.revid }); }, before);
     let repaired;
     const repairStart = Date.now();
     do {
       repaired = await readData(alice);
-      if (repaired.data?.format === 'reviewtool.annotation-records/1') break;
+      if (repaired.data?.format === 'reviewtool.annotation-records/2') break;
       await new Promise(resolve => setTimeout(resolve, 500));
     } while (Date.now() - repairStart < 10000);
     assert.ok(repaired.data, JSON.stringify({ latest: repaired.revision, alice: await alice.locator('.mw-notification').allTextContents(), bob: await bob.locator('.mw-notification').allTextContents() }));

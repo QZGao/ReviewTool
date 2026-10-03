@@ -26,7 +26,7 @@ test('one record per line preserves the entire snapshot without a materialized m
   const result = api.decodePage(page(text), identity, valid);
   assert.deepEqual(result.annotations, initial()); assert.equal(result.annotations[0].createdAt, undefined);
   const sorted = Object.fromEntries(Object.entries(raw.records).reverse().map(([key,record]) => [key,Object.fromEntries(Object.entries(record).reverse())]));
-  const reordered = new api.AnnotationDocument(raw.generation, valid, sorted);
+  const reordered = api.decodePage(page(JSON.stringify({ ...raw, records: sorted })), identity, valid).document;
   assert.equal(api.encodePage(identity, frame, reordered), text);
   document.destroy(); result.document.destroy(); reordered.destroy();
 });

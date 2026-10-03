@@ -54,9 +54,10 @@ test('an unmarked initial import preserves its generation, stamps, and complete 
     assert.equal(server.pages[0].text, original);
     assert.deepEqual(c.sync.annotations, doc.snapshot());
     c.sync.add({ type: 'add-comment', id: marker.id, comment: message('After import') }); await c.sync.sync();
-    const saved = JSON.parse(server.pages.at(-1).text);
+    const saved = api.decodePage(server.pages.at(-1), identity, valid);
     assert.equal(saved.generation, doc.generation); assert.equal(saved.baseline, 0);
-    for (const [id, record] of Object.entries(records)) assert.deepEqual(saved.records[id], record);
+    for (const [id, record] of Object.entries(records)) assert.deepEqual(saved.document.toJSON()[id], record);
+    saved.document.destroy();
     assert.equal(server.writes.length, 1, 'only the new comment requires an edit');
   } finally { c.sync.destroy(); doc.destroy(); }
 });
@@ -75,6 +76,34 @@ test('a failed talk-index update retries after JSON acknowledgement without dupl
     assert.equal(attempts, 2); assert.equal(server.writes.length, 1);
     assert.equal(c.statuses.at(-1).text, 'Up to date');
   } finally { c.sync.destroy(); }
+});
+
+test('an old full-UUID page upgrades on save while canonical pending work and concurrent replies retain their identities', async () => {
+  const h = '550e8400-e29b-41d4-a716-446655440000', c = '550e8400-e29b-41d4-a716-446655440001', g = '550e8400-e29b-41d4-a716-446655440002';
+  const pendingId = '550e8400-e29b-41d4-a716-446655440003', replyId = '550e8400-e29b-41d4-a716-446655440004';
+  const original = api.AnnotationDocument.seed(g, [{ ...marker, id: h, threads: [message(c)] }], valid);
+  const legacy = JSON.stringify({ format: 'reviewtool.annotation-records/1', document: { ...identity, offsetUnit: 'utf8-byte' }, generation: g, baseline: 0, records: original.toJSON() });
+  const server = wiki(legacy), journal = memoryJournal(), first = await client(server, 'Alice', journal), peer = await client(server, 'Bob');
+  assert.equal(server.writes.length, 0, 'opening an older document does not rewrite it');
+  first.sync.add({ type: 'add-comment', id: h, comment: message(pendingId) });
+  await new Promise(resolve => setTimeout(resolve, 0)); first.sync.destroy();
+  const reopened = await client(server, 'Alice', journal);
+  try {
+    peer.sync.add({ type: 'add-comment', id: h, parentId: c, comment: message(replyId, 'Bob') });
+    await peer.sync.sync(); await reopened.sync.sync();
+    assert.equal(JSON.parse(server.pages.at(-1).text).format, 'reviewtool.annotation-records/2');
+    const saved = api.decodePage(server.pages.at(-1), identity, valid);
+    assert.equal(saved.generation, g);
+    for (const [key, record] of Object.entries(original.toJSON())) assert.deepEqual(saved.document.toJSON()[key], record);
+    saved.document.destroy();
+    assert.deepEqual(peer.sync.annotations, reopened.sync.annotations);
+    assert.equal(reopened.sync.annotations[0].id, h);
+    assert.equal(reopened.sync.annotations[0].threads.find(root => root.id === c).replies[0].id, replyId);
+    assert.equal(reopened.sync.annotations[0].threads.filter(root => root.id === pendingId).length, 1);
+    assert.equal(reopened.sync.dirty || peer.sync.dirty, false);
+    const writes = server.writes.length; await reopened.sync.sync(); await peer.sync.sync();
+    assert.equal(server.writes.length, writes);
+  } finally { reopened.sync.destroy(); peer.sync.destroy(); original.destroy(); }
 });
 
 test('independent roots and replies converge under reverse/duplicate update delivery', () => {

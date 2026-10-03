@@ -15,13 +15,13 @@ before(async () => {
 });
 after(async () => { await browser?.close(); });
 
-async function fixture(run, { width = 1400, skin = 'vector-2022', tall = false, longThread = false } = {}) {
+async function fixture(run, { width = 1400, skin = 'vector-2022', tall = false, longThread = false, commentId = 'linked-reply', permalinkId = commentId } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   page.setDefaultTimeout(5000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   try {
     await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: `<style>.fixture{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:30px;margin:60px} @media(max-width:900px){.fixture{display:block;margin:16px}}</style><div id="p-views"><ul class="vector-menu-content-list"></ul></div><ul id="p-cactions"></ul><h1 id="firstHeading">Test</h1>${tall ? '<div style="height:1200px"></div>' : ''}<div class="fixture"><div id="mw-content-text"><div class="mw-parser-output">Original</div></div><div class="vector-column-end no-font-mode-scale"></div></div>${tall ? '<div style="height:1200px"></div>' : ''}` }));
-    await page.goto('http://localhost/?oldid=2&reviewtool_annotation_view=1&reviewtool_annotation_comment_id=linked-reply');
+    await page.goto('http://localhost/?oldid=2&reviewtool_annotation_view=1&reviewtool_annotation_comment_id=' + encodeURIComponent(permalinkId));
     await page.evaluate(({ data, skin }) => {
       document.body.classList.add('skin-' + skin);
       if (skin === 'minerva') document.querySelector('.vector-column-end').remove();
@@ -50,7 +50,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', tall = false, 
           const li = document.createElement('li'); li.id = id; const a = document.createElement('a'); a.href = href; a.textContent = text; li.append(a); document.getElementById(target)?.append(li); return li;
         } },
       };
-    }, { data: longThread ? data.replace('Saved root', 'Saved root '.repeat(100)) : data, skin });
+    }, { data: (longThread ? data.replace('Saved root', 'Saved root '.repeat(100)) : data).replaceAll('c/linked-reply', 'c/' + (commentId === 'linked-reply' ? commentId : Buffer.from(commentId.replaceAll('-', ''), 'hex').toString('base64url'))), skin });
     await page.addScriptTag({ content: script });
     await page.evaluate(() => { window.boot = startView(); });
     await page.getByRole('progressbar').waitFor();
@@ -82,6 +82,19 @@ test('closing while the live source request is pending immediately restores the 
     await page.evaluate(async () => { releaseSource(); await boot; });
     assert.equal(await page.locator('.annotation-document').count(), 0);
   });
+});
+
+for (const compact of [false, true]) test(`${compact ? 'compact' : 'original'} UUID permalink opens and focuses the canonical comment in compact storage`, async () => {
+  const commentId = '550e8400-e29b-41d4-a716-446655440001';
+  const permalinkId = compact ? Buffer.from(commentId.replaceAll('-', ''), 'hex').toString('base64url') : commentId;
+  await fixture(async page => {
+    await page.evaluate(async () => { releaseSource(); await boot; });
+    const reply = page.locator(`[data-comment-id="${commentId}"]`);
+    await reply.locator('.annotation-comment-text').waitFor({ state: 'visible' });
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.commentId), commentId);
+    assert.equal(await page.locator(`[data-comment-id="${permalinkId}"]`).count(), compact ? 0 : 1);
+    assert.deepEqual(await page.evaluate(() => notifications), []);
+  }, { commentId, permalinkId, width: compact ? 390 : 1400, skin: compact ? 'minerva' : 'vector-2022', tall: true });
 });
 
 for (const skin of ['vector-2022', 'minerva']) test(`${skin}: a comment permalink opens its floating thread before focus, without requiring highlight hover`, async () => {

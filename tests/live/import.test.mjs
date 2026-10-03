@@ -146,6 +146,14 @@ test('Check writing overlays a revision picker, imports the chosen comments, and
     assert.equal(await picker.getByRole('radio').count(), 0); assert.equal(await picker.getByRole('button', { name: '載入', exact: true }).count(), 0);
     await picker.getByRole('button', { name: '關閉', exact: true }).last().click();
     assert.equal(await main.locator('.suggestion-area textarea').first().inputValue(), combined);
+    // Downloaded compact-ID exports and earlier full-UUID exports both remain importable.
+    const commentId = '550e8400-e29b-41d4-a716-446655440001';
+    for (const version of [2, 1]) {
+      const entry = { id: version === 2 ? Buffer.from(commentId.replaceAll('-', ''), 'hex').toString('base64url') : commentId, sectionPath: '檔案章節', sentencePos: '0', sentenceText: '檔案原文', opinion: `匯出版本 ${version}：${commentId}`, createdBy: 'Example', createdAt: Date.parse(time) };
+      await main.locator('input[type=file]').setInputFiles({ name: 'annotations.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: `reviewtool.annotation-export/${version}`, pageName: '孫中山', groups: [{ sectionPath: entry.sectionPath, annotations: [entry] }] })) });
+      await page.waitForFunction(opinion => document.querySelector('.suggestion-area textarea')?.value === opinion, entry.opinion);
+      assert.equal(await main.locator('.quote-area textarea').inputValue(), entry.sentenceText);
+    }
     await main.getByRole('button', { name: '取消', exact: true }).click(); await main.waitFor({ state: 'hidden' });
     await page.locator('#review-tool-dialog-mount').waitFor({ state: 'detached' });
     assert.deepEqual(externalWrites.filter(action => action !== 'options'), []);

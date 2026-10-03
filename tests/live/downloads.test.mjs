@@ -31,12 +31,13 @@ test('interactive exports retain filenames and contents and remain usable after 
       const page = context.pages()[0] ?? await context.newPage();
       await page.setContent('<button id="export">Export annotations</button>');
       await page.addScriptTag({ content: bundle.outputFiles[0].text });
-      const payload = { format: 'reviewtool.annotation-export/1', exportedAt: Date.parse('2026-09-26T00:00:00Z') + cycle * 1000, pageName: 'Download test', document: { wiki: 'zhwiki', pageId: 1, revisionId: 2, offsetUnit: 'utf8-byte' }, highlights: [], groups: [{ sectionPath: 'Test', annotations: [{ opinion: 'A comment with Unicode 字詞. '.repeat(600) }] }] };
+      const payload = { format: 'reviewtool.annotation-export/1', exportedAt: Date.parse('2026-09-26T00:00:00Z') + cycle * 1000, pageName: 'Download test', document: { wiki: 'zhwiki', pageId: 1, revisionId: 2, offsetUnit: 'utf8-byte' }, highlights: [], groups: [{ sectionPath: 'Test', annotations: [{ id: 'comment', highlightId: 'highlight', rootId: 'comment', parentId: null, opinion: 'A comment with Unicode 字詞. '.repeat(600) }] }] };
       await page.evaluate(payload => { document.querySelector('#export').onclick = () => exportAnnotations(document, payload); }, payload);
       await page.locator('#export').click();
       const file = path.join(downloads, `review-tool-annotations-2-2026-09-26T00000${cycle}000Z.json`);
-      assert.deepEqual(await completedFile(page, file), payload);
-      files.push({ file, payload });
+      const expected = { ...payload, format: 'reviewtool.annotation-export/2' };
+      assert.deepEqual(await completedFile(page, file), expected);
+      files.push({ file, payload: expected });
       // Chrome previously crashed shortly after emitting its download event on the second launch.
       await page.waitForTimeout(1500);
       assert.equal(await page.evaluate(() => document.querySelector('#export').textContent), 'Export annotations');
