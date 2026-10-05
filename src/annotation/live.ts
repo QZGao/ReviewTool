@@ -2,7 +2,7 @@ import type { UnknownApiParams } from 'types-mediawiki/api_params';
 import { createApi, mode } from '../mediawiki';
 import { createProjection } from './projection';
 import { mountWikipediaAnnotation } from './wikipedia-view';
-import { dataPageTitle, type ReviewIdentity } from './live-storage';
+import { dataPageTitle, decodePage, type ReviewIdentity } from './live-storage';
 import { wikiSource, type WikiSource } from './wiki-source';
 import { annotationSync } from './sync';
 import { syncJournal } from './sync-journal';
@@ -18,6 +18,10 @@ import { annotationMessages } from './i18n';
 import { showAnnotationLoading } from './loading-view';
 import { activationParameter, annotationViewUrl, annotationCommentUrl, commentParameter } from './view-url';
 import { commentIdFromUrl } from './uuid';
+import { browserVisits, activityNotice, annotationDestination, notifyAnnotationLink } from './notifications';
+import { activityTracker } from './activity-tracker';
+import { subscriptionControl } from './subscription-control';
+import { textRects } from './range-rects';
 
 export { activationParameter } from './view-url';
 interface ParsedRevision { parse: { title: string; pageid: number; revid: number; wikitext: string; tocdata?: { sections?: { fromTitle?: string; codepointOffset?: number; hLevel: number; anchor: string }[] } } }
@@ -83,6 +87,8 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
   let exportItem: HTMLElement | null = null;
   let mount: ReturnType<typeof mountWikipediaAnnotation> | undefined, sync: ReturnType<typeof annotationSync> | undefined;
   let closed = false, polling: ReturnType<typeof setInterval> | undefined;
+  let activity: ReturnType<typeof activityTracker> | undefined;
+  const activityNotices: { close(): void }[] = [];
   let saveDrafts: (drafts?: readonly CommentDraft[]) => Promise<void> = async () => {};
   const controller = new AbortController(), listener = { signal: controller.signal };
   let notice: { close(): void } | undefined, lastNotice = '';
@@ -163,9 +169,10 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
         headings.push({ unit: 'utf8-byte', start, level: section.hLevel, id: section.anchor });
       }
       const byteLength = bytes[bytes.length - 1], boundaries = new Set(bytes);
-      sync = annotationSync({ identity, actor, source: sourceApi, journal, canWrite, status: setStatus,
-        validate: anchor => Boolean(anchor && anchor.unit === 'utf8-byte' && anchor.start < anchor.end && anchor.end <= byteLength && boundaries.has(anchor.start) && boundaries.has(anchor.end)),
+      const validate: Parameters<typeof annotationSync>[0]['validate'] = anchor => Boolean(anchor && anchor.unit === 'utf8-byte' && anchor.start < anchor.end && anchor.end <= byteLength && boundaries.has(anchor.start) && boundaries.has(anchor.end));
+      sync = annotationSync({ identity, actor, source: sourceApi, journal, canWrite, status: setStatus, validate,
         changed: annotations => { if (!closed) mount?.view.highlighting?.replace(annotations); },
+        published: snapshot => { if (!closed) void activity?.receive(snapshot); },
       });
       const shared = sync, initial = await shared.start();
       if (closed) return;
@@ -190,6 +197,43 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
         } },
       });
       if (closed) return;
+      try {
+        const visits = browserVisits();
+        let activityError = false;
+        activity = activityTracker({ visits, pageName: title, oldid: revision, viewer: author,
+          read: async id => {
+            const stored = decodePage(await sourceApi.read(id), identity, validate);
+            const snapshot = { revision: id, generation: stored.generation, records: stored.document.toJSON() };
+            stored.document.destroy(); return snapshot;
+          },
+          show: group => {
+            if (closed) return;
+            const notice = activityNotice(group), target = group.target;
+            const url = target.commentId ? annotationCommentUrl(annotationDestination(revision).href, target.commentId) : annotationDestination(revision);
+            activityNotices.push(notifyAnnotationLink(notice.title, notice.text, url.href, async () => {
+              if (!mount || closed) return;
+              if (target.commentId && await mount.view.comments?.reveal(target.commentId)) return;
+              if (await mount.view.comments?.revealHighlight(target.highlightId)) return;
+              // Closed/deleted discussions retain their source anchor, even without a visible card.
+              const range = mount.view.restoreRange(target.anchor), first = range && textRects(range, document)[0];
+              if (first) { window.scrollBy({ top: first.top - window.innerHeight / 3, behavior: 'instant' }); mount.view.element.focus({ preventScroll: true }); }
+            }));
+          },
+          error: error => {
+            console.warn('[ReviewTool] Annotation activity baseline unavailable', error);
+            if (activityError || closed) return;
+            activityError = true;
+            void mw.notify(state.convByVar({ hant: '無法完整讀取或儲存上次查看的紀錄，部分更新提醒可能遺漏或重複。', hans: '无法完整读取或保存上次查看的记录，部分更新提醒可能遗漏或重复。' }), { title: 'ReviewTool', type: 'warn', autoHide: false });
+          },
+        });
+        await activity.receive(shared.published);
+        if (closed) return;
+        // Finish the toolbar layout before scrolling a comment permalink into view.
+        await subscriptionControl(mount.original, visits, title, revision, controller.signal).catch(error => {
+          failure({ hant: '無法載入批註訂閱按鈕。', hans: '无法加载批注订阅按钮。' }, error);
+        });
+        if (closed) return;
+      } catch (error) { failure({ hant: '無法使用瀏覽器的批註訂閱及查看紀錄。', hans: '无法使用浏览器的批注订阅及查看记录。' }, error); }
       exportItem = mw.util.addPortletLink('p-cactions', '#', state.convByVar({ hant: '匯出所有批註', hans: '导出所有批注' }), 'ca-reviewtool-export',
         state.convByVar({ hant: '匯出高亮、評論與回覆', hans: '导出高亮、评论和回复' }));
       exportItem?.querySelector('a')?.addEventListener('click', event => {
@@ -215,7 +259,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
     stopLoading();
     const draftsSaved = saveDrafts();
     if (polling !== undefined) clearInterval(polling);
-    controller.abort();
+    controller.abort(); activity?.destroy(); for (const notice of activityNotices) notice.close();
     mount?.destroy(); exportItem?.remove(); notice?.close(); style.remove();
     // An unfinished startup has no submitted actions to flush; abort its reads immediately.
     if (!mount) api.abort();

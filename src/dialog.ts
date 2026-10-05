@@ -18,6 +18,8 @@ type CodexModule = Partial<{
 	CdxTextArea: unknown;
 	CdxCheckbox: unknown;
 	CdxRadio: unknown;
+	CdxToggleButton: unknown;
+	CdxIcon: unknown;
 }>;
 
 let _mountedApp: VueApp | null = null;

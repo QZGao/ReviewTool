@@ -2,6 +2,7 @@ import state from "./state";
 import styles from './styles.css';
 import { addTalkPageReviewToolButtonsToDOM } from "./dom/talk_page";
 import { initLiveAnnotation } from './annotation/live';
+import { browserVisits, dataPageRevision, pageAnnotationNotifications } from './annotation/notifications';
 
 /**
  * 將 CSS 樣式注入到頁面中。
@@ -42,14 +43,22 @@ async function init(): Promise<void> {
 	const allowedNamePrefixes = [
 		'Wikipedia:同行评审', 'Wikipedia:優良條目評選', 'Wikipedia:典范条目评选', 'Wikipedia:特色列表评选', 'User:SuperGrey/gadgets/ReviewTool/TestPage', 'User_talk:SuperGrey/gadgets/ReviewTool/TestPage'
 	];
-	if (!allowedNamespaces.includes(namespace) && !allowedNamePrefixes.some((p) => pageName.startsWith(p))) {
+	const targetPage = allowedNamespaces.includes(namespace) || allowedNamePrefixes.some((p) => pageName.startsWith(p));
+	let hasNotifications = dataPageRevision() !== null;
+	try { hasNotifications ||= browserVisits().subscriptions().length > 0; }
+	catch (error) { console.warn('[ReviewTool] Annotation subscriptions are unavailable', error); }
+	if (targetPage || hasNotifications) await state.initHanAssist().catch(error => console.warn('[ReviewTool] Language helper unavailable; using default labels.', error));
+	const checkNotifications = () => { if (hasNotifications) void pageAnnotationNotifications().catch(error => console.warn('[ReviewTool] Annotation notifications failed', error)); };
+	if (!targetPage) {
+		checkNotifications();
 		console.log('[ReviewTool] 不是目標頁面，小工具終止。');
 		return;
 	}
 
-	await state.initHanAssist().catch(error => console.warn('[ReviewTool] Language helper unavailable; using default labels.', error));
 	state.articleTitle = pageName;
-	if (await initLiveAnnotation()) return;
+	const article = await initLiveAnnotation();
+	if (!document.querySelector('.annotation-document')) checkNotifications();
+	if (article) return;
 	if (namespace === 0 || pageName === 'User:SuperGrey/gadgets/ReviewTool/TestPage') return;
 	mw.hook('wikipage.content').add(function () {
 		addTalkPageReviewToolButtonsToDOM(namespace, pageName);

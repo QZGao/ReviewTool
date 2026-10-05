@@ -296,39 +296,42 @@ export function createCommentPanel(doc: Document, view: RenderedView, column: HT
   };
   sync(state.annotations);
   const stop = state.subscribe(sync);
+  async function reveal(id: string, highlight = false): Promise<boolean> {
+    const annotation = state.annotations.find(item => annotationVisible(item) && (highlight ? item.id === id : findAnnotationComment(item, id)));
+    const root = annotation && threadRoots(annotation).find(root => !root.resolved && findComment(root, id));
+    if (!annotation || (!highlight && !root)) return false;
+    if (root) expandedRoots.add(root.id);
+    threads.get(annotation.id)?.reveal();
+    // Measure the passage after the article and responsive comment layout have mounted.
+    await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
+    if (controller.signal.aborted) return false;
+    const range = view.restoreRange(annotation.anchor), first = range && textRects(range, doc)[0];
+    if (first) win.scrollBy({ top: first.top - win.innerHeight / 3, behavior: 'instant' });
+    await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
+    if (controller.signal.aborted) return false;
+    const anchor = range && textRects(range, doc)[0];
+    if (anchor) activate(annotation.id, anchor);
+    await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
+    if (controller.signal.aborted) return false;
+    const target = highlight ? threads.get(annotation.id)?.element : [...container.querySelectorAll<HTMLElement>('[data-comment-id]')].find(node => node.dataset.commentId === id);
+    if (!target) return false;
+    if (layout.compact) {
+      // scrollIntoView can also move the page behind a popover, triggering its scroll-to-close handler.
+      // Keep navigation inside the open panel, including replies below a long root comment.
+      const content = target.closest<HTMLElement>('.annotation-comment-content');
+      if (content) {
+        const box = target.getBoundingClientRect(), viewport = content.getBoundingClientRect();
+        if (box.top < viewport.top || box.bottom > viewport.bottom) content.scrollBy({ top: box.top - viewport.top, behavior: 'instant' });
+      }
+    } else target.scrollIntoView({ block: 'nearest' });
+    target.tabIndex = -1; target.focus({ preventScroll: true });
+    return true;
+  }
   return {
     element: container,
     get drafts(): readonly CommentDraft[] { return readDrafts(); },
-    async reveal(id: string): Promise<boolean> {
-      const annotation = state.annotations.find(item => annotationVisible(item) && findAnnotationComment(item, id));
-      const root = annotation && threadRoots(annotation).find(root => !root.resolved && findComment(root, id));
-      if (!annotation || !root) return false;
-      expandedRoots.add(root.id); threads.get(annotation.id)?.reveal();
-      // Measure the passage after the article and responsive comment layout have mounted.
-      await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
-      if (controller.signal.aborted) return false;
-      const range = view.restoreRange(annotation.anchor), first = range && textRects(range, doc)[0];
-      if (first) win.scrollBy({ top: first.top - win.innerHeight / 3, behavior: 'instant' });
-      await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
-      if (controller.signal.aborted) return false;
-      const anchor = range && textRects(range, doc)[0];
-      if (anchor) activate(annotation.id, anchor);
-      await new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
-      if (controller.signal.aborted) return false;
-      const target = [...container.querySelectorAll<HTMLElement>('[data-comment-id]')].find(node => node.dataset.commentId === id);
-      if (!target) return false;
-      if (layout.compact) {
-        // scrollIntoView can also move the page behind a popover, triggering its scroll-to-close handler.
-        // Keep navigation inside the open panel, including replies below a long root comment.
-        const content = target.closest<HTMLElement>('.annotation-comment-content');
-        if (content) {
-          const box = target.getBoundingClientRect(), viewport = content.getBoundingClientRect();
-          if (box.top < viewport.top || box.bottom > viewport.bottom) content.scrollBy({ top: box.top - viewport.top, behavior: 'instant' });
-        }
-      } else target.scrollIntoView({ block: 'nearest' });
-      target.focus({ preventScroll: true });
-      return true;
-    },
+    reveal,
+    revealHighlight: (id: string) => reveal(id, true),
     activate,
     destroy() {
       cancel(); stop(); controller.abort(); layout.destroy(); for (const item of threads.values()) item.destroy(); threads.clear();

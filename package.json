@@ -1,6 +1,6 @@
 {
 	"name": "reviewtool",
-	"version": "2.1.0",
+	"version": "2.1.1",
 	"private": true,
 	"description": "Review articles and provide feedback on Chinese Wikipedia.",
 	"type": "module",
@@ -29,6 +29,7 @@
 		"@vue/compiler-sfc": "^3.4.38",
 		"@vue/runtime-dom": "^3.5.27",
 		"@wikimedia/codex": "1.18.0",
+		"@wikimedia/codex-icons": "1.18.0",
 		"esbuild": "^0.21.5",
 		"eslint": "^9.39.2",
 		"eslint-plugin-vue": "^10.7.0",

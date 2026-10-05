@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
 import { recordTestApi } from './record-test-api.mjs';
+import { codexTestRuntime } from './codex-test-runtime.mjs';
 
 let browser, script, data;
 before(async () => {
@@ -32,6 +33,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', tall = false, 
       window.requestTitles = [];
       window.notifications = [];
       window.mw = {
+        loader: { using: async () => name => name === 'vue' ? testCodex.Vue : testCodex.Codex },
         config: { get: key => config[key] },
         Title: { newFromText: () => ({ getTalkPage: () => ({ getPrefixedText: () => 'Talk:Test' }) }) },
         Api: class {
@@ -51,6 +53,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', tall = false, 
         } },
       };
     }, { data: (longThread ? data.replace('Saved root', 'Saved root '.repeat(100)) : data).replaceAll('c/linked-reply', 'c/' + (commentId === 'linked-reply' ? commentId : Buffer.from(commentId.replaceAll('-', ''), 'hex').toString('base64url'))), skin });
+    await page.addScriptTag({ content: (await codexTestRuntime()).script });
     await page.addScriptTag({ content: script });
     await page.evaluate(() => { window.boot = startView(); });
     await page.getByRole('progressbar').waitFor();

@@ -5,11 +5,13 @@ import { assertActionAllowed, findComment, moderationReason, type AnnotationActo
 import type { SyncJournal, PendingUpdate } from './sync-journal';
 import type { WikiSource } from './wiki-source';
 import type { HighlightAction, HighlightAnnotation, SourceAnchor } from './types';
+import type { PublishedAnnotations } from './activity';
 
 interface SyncOptions {
   identity: ReviewIdentity; actor: AnnotationActor; source: WikiSource; journal: SyncJournal;
   validate: (anchor: SourceAnchor) => boolean;
   changed: (annotations: readonly HighlightAnnotation[]) => void;
+  published?: (state: PublishedAnnotations) => void;
   status: (message: string, error?: boolean) => void;
   canWrite: boolean;
 }
@@ -23,6 +25,7 @@ export function annotationSync(options: SyncOptions) {
   let serial = 0, notice: string | undefined;
   let pending: PendingUpdate[] = [], running: Promise<void> | null = null;
   let persistence: Promise<void> = Promise.resolve(), timer: ReturnType<typeof setTimeout> | undefined;
+  const published = (): PublishedAnnotations => ({ revision: current?.revision ?? 0, generation: base.generation, records: base.document.toJSON() });
   const notify = () => {
     options.changed(model.snapshot());
     if (options.journal.checkpoint) {
@@ -70,6 +73,7 @@ export function annotationSync(options: SyncOptions) {
       }
     }
     base.document.destroy(); base = next; current = revision; initialized = true; rebuild();
+    options.published?.(published());
   };
   const parse = (page: DataPage, manual = false) => decodePage(page, options.identity, options.validate, manual);
   // A first revision imports its existing record history; it does not replace an earlier document.
@@ -215,6 +219,7 @@ export function annotationSync(options: SyncOptions) {
       rebuild(); return model.snapshot();
     },
     get annotations() { return model.snapshot(); },
+    get published() { return published(); },
     get dirty() { return pending.length > 0; },
     get retained() { return pending.filter(entry => entry.held); },
     sync,
