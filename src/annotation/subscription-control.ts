@@ -22,7 +22,7 @@ export async function subscriptionControl(original: HTMLElement, visits: Annotat
         void mw.notify(state.convByVar({ hant: '無法儲存訂閱設定，請檢查瀏覽器是否允許本機儲存。', hans: '无法保存订阅设置，请检查浏览器是否允许本地存储。' }), { title: 'ReviewTool', type: 'error', autoHide: false });
       }
     },
-  }, { default: () => [runtime.h(Icon, { icon: subscribed.value ? cdxIconUnStar : cdxIconStar }), state.convByVar({ hant: '訂閱批註', hans: '订阅批注' })] }) });
+  }, { default: () => [runtime.h(Icon, { icon: subscribed.value ? cdxIconUnStar : cdxIconStar }), state.convByVar({ hant: '訂閱本頁', hans: '订阅本页' })] }) });
   const update = (event: StorageEvent) => { if (event.key === null || event.key === visits.prefix + oldid) subscribed.value = visits.get(oldid)?.subscribed ?? false; };
   window.addEventListener('storage', update, { signal });
   original.before(host); app.mount(host);

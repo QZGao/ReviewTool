@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { recordTestApi } from './record-test-api.mjs';
 import { codexTestRuntime } from './codex-test-runtime.mjs';
 
-let browser, script, main, api, runtime;
+let browser, script, main, api, runtime, productStyles;
 const identity = { wiki: 'zhwiki', pageId: 1, revisionId: 2 }, at = '2026-10-06T00:00:00.000Z';
 const source = 'First passage.\n\nSecond passage.';
 const comment = (id, author = 'Bob') => ({ id, author, text: id + ' example comment', createdAt: at, replies: [] });
@@ -20,6 +20,7 @@ const add = (model, id, author = 'Bob', parentId) => model.dispatch({ type: 'add
 
 before(async () => {
   api = await recordTestApi(); runtime = await codexTestRuntime();
+  productStyles = await readFile('src/styles.css', 'utf8');
   const result = await build({ stdin: { contents: "import { initLiveAnnotation } from './src/annotation/live.ts'; import { pageAnnotationNotifications } from './src/annotation/notifications.ts'; window.startView = initLiveAnnotation; window.checkNotifications = pageAnnotationNotifications;", resolveDir: process.cwd() }, bundle: true, format: 'iife', loader: { '.css': 'text' }, write: false });
   script = result.outputFiles[0].text;
   const built = spawnSync(process.execPath, ['build.mjs'], { encoding: 'utf8' }); assert.equal(built.status, 0, built.stderr);
@@ -37,6 +38,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', records = [enc
       #notices{position:fixed;right:12px;top:12px;z-index:10000;max-width:320px}.mw-notification{background:${dark ? '#202122' : '#fff'};padding:14px;border:1px solid #a2a9b1;margin:8px;box-shadow:0 2px 6px #0002;font-size:14px}.mw-notification-title{font-weight:bold;margin-bottom:6px}</style></head><body>
       <ul id="p-views"></ul><ul id="p-cactions"></ul><h1 id="firstHeading">Test</h1><div style="height:1100px"></div><div class="fixture"><div id="mw-content-text"><div class="mw-parser-output">Original article</div></div><div class="vector-column-end no-font-mode-scale"></div></div><div style="height:1100px"></div><div id="notices"></div></body></html>` }));
     await page.goto('http://localhost/w/index.php?oldid=2&reviewtool_annotation_view=1');
+    await page.addStyleTag({ content: productStyles });
     await page.addScriptTag({ content: runtime.script });
     await page.evaluate(({ records, viewed, subscribed, skin, namespace, source }) => {
       document.body.classList.add('skin-' + skin); if (skin === 'minerva') document.querySelector('.vector-column-end').remove();
@@ -67,7 +69,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', records = [enc
           postWithToken() { throw new Error('Unexpected write'); }
         },
         notify: (message, options) => {
-          const element = document.createElement('div'); element.className = 'mw-notification';
+          const element = document.createElement('div'); element.className = 'mw-notification ' + (options.classes ?? '');
           const title = document.createElement('div'); title.className = 'mw-notification-title'; title.textContent = options.title ?? ''; element.append(title, message); document.getElementById('notices').append(element);
           notifications.push({ text: typeof message === 'string' ? message : message.textContent, options });
           return Promise.resolve({ close: () => element.remove() });
@@ -86,7 +88,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', records = [enc
 
 test('real Codex subscription button persists locally and cleans up with the view', async () => {
   await fixture(async page => {
-    const button = page.getByRole('button', { name: '訂閱批註', exact: true }); await button.waitFor();
+    const button = page.getByRole('button', { name: '訂閱本頁', exact: true }); await button.waitFor();
     assert.equal(await button.getAttribute('aria-pressed'), 'false');
     const firstIcon = await button.locator('svg').innerHTML(); await button.click();
     assert.equal(await button.getAttribute('aria-pressed'), 'true'); assert.notEqual(await button.locator('svg').innerHTML(), firstIcon);
@@ -98,6 +100,22 @@ test('real Codex subscription button persists locally and cleans up with the vie
     assert.equal(await page.locator('.mw-notification').count(), 0);
     await button.click(); assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('reviewtool-annotation-visits/normal/zhwiki/2')).subscribed), false);
   });
+});
+
+test('notification close buttons dismiss only their own notice without following its link', async () => {
+  const model = seed(), initial = encode(model); add(model, 'new'); add(model, 'reply', 'Carol', 'new');
+  await fixture(async page => {
+    await page.evaluate(text => { appendVersion(text); document.dispatchEvent(new Event('visibilitychange')); }, encode(model));
+    await page.waitForFunction(() => notifications.length === 2);
+    const notices = page.locator('.mw-notification');
+    const location = page.url(), scroll = await page.evaluate(() => scrollY);
+    await notices.first().getByRole('button', { name: '關閉通知', exact: true }).click();
+    assert.equal(await notices.count(), 1); assert.equal(await notices.locator('.mw-notification-title').textContent(), 'Carol');
+    assert.equal(page.url(), location); assert.equal(await page.evaluate(() => scrollY), scroll);
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.commentId), undefined);
+    await notices.getByRole('button', { name: '關閉通知', exact: true }).focus(); await page.keyboard.press('Enter');
+    assert.equal(await notices.count(), 0); assert.equal(page.url(), location);
+  }, { records: [initial] });
 });
 
 for (const skin of ['vector-2022', 'minerva']) test(`${skin}: remote notifications reveal the right comment with scrolling, expansion and emphasis`, async () => {

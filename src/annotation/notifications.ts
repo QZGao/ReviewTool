@@ -1,4 +1,5 @@
 import type { UnknownApiParams } from 'types-mediawiki/api_params';
+import { cdxIconClose } from '@wikimedia/codex-icons';
 import { createApi, mode } from '../mediawiki';
 import state from '../state';
 import { annotationVisits } from './visits';
@@ -11,16 +12,25 @@ export const annotationDestination = (oldid: number) => annotationViewUrl(new UR
 
 /** Native links retain keyboard/modifier navigation; ordinary clicks may navigate within the mounted view. */
 export function notifyAnnotationLink(title: string, text: string, href: string, navigate?: () => void | Promise<unknown>, tag?: string) {
+  const content = document.createElement('div'), dismiss = document.createElement('button');
   const link = document.createElement('a');
   link.href = href; link.textContent = text; link.style.display = 'block';
   let closed = false, notification: { close(): void } | undefined;
   const close = () => { closed = true; notification?.close(); };
+  dismiss.type = 'button'; dismiss.className = 'reviewtool-notification-close';
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.setAttribute('viewBox', '0 0 20 20'); icon.setAttribute('aria-hidden', 'true'); icon.setAttribute('focusable', 'false');
+  icon.innerHTML = cdxIconClose; dismiss.append(icon);
+  dismiss.title = state.convByVar({ hant: '關閉通知', hans: '关闭通知' }); dismiss.setAttribute('aria-label', dismiss.title);
+  dismiss.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); close(); });
+  content.append(dismiss, link);
   link.addEventListener('click', event => {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     close();
     if (navigate) { event.preventDefault(); void Promise.resolve().then(navigate).catch(error => console.error('[ReviewTool] Notification navigation failed', error)); }
   });
-  void mw.notify(link, { title, autoHide: false, ...(tag ? { tag } : {}) }).then(result => { notification = result; if (closed) result.close(); });
+  const options = { title, autoHide: false, classes: 'reviewtool-notification', ariaText: `${title}：${text}`, ...(tag ? { tag } : {}) };
+  void mw.notify(content, options).then(result => { notification = result; if (closed) result.close(); });
   return { close };
 }
 

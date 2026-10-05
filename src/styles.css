@@ -509,3 +509,8 @@ html.rt-selecting .review-tool-annotation-ui.sentence {
 	padding: 0;
 	font-weight: 700;
 }
+.mw-notification.reviewtool-notification { position: relative; padding-inline-end: 3rem; }
+.reviewtool-notification .reviewtool-notification-close { position: absolute; inset-block-start: .25rem; inset-inline-end: .25rem; display: grid; place-items: center; width: 2rem; height: 2rem; padding: 0; border: 0; border-radius: 2px; background: transparent; color: inherit; cursor: pointer; }
+.reviewtool-notification-close svg { width: 1.25rem; height: 1.25rem; fill: currentColor; }
+.reviewtool-notification .reviewtool-notification-close:hover { background: var(--background-color-interactive, #eaecf0); }
+.reviewtool-notification .reviewtool-notification-close:focus-visible { outline: 2px solid var(--color-progressive, #36c); outline-offset: -2px; }

@@ -1,6 +1,4 @@
-.annotation-subscription-controls { position: relative; height: 0; z-index: 2; }
-.annotation-subscription-controls > button { position: absolute; inset-inline-end: 0; top: 0; }
-.annotation-subscription-controls ~ .annotation-document { padding-block-start: 3rem; }
+.annotation-subscription-controls { float: right; float: inline-end; position: relative; z-index: 2; margin-inline-start: 1em; margin-block-end: .5em; }
 .annotation-document, .annotation-comments {
   --annotation-marker-red: rgb(242 206 182 / 50%); /* #F2CEB6 */
   --annotation-marker-yellow: rgb(238 218 168 / 50%); /* #EEDAA8 */
