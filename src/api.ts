@@ -187,20 +187,20 @@ export function appendTextToSection(pageTitle: string, sectionId: number, append
 			const response = res as ApiEditResponse;
 			if (response.edit && response.edit.result === 'Success') {
 				console.log('[ReviewTool][appendTextToSection] Append successful');
-				mw.notify(state.convByVar({
+				mw.notify(state.conv({
 					hant: '已成功將內容附加到指定段落。',
 					hans: '已成功将内容附加到指定段落。'
 				}));
 				refreshPage();
 			} else if (response.error && response.error.code === 'editconflict') {
 				console.error('[ReviewTool][appendTextToSection] Edit conflict occurred');
-				mw.notify(state.convByVar({
+				mw.notify(state.conv({
 					hant: '附加內容時發生編輯衝突。請重新嘗試。',
 					hans: '附加内容时发生编辑冲突。请重新尝试。'
 				}));
 			} else {
 				console.error('[ReviewTool][appendTextToSection] Append failed', res);
-				mw.notify(state.convByVar({
+				mw.notify(state.conv({
 					hant: '附加內容失敗。請稍後再試。',
 					hans: '附加内容失败。请稍后再试。'
 				}));
@@ -430,7 +430,7 @@ export function compareWikitext(oldWikitext: string, newWikitext: string): Promi
 					if (response.compare && response.compare['*']) {
 						resolve('<table class="diff"><colgroup><col class="diff-marker"/><col class="diff-content"/><col class="diff-marker"/><col class="diff-content"/></colgroup>' + response.compare['*'] + '</table>');
 					}
-					resolve(state.convByVar({ hant: '無差異。', hans: '无差异。' }));
+					resolve(state.conv({ hant: '無差異。', hans: '无差异。' }));
 				} catch (error) {
 					reject(toError(error));
 				}

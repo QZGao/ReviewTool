@@ -44,7 +44,7 @@ export async function initLiveAnnotation(): Promise<boolean> {
   const sourceApi = wikiSource(async (params, write) => {
     if (write && !canWrite) throw new Error('Log in before saving annotations.');
     return response(write ? api.postWithToken('csrf', { ...params, ...(mode === 'normal' ? { assert: 'user', assertuser: author } : {}) }) : api.get(params as UnknownApiParams));
-  }, storageTitle, { talkTitle, revisionId: revision, summary: state.convByVar({ hant: '更新批註版本索引', hans: '更新批注版本索引' }) });
+  }, storageTitle, { talkTitle, revisionId: revision, summary: state.conv({ hant: '更新批註版本索引', hans: '更新批注版本索引' }) });
   const updateUrl = (active: boolean) => {
     const url = new URL(location.href);
     if (active) url.searchParams.set(activationParameter, '1');
@@ -82,7 +82,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
   const actor = { name: author, groups: mw.config.get('wgUserGroups') ?? [] }, canWrite = mode === 'dry-run' || Boolean(mw.config.get('wgUserName'));
   const identity: ReviewIdentity = { wiki: mw.config.get('wgDBname'), pageId: mw.config.get('wgArticleId'), revisionId: revision };
   const style = document.createElement('style'); style.textContent = styles; document.head.append(style);
-  const messages = annotationMessages(text => state.convByVar(text));
+  const messages = annotationMessages(text => state.conv(text));
   const stopLoading = showAnnotationLoading(document, messages.loadingView);
   let exportItem: HTMLElement | null = null;
   let mount: ReturnType<typeof mountWikipediaAnnotation> | undefined, sync: ReturnType<typeof annotationSync> | undefined;
@@ -100,7 +100,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
   const failure = (label: { hant: string; hans: string }, error: unknown) => {
     if (closed) return;
     console.error('[ReviewTool]', error);
-    notify(state.convByVar(label));
+    notify(state.conv(label));
   };
   const setStatus = (message: string, error = false) => {
     if (closed) return;
@@ -120,7 +120,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
     if (error) console.warn('[ReviewTool]', message);
     const content = document.createElement('div');
     const text = document.createElement('p');
-    text.textContent = state.convByVar(retained.length
+    text.textContent = state.conv(retained.length
       ? { hant: '批註資料頁已被手動修改。您的修改尚未同步，請檢查後重新儲存，或放棄修改。', hans: '批注数据页已被手动修改。您的修改尚未同步，请检查后重新保存，或放弃修改。' }
       : lateReply ? { hant: '回覆已儲存，但原討論已結束或刪除，不會再顯示。', hans: '回复已保存，但原讨论已结束或删除，不会再显示。' }
       : hiddenDrafts.length ? { hant: '原討論已不再顯示。以下是尚未送出的草稿：', hans: '原讨论已不再显示。以下是尚未发送的草稿：' }
@@ -129,7 +129,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
     for (const entry of retained) {
       const item = document.createElement('p'), action = entry.action;
       item.textContent = action.type === 'edit-comment' ? action.text : action.type === 'add-comment' ? action.comment.text
-        : state.convByVar(action.type === 'set-thread-resolution' ? { hant: action.resolved ? '標記已解決' : '標記尚未解決', hans: action.resolved ? '标记已解决' : '标记尚未解决' }
+        : state.conv(action.type === 'set-thread-resolution' ? { hant: action.resolved ? '標記已解決' : '標記尚未解決', hans: action.resolved ? '标记已解决' : '标记尚未解决' }
           : action.type === 'resolve-comment' ? { hant: '結束討論', hans: '结束讨论' }
           : action.type === 'delete-highlight' ? { hant: '刪除高亮', hans: '删除高亮' }
           : action.type === 'recolor-highlight' ? { hant: '更改高亮顏色', hans: '更改高亮颜色' } : { hant: '新增高亮', hans: '添加高亮' });
@@ -137,7 +137,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
     }
     for (const draft of hiddenDrafts) { const text = document.createElement('pre'); text.textContent = draft.text; text.style.whiteSpace = 'pre-wrap'; content.append(text); }
     const action = (label: { hant: string; hans: string }, run: () => Promise<unknown> | undefined) => {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = state.convByVar(label);
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = state.conv(label);
       button.addEventListener('click', () => { button.disabled = true; void run()?.catch(error => failure({ hant: '操作未完成，請稍後重試。', hans: '操作未完成，请稍后重试。' }, error)).finally(() => { button.disabled = false; }); }, listener);
       content.append(button);
     };
@@ -223,7 +223,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
             console.warn('[ReviewTool] Annotation activity baseline unavailable', error);
             if (activityError || closed) return;
             activityError = true;
-            void mw.notify(state.convByVar({ hant: '無法完整讀取或儲存上次查看的紀錄，部分更新提醒可能遺漏或重複。', hans: '无法完整读取或保存上次查看的记录，部分更新提醒可能遗漏或重复。' }), { title: 'ReviewTool', type: 'warn', autoHide: false });
+            void mw.notify(state.conv({ hant: '無法完整讀取或儲存上次查看的紀錄，部分更新提醒可能遺漏或重複。', hans: '无法完整读取或保存上次查看的记录，部分更新提醒可能遗漏或重复。' }), { title: 'ReviewTool', type: 'warn', autoHide: false });
           },
         });
         await activity.receive(shared.published);
@@ -234,8 +234,8 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
         });
         if (closed) return;
       } catch (error) { failure({ hant: '無法使用瀏覽器的批註訂閱及查看紀錄。', hans: '无法使用浏览器的批注订阅及查看记录。' }, error); }
-      exportItem = mw.util.addPortletLink('p-cactions', '#', state.convByVar({ hant: '匯出所有批註', hans: '导出所有批注' }), 'ca-reviewtool-export',
-        state.convByVar({ hant: '匯出高亮、評論與回覆', hans: '导出高亮、评论和回复' }));
+      exportItem = mw.util.addPortletLink('p-cactions', '#', state.conv({ hant: '匯出所有批註', hans: '导出所有批注' }), 'ca-reviewtool-export',
+        state.conv({ hant: '匯出高亮、評論與回覆', hans: '导出高亮、评论和回复' }));
       exportItem?.querySelector('a')?.addEventListener('click', event => {
         event.preventDefault();
         try { downloadAnnotationExport(document, buildAnnotationExport(identity, title, projection, shared.annotations)); }
@@ -246,7 +246,7 @@ function startLiveAnnotation(api: mw.Api, sourceApi: WikiSource) {
       polling = setInterval(refresh, 5000);
       document.addEventListener('visibilitychange', refresh, listener); window.addEventListener('online', refresh, listener);
       window.addEventListener('beforeunload', event => { if (shared.dirty) { event.preventDefault(); event.returnValue = ''; } }, listener);
-      if (!canWrite) notify(state.convByVar({ hant: '登入後即可新增批註。', hans: '登录后即可添加批注。' }), 'warn');
+      if (!canWrite) notify(state.conv({ hant: '登入後即可新增批註。', hans: '登录后即可添加批注。' }), 'warn');
       // Finish startup DOM changes before navigating to the linked passage and discussion.
       const requestedId = new URL(location.href).searchParams.get(commentParameter), commentId = commentIdFromUrl(requestedId);
       if (requestedId && (!commentId || !await mount.view.comments?.reveal(commentId))) notify(messages.commentUnavailable, 'warn');

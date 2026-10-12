@@ -29,25 +29,25 @@ type AnnotationViewerI18n = {
 
 function buildI18n(): AnnotationViewerI18n {
 	return {
-		title: state.convByVar({ hant: "批註列表", hans: "批注列表" }),
-		empty: state.convByVar({ hant: "尚無批註", hans: "尚无批注" }),
-		edit: state.convByVar({ hant: "編輯", hans: "编辑" }),
-		delete: state.convByVar({ hant: "刪除", hans: "删除" }),
-		deleteConfirm: state.convByVar({ hant: "確定刪除？", hans: "确定删除？" }),
-		clearAll: state.convByVar({ hant: "清除全部", hans: "清除全部" }),
-		clearAllConfirm: state.convByVar({ hant: "確定刪除所有批註？", hans: "确定删除所有批注？" }),
-		clearAllDone: state.convByVar({ hant: "已清除所有批註。", hans: "已清除所有批注。" }),
-		clearAllNothing: state.convByVar({ hant: "沒有可清除的批註。", hans: "没有可清除的批注。" }),
-		clearAllError: state.convByVar({ hant: "清除批註時發生錯誤。", hans: "清除批注时发生错误。" }),
-		sectionFallback: state.convByVar({ hant: "（未指定章節）", hans: "（未指定章节）" }),
-		close: state.convByVar({ hant: "關閉", hans: "关闭" }),
-		export: state.convByVar({ hant: "匯出", hans: "导出" }),
-		exportDone: state.convByVar({ hant: "已匯出批註。", hans: "已导出批注。" }),
-		exportError: state.convByVar({ hant: "匯出批註時發生錯誤。", hans: "导出批注时发生错误。" }),
-		sortLabel: state.convByVar({ hant: "排序方式", hans: "排序方式" }),
-		sortCreatedAsc: state.convByVar({ hant: "最早時間優先", hans: "最早时间优先" }),
-		sortCreatedDesc: state.convByVar({ hant: "最新時間優先", hans: "最新时间优先" }),
-		sortPosition: state.convByVar({ hant: "頁面位置", hans: "页面位置" })
+		title: state.conv({ hant: "批註列表", hans: "批注列表" }),
+		empty: state.conv({ hant: "尚無批註", hans: "尚无批注" }),
+		edit: state.conv({ hant: "編輯", hans: "编辑" }),
+		delete: state.conv({ hant: "刪除", hans: "删除" }),
+		deleteConfirm: state.conv({ hant: "確定刪除？", hans: "确定删除？" }),
+		clearAll: state.conv({ hant: "清除全部", hans: "清除全部" }),
+		clearAllConfirm: state.conv({ hant: "確定刪除所有批註？", hans: "确定删除所有批注？" }),
+		clearAllDone: state.conv({ hant: "已清除所有批註。", hans: "已清除所有批注。" }),
+		clearAllNothing: state.conv({ hant: "沒有可清除的批註。", hans: "没有可清除的批注。" }),
+		clearAllError: state.conv({ hant: "清除批註時發生錯誤。", hans: "清除批注时发生错误。" }),
+		sectionFallback: state.conv({ hant: "（未指定章節）", hans: "（未指定章节）" }),
+		close: state.conv({ hant: "關閉", hans: "关闭" }),
+		export: state.conv({ hant: "匯出", hans: "导出" }),
+		exportDone: state.conv({ hant: "已匯出批註。", hans: "已导出批注。" }),
+		exportError: state.conv({ hant: "匯出批註時發生錯誤。", hans: "导出批注时发生错误。" }),
+		sortLabel: state.conv({ hant: "排序方式", hans: "排序方式" }),
+		sortCreatedAsc: state.conv({ hant: "最早時間優先", hans: "最早时间优先" }),
+		sortCreatedDesc: state.conv({ hant: "最新時間優先", hans: "最新时间优先" }),
+		sortPosition: state.conv({ hant: "頁面位置", hans: "页面位置" })
 	};
 }
 
@@ -194,7 +194,7 @@ function handleDelete(annotationId: string, sectionPath: string) {
 			console.error("[ReviewTool] Failed to delete annotation", error);
 			if (mw && mw.notify) {
 				mw.notify(
-					state.convByVar({ hant: "刪除批註時發生錯誤。", hans: "删除批注时发生错误。" }),
+					state.conv({ hant: "刪除批註時發生錯誤。", hans: "删除批注时发生错误。" }),
 					{ type: "error", title: "[ReviewTool]" }
 				);
 			}

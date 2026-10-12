@@ -1,4 +1,4 @@
-/** The live host supplies state.convByVar; the standalone renderer defaults to Traditional Chinese. */
+/** The live host supplies state.conv; the standalone renderer defaults to Traditional Chinese. */
 export type VariantConverter = (text: { hant: string; hans: string }) => string;
 export function annotationMessages(convert: VariantConverter = text => text.hant) {
   return {

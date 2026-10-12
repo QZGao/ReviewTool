@@ -5,7 +5,7 @@ import { createApi } from './mediawiki';
  */
 class State {
 	// 簡繁轉換
-	convByVar = function (langDict: { hant: string, hans: string }): string {
+	conv = function (langDict: { hant: string, hans: string }): string {
 		if (langDict && langDict.hant) {
 			return langDict.hant; // 預設返回繁體中文
 		}
@@ -13,9 +13,9 @@ class State {
 	};
 	initHanAssist(): JQuery.Promise<void> {
 		return mw.loader.using('ext.gadget.HanAssist').then((require) => {
-			const { convByVar } = require('ext.gadget.HanAssist') as { convByVar: (langDict: { hant: string, hans: string }) => string };
-			if (typeof convByVar === 'function') {
-				this.convByVar = convByVar;
+			const { conv } = require('ext.gadget.HanAssist') as { conv: (langDict: { hant: string, hans: string }) => string };
+			if (typeof conv === 'function') {
+				this.conv = conv;
 			}
 		});
 	}

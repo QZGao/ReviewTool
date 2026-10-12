@@ -82,9 +82,9 @@ function decideAssessmentType(pageTitle: string, sectionTitle: string): string |
  * @returns {HTMLElement} 「評審管理」按鈕元素
  */
 function createReviewManagementButton(articleTitle: string, assessmentType: string | null): HTMLElement {
-	return createMwEditSectionButton(state.convByVar({
+	return createMwEditSectionButton(state.conv({
 		hant: '管理評審', hans: '管理评审'
-	}), state.convByVar({ hant: '使用 ReviewTool 小工具管理評審', hans: '使用 ReviewTool 小工具管理评审' }), () => {
+	}), state.conv({ hant: '使用 ReviewTool 小工具管理評審', hans: '使用 ReviewTool 小工具管理评审' }), () => {
 		state.articleTitle = articleTitle;
 		state.assessmentType = assessmentType;
 		openReviewManagementDialog();
@@ -98,9 +98,9 @@ function createReviewManagementButton(articleTitle: string, assessmentType: stri
  * @returns {HTMLElement} 「檢查文筆」按鈕元素
  */
 function createCheckWritingButton(articleTitle: string, assessmentType: string | null): HTMLElement {
-	return createMwEditSectionButton(state.convByVar({
+	return createMwEditSectionButton(state.conv({
 		hant: '檢查文筆', hans: '检查文笔'
-	}), state.convByVar({ hant: '使用 ReviewTool 小工具檢查文筆', hans: '使用 ReviewTool 小工具检查文笔' }), () => {
+	}), state.conv({ hant: '使用 ReviewTool 小工具檢查文筆', hans: '使用 ReviewTool 小工具检查文笔' }), () => {
 		state.articleTitle = articleTitle;
 		state.assessmentType = assessmentType;
 		openCheckWritingDialog();

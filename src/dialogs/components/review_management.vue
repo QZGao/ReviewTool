@@ -77,23 +77,23 @@ type ReviewManagementVm = {
 
 function buildI18n(): ReviewManagementI18n {
 	return {
-		submitting: state.convByVar({ hant: "添加中…", hans: "添加中…" }),
-		submit: state.convByVar({ hant: "添加", hans: "添加" }),
-		cancel: state.convByVar({ hant: "取消", hans: "取消" }),
-		dialogTitle: state.convByVar({ hant: "為「", hans: "为「" }) + state.articleTitle + state.convByVar({ hant: "」添加評審意見", hans: "」添加评审意见" }),
-		submitUnderOpinionSubsection: state.convByVar({ hant: "將評審內容置於「", hans: "将评审内容置于「" }) + state.userName + state.convByVar({ hant: "的意見」小節內", hans: "的意见」小节内" }),
-		selectCriterion: state.convByVar({ hant: "評審標準：", hans: "评审标准：" }),
-		criterionPlaceholder: state.convByVar({ hant: "選擇評審標準", hans: "选择评审标准" }),
-		addCriteriaToReview: state.convByVar({ hant: "將以下標準加入評審", hans: "将以下标准加入评审" }),
-		next: state.convByVar({ hant: "下一步", hans: "下一步" }),
-		previous: state.convByVar({ hant: "上一步", hans: "上一步" }),
-		previewHeading: state.convByVar({ hant: "預覽", hans: "预览" }),
-		diffHeading: state.convByVar({ hant: "差異", hans: "差异" }),
-		editHeading: state.convByVar({ hant: "檢查編輯", hans: "检查编辑" }),
-		editInstruction: state.convByVar({ hant: "在此調整要新增的維基語法內容，再前往預覽或差異。", hans: "在此调整要新增的维基语法内容，再前往预览或差异。" }),
-		editPlaceholder: state.convByVar({ hant: "在此輸入或修改評審建議的維基語法內容…", hans: "在此输入或修改评审建议的维基语法内容…" }),
-		noSpecificCriteria: state.convByVar({ hant: "未選擇評審標準。", hans: "未选择评审标准。" }),
-		noDiff: state.convByVar({ hant: "無差異。", hans: "无差异。" })
+		submitting: state.conv({ hant: "添加中…", hans: "添加中…" }),
+		submit: state.conv({ hant: "添加", hans: "添加" }),
+		cancel: state.conv({ hant: "取消", hans: "取消" }),
+		dialogTitle: state.conv({ hant: "為「", hans: "为「" }) + state.articleTitle + state.conv({ hant: "」添加評審意見", hans: "」添加评审意见" }),
+		submitUnderOpinionSubsection: state.conv({ hant: "將評審內容置於「", hans: "将评审内容置于「" }) + state.userName + state.conv({ hant: "的意見」小節內", hans: "的意见」小节内" }),
+		selectCriterion: state.conv({ hant: "評審標準：", hans: "评审标准：" }),
+		criterionPlaceholder: state.conv({ hant: "選擇評審標準", hans: "选择评审标准" }),
+		addCriteriaToReview: state.conv({ hant: "將以下標準加入評審", hans: "将以下标准加入评审" }),
+		next: state.conv({ hant: "下一步", hans: "下一步" }),
+		previous: state.conv({ hant: "上一步", hans: "上一步" }),
+		previewHeading: state.conv({ hant: "預覽", hans: "预览" }),
+		diffHeading: state.conv({ hant: "差異", hans: "差异" }),
+		editHeading: state.conv({ hant: "檢查編輯", hans: "检查编辑" }),
+		editInstruction: state.conv({ hant: "在此調整要新增的維基語法內容，再前往預覽或差異。", hans: "在此调整要新增的维基语法内容，再前往预览或差异。" }),
+		editPlaceholder: state.conv({ hant: "在此輸入或修改評審建議的維基語法內容…", hans: "在此输入或修改评审建议的维基语法内容…" }),
+		noSpecificCriteria: state.conv({ hant: "未選擇評審標準。", hans: "未选择评审标准。" }),
+		noDiff: state.conv({ hant: "無差異。", hans: "无差异。" })
 	};
 }
 
@@ -171,7 +171,7 @@ export default {
 			return criteriaContent && criteriaContent.trim() ? criteriaContent : "";
 		},
 		reportMissingOpinionEntries(this: ReviewManagementVm, showAlert = false) {
-			const msg = state.convByVar({ hant: "請先選擇或輸入評審子項，再提交。", hans: "请先选择或输入评审子项，再提交。" });
+			const msg = state.conv({ hant: "請先選擇或輸入評審子項，再提交。", hans: "请先选择或输入评审子项，再提交。" });
 			if (mw && mw.notify) {
 				mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 			}
@@ -225,7 +225,7 @@ export default {
 				return;
 			}
 
-			const opinionHeaderTitle = `${state.userName}${state.convByVar({ hant: " 的意見", hans: " 的意见" })}`;
+			const opinionHeaderTitle = `${state.userName}${state.conv({ hant: " 的意見", hans: " 的意见" })}`;
 			const h4s = draftFragment || this.buildOpinionContent(4);
 			if (!h4s || !h4s.trim()) {
 				this.reportMissingOpinionEntries(true);
@@ -303,7 +303,7 @@ export default {
 				return;
 			}
 
-			const opinionHeaderTitle = `${state.userName}${state.convByVar({ hant: " 的意見", hans: " 的意见" })}`;
+			const opinionHeaderTitle = `${state.userName}${state.conv({ hant: " 的意見", hans: " 的意见" })}`;
 			const h4s = draftFragment || this.buildOpinionContent(4);
 			const runOpinionDiff = (oldText: string, newText: string) => {
 				this.existingSectionText = oldText;
@@ -435,7 +435,7 @@ export default {
 		submitReview(this: ReviewManagementVm) {
 			if (!this.selectedAssessmentType) {
 				if (mw && mw.notify) {
-					mw.notify(state.convByVar({ hant: "請選擇評審標準。", hans: "请选择评审标准。" }), {
+					mw.notify(state.conv({ hant: "請選擇評審標準。", hans: "请选择评审标准。" }), {
 						type: "error",
 						title: "[ReviewTool]"
 					});
@@ -448,7 +448,7 @@ export default {
 			const headingEl: Element | null = state.pendingReviewHeading || null;
 			const sec = findSectionInfoFromHeading(headingEl);
 			if (!sec || !sec.sectionId) {
-				const msg = state.convByVar({ hant: "無法識別章節編號，請在討論頁的章節標題附近點擊「管理評審」。", hans: "无法识别章节编号，请在讨论页的章节标题附近点击“管理评审”。" });
+				const msg = state.conv({ hant: "無法識別章節編號，請在討論頁的章節標題附近點擊「管理評審」。", hans: "无法识别章节编号，请在讨论页的章节标题附近点击“管理评审”。" });
 				if (mw && mw.notify) {
 					mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 				}
@@ -476,10 +476,10 @@ export default {
 					this.isSubmitting = false;
 					return;
 				}
-				appendTextToSection(pageTitleToUse, sectionIdToUse, headers, state.convByVar({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審項目", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审项目" }))
+				appendTextToSection(pageTitleToUse, sectionIdToUse, headers, state.conv({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審項目", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审项目" }))
 					.then(() => {
 						if (mw && mw.notify) {
-							mw.notify(state.convByVar({ hant: "已成功新增評審項目。", hans: "已成功新增评审项目。" }), { tag: "review-tool" });
+							mw.notify(state.conv({ hant: "已成功新增評審項目。", hans: "已成功新增评审项目。" }), { tag: "review-tool" });
 						}
 						this.isSubmitting = false;
 						this.open = false;
@@ -488,7 +488,7 @@ export default {
 					})
 					.catch((error: unknown) => {
 						console.error("[ReviewTool] appendTextToSection failed", error);
-						const msg = state.convByVar({ hant: "新增評審項目失敗，請稍後再試。", hans: "新增评审项目失败，请稍后再试。" });
+						const msg = state.conv({ hant: "新增評審項目失敗，請稍後再試。", hans: "新增评审项目失败，请稍后再试。" });
 						if (mw && mw.notify) {
 							mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 						}
@@ -498,12 +498,12 @@ export default {
 				return;
 			}
 
-			const opinionHeaderTitle = `${state.userName}${state.convByVar({ hant: " 的意見", hans: " 的意见" })}`;
+			const opinionHeaderTitle = `${state.userName}${state.conv({ hant: " 的意見", hans: " 的意见" })}`;
 			const h4s = draftFragment || this.buildOpinionContent(4);
 
 			const revisionInfo = this.sectionRevisionInfo;
 			if (!revisionInfo) {
-				const msg = state.convByVar({ hant: "請先預覽並檢視差異，以取得最新段落資訊後再提交。", hans: "请先预览并查看差异，以取得最新段落资讯后再提交。" });
+				const msg = state.conv({ hant: "請先預覽並檢視差異，以取得最新段落資訊後再提交。", hans: "请先预览并查看差异，以取得最新段落资讯后再提交。" });
 				if (mw && mw.notify) {
 					mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 				}
@@ -520,12 +520,12 @@ export default {
 					pageTitleToUse,
 					sectionIdToUse,
 					insertion.newSectionText,
-					state.convByVar({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審子項", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审子项" }),
+					state.conv({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審子項", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审子项" }),
 					revisionInfo
 				)
 					.then(() => {
 						if (mw && mw.notify) {
-							mw.notify(state.convByVar({ hant: "已成功新增評審子項。", hans: "已成功新增评审子项。" }), { tag: "review-tool" });
+							mw.notify(state.conv({ hant: "已成功新增評審子項。", hans: "已成功新增评审子项。" }), { tag: "review-tool" });
 						}
 						this.isSubmitting = false;
 						this.open = false;
@@ -534,7 +534,7 @@ export default {
 					})
 					.catch((error: unknown) => {
 						console.error("[ReviewTool] replaceSectionText failed", error);
-						const msg = state.convByVar({ hant: "新增評審子項失敗，請稍後再試。", hans: "新增评审子项失败，请稍后再试。" });
+						const msg = state.conv({ hant: "新增評審子項失敗，請稍後再試。", hans: "新增评审子项失败，请稍后再试。" });
 						if (mw && mw.notify) {
 							mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 						}
@@ -546,11 +546,11 @@ export default {
 					pageTitleToUse,
 					sectionIdToUse,
 					insertion.previewFragment,
-					state.convByVar({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審項", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审项目" })
+					state.conv({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增評審項", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增评审项目" })
 				)
 					.then(() => {
 						if (mw && mw.notify) {
-							mw.notify(state.convByVar({ hant: "已成功新增評審項目。", hans: "已成功新增评审项目。" }), { tag: "review-tool" });
+							mw.notify(state.conv({ hant: "已成功新增評審項目。", hans: "已成功新增评审项目。" }), { tag: "review-tool" });
 						}
 						this.isSubmitting = false;
 						this.open = false;
@@ -559,7 +559,7 @@ export default {
 					})
 					.catch((error: unknown) => {
 						console.error("[ReviewTool] appendTextToSection failed", error);
-						const msg = state.convByVar({ hant: "新增評審項目失敗，請稍後再試。", hans: "新增评审项目失败，请稍后再试。" });
+						const msg = state.conv({ hant: "新增評審項目失敗，請稍後再試。", hans: "新增评审项目失败，请稍后再试。" });
 						if (mw && mw.notify) {
 							mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 						}

@@ -10,7 +10,7 @@ function createReviewManagementDialog(): void {
 	}).catch((error) => {
 		console.error("[ReviewTool] 無法加載 Codex:", error);
 		if (mw && mw.notify) {
-			mw.notify(state.convByVar({ hant: "無法加載對話框組件。", hans: "无法加载对话框组件。" }), {
+			mw.notify(state.conv({ hant: "無法加載對話框組件。", hans: "无法加载对话框组件。" }), {
 				type: "error",
 				title: "[ReviewTool]"
 			});

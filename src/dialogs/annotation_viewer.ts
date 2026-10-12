@@ -99,7 +99,7 @@ export function openAnnotationViewerDialog(options: AnnotationViewerDialogOption
             console.error("[ReviewTool] Failed to open annotation viewer dialog", error);
             if (mw && mw.notify) {
                 mw.notify(
-                    state.convByVar({ hant: "無法開啟批註列表。", hans: "无法开启批注列表。" }),
+                    state.conv({ hant: "無法開啟批註列表。", hans: "无法开启批注列表。" }),
                     { type: "error", title: "[ReviewTool]" }
                 );
             }

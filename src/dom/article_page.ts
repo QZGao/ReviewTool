@@ -3,18 +3,18 @@ import state from '../state';
 
 /** Keep the article tab and its action-menu counterpart on the same view state. */
 export function addMainPageReviewToolButtonsToDOM(toggle: () => void) {
-    let tab = addVectorMenuTab('ca-annotate', state.convByVar({ hant: '批註模式', hans: '批注模式' }),
-        state.convByVar({ hant: '切換批註模式', hans: '切换批注模式' }), toggle);
+    let tab = addVectorMenuTab('ca-annotate', state.conv({ hant: '批註模式', hans: '批注模式' }),
+        state.conv({ hant: '切換批註模式', hans: '切换批注模式' }), toggle);
     if (!tab) {
         tab = document.createElement('span'); tab.id = 'ca-annotate'; tab.className = 'mw-editsection';
         const link = document.createElement('a'); link.href = '#';
-        link.textContent = state.convByVar({ hant: '批註模式', hans: '批注模式' });
+        link.textContent = state.conv({ hant: '批註模式', hans: '批注模式' });
         link.addEventListener('click', event => { event.preventDefault(); toggle(); }); tab.append(link);
         document.querySelector('#firstHeading')?.after(tab);
     }
     return {
         update(active: boolean, busy = false) {
-            const label = state.convByVar({
+            const label = state.conv({
                 hant: active ? '關閉批註模式' : '啟用批註模式',
                 hans: active ? '关闭批注模式' : '开启批注模式',
             });

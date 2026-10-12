@@ -20,18 +20,18 @@ type AnnotationEditorI18n = {
 
 function buildI18n(): AnnotationEditorI18n {
 	return {
-		titleCreate: state.convByVar({ hant: "新增批註", hans: "新增批注" }),
-		titleEdit: state.convByVar({ hant: "編輯批註", hans: "编辑批注" }),
-		sectionLabel: state.convByVar({ hant: "章節：", hans: "章节：" }),
-		sentenceLabel: state.convByVar({ hant: "句子：", hans: "句子：" }),
-		opinionLabel: state.convByVar({ hant: "批註內容", hans: "批注内容" }),
-		opinionPlaceholder: state.convByVar({ hant: "請輸入批註內容…", hans: "请输入批注内容…" }),
-		opinionRequired: state.convByVar({ hant: "批註內容不能為空", hans: "批注内容不能为空" }),
-		cancel: state.convByVar({ hant: "取消", hans: "取消" }),
-		save: state.convByVar({ hant: "儲存", hans: "保存" }),
-		create: state.convByVar({ hant: "新增", hans: "新增" }),
-		delete: state.convByVar({ hant: "刪除", hans: "删除" }),
-		deleteConfirm: state.convByVar({ hant: "確定要刪除這條批註？", hans: "确定要删除这条批注？" })
+		titleCreate: state.conv({ hant: "新增批註", hans: "新增批注" }),
+		titleEdit: state.conv({ hant: "編輯批註", hans: "编辑批注" }),
+		sectionLabel: state.conv({ hant: "章節：", hans: "章节：" }),
+		sentenceLabel: state.conv({ hant: "句子：", hans: "句子：" }),
+		opinionLabel: state.conv({ hant: "批註內容", hans: "批注内容" }),
+		opinionPlaceholder: state.conv({ hant: "請輸入批註內容…", hans: "请输入批注内容…" }),
+		opinionRequired: state.conv({ hant: "批註內容不能為空", hans: "批注内容不能为空" }),
+		cancel: state.conv({ hant: "取消", hans: "取消" }),
+		save: state.conv({ hant: "儲存", hans: "保存" }),
+		create: state.conv({ hant: "新增", hans: "新增" }),
+		delete: state.conv({ hant: "刪除", hans: "删除" }),
+		deleteConfirm: state.conv({ hant: "確定要刪除這條批註？", hans: "确定要删除这条批注？" })
 	};
 }
 

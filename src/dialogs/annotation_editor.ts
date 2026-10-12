@@ -65,7 +65,7 @@ export function openAnnotationEditorDialog(options: AnnotationEditorDialogOption
 		.catch((error) => {
 			console.error("[ReviewTool] Failed to open annotation editor dialog", error);
 			if (mw && mw.notify) {
-				mw.notify(state.convByVar({ hant: "無法開啟批註對話框。", hans: "无法开启批注对话框。" }), {
+				mw.notify(state.conv({ hant: "無法開啟批註對話框。", hans: "无法开启批注对话框。" }), {
 					type: "error",
 					title: "[ReviewTool]"
 				});

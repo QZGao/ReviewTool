@@ -5,13 +5,13 @@ import { chromium } from 'playwright';
 import { startServer } from '../annotation/serve.mjs';
 import { root } from './launch.mjs';
 
-test('state.convByVar supplies both Chinese variants to the reading view, comments, marker toolbar and source popups', async () => {
+test('state.conv supplies both Chinese variants to the reading view, comments, marker toolbar and source popups', async () => {
   const bundle = await build({ stdin: { contents: `
     import state from './src/state';
     import { annotationMessages } from './src/annotation/i18n';
     window.variantMessages = variant => {
-      state.convByVar = text => text[variant];
-      return annotationMessages(text => state.convByVar(text));
+      state.conv = text => text[variant];
+      return annotationMessages(text => state.conv(text));
     };
   `, resolveDir: root }, bundle: true, format: 'iife', platform: 'browser', write: false });
   const server = await startServer(), browser = await chromium.launch({ channel: 'chrome', headless: true });

@@ -21,7 +21,7 @@ export function notifyAnnotationLink(title: string, text: string, href: string, 
   const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   icon.setAttribute('viewBox', '0 0 20 20'); icon.setAttribute('aria-hidden', 'true'); icon.setAttribute('focusable', 'false');
   icon.innerHTML = cdxIconClose; dismiss.append(icon);
-  dismiss.title = state.convByVar({ hant: '關閉通知', hans: '关闭通知' }); dismiss.setAttribute('aria-label', dismiss.title);
+  dismiss.title = state.conv({ hant: '關閉通知', hans: '关闭通知' }); dismiss.setAttribute('aria-label', dismiss.title);
   dismiss.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); close(); });
   content.append(dismiss, link);
   link.addEventListener('click', event => {
@@ -36,7 +36,7 @@ export function notifyAnnotationLink(title: string, text: string, href: string, 
 
 const excerpt = (text: string) => { const clean = text.replace(/\s+/g, ' ').trim(); return clean.length > 90 ? clean.slice(0, 90) + '…' : clean; };
 export function activityDescription(action: AnnotationActivity): string {
-  const record = action.record, c = (hant: string, hans: string) => state.convByVar({ hant, hans });
+  const record = action.record, c = (hant: string, hans: string) => state.conv({ hant, hans });
   switch (record.kind) {
     case 'highlight': return c('新增了高亮', '添加了高亮');
     case 'comment': return (record.parent ? c('回覆了評論：', '回复了评论：') : c('新增了評論：', '添加了评论：')) + excerpt(record.body.text);
@@ -51,7 +51,7 @@ export function activityNotice(group: ActivityGroup) {
   const names = [...new Set(group.actions.map(action => action.author))];
   const title = names.length < 2 ? names[0] : names.slice(0, -1).join('、') + '和' + names[names.length - 1];
   const text = group.actions.length === 1 ? activityDescription(group.actions[0])
-    : state.convByVar({ hant: `這則評論及其回覆有 ${group.actions.length} 項新動態。`, hans: `这条评论及其回复有 ${group.actions.length} 项新动态。` }) + activityDescription(group.target);
+    : state.conv({ hant: `這則評論及其回覆有 ${group.actions.length} 項新動態。`, hans: `这条评论及其回复有 ${group.actions.length} 项新动态。` }) + activityDescription(group.target);
   return { title, text };
 }
 
@@ -65,7 +65,7 @@ export function dataPageRevision(): number | null {
 /** Called once on ordinary pages, including namespaces where the rest of ReviewTool exits early. */
 export async function pageAnnotationNotifications() {
   const oldid = dataPageRevision();
-  if (oldid) notifyAnnotationLink('ReviewTool', state.convByVar({ hant: '快速跳轉至批註頁', hans: '快速跳转至批注页' }), annotationDestination(oldid).href, undefined, 'reviewtool-data-page');
+  if (oldid) notifyAnnotationLink('ReviewTool', state.conv({ hant: '快速跳轉至批註頁', hans: '快速跳转至批注页' }), annotationDestination(oldid).href, undefined, 'reviewtool-data-page');
   const subscriptions = browserVisits().subscriptions();
   if (!subscriptions.length) return;
   const api = createApi();
@@ -76,8 +76,8 @@ export async function pageAnnotationNotifications() {
     // Another tab may have opened the view or unsubscribed while these requests were running.
     const current = browserVisits().get(visit.oldid);
     if (!current?.subscribed || current.viewedRevision !== visit.viewedRevision) return;
-    notifyAnnotationLink(state.convByVar({ hant: `${visit.pageName}的${visit.oldid}批註頁`, hans: `${visit.pageName}的${visit.oldid}批注页` }),
-      state.convByVar({ hant: `自上次查看後已有 ${count} 次更新，點此查看。`, hans: `自上次查看后已有 ${count} 次更新，点此查看。` }),
+    notifyAnnotationLink(state.conv({ hant: `${visit.pageName}的${visit.oldid}批註頁`, hans: `${visit.pageName}的${visit.oldid}批注页` }),
+      state.conv({ hant: `自上次查看後已有 ${count} 次更新，點此查看。`, hans: `自上次查看后已有 ${count} 次更新，点此查看。` }),
       annotationDestination(visit.oldid).href, undefined, `reviewtool-subscription-${visit.oldid}`);
   }, error => console.warn('[ReviewTool] Could not check annotation subscriptions', error));
 }

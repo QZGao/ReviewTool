@@ -55,7 +55,7 @@ async function fixture(run, { width = 1400, skin = 'vector-2022', records = [enc
         config: { get: key => config[key] },
         hook: () => ({ add() {} }),
         Title: { newFromText: () => ({ getTalkPage: () => ({ getPrefixedText: () => 'Talk:Test' }) }) },
-        loader: { using: async () => name => name === 'vue' ? testCodex.Vue : name === 'ext.gadget.HanAssist' ? { convByVar: text => text.hant } : testCodex.Codex },
+        loader: { using: async () => name => name === 'vue' ? testCodex.Vue : name === 'ext.gadget.HanAssist' ? { conv: text => text.hant } : testCodex.Codex },
         Api: class {
           get(params) {
             calls.push(params);

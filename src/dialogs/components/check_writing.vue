@@ -130,48 +130,48 @@ type CheckWritingDialogVm = {
 
 function buildI18n(): CheckWritingI18n {
 	return {
-		dialogTitle: state.convByVar({ hant: "檢查「", hans: "检查「" }) + state.articleTitle + state.convByVar({ hant: "」的文筆", hans: "」的文笔" }),
-		save: state.convByVar({ hant: "儲存", hans: "保存" }),
-		saving: state.convByVar({ hant: "儲存中…", hans: "保存中…" }),
-		cancel: state.convByVar({ hant: "取消", hans: "取消" }),
-		addChapter: state.convByVar({ hant: "新增章節", hans: "新增章节" }),
-		removeChapter: state.convByVar({ hant: "刪除章節", hans: "删除章节" }),
-		addSuggestion: state.convByVar({ hant: "新增意見", hans: "新增意见" }),
-		removeSuggestion: state.convByVar({ hant: "刪除意見", hans: "删除意见" }),
-		chapterTitleLabel: state.convByVar({ hant: "章節標題", hans: "章节标题" }),
-		quoteLabel: state.convByVar({ hant: "引用原文", hans: "引用原文" }),
-		quotePlaceholder: state.convByVar({ hant: "原文句子（可留空）", hans: "原文句子（可留空）" }),
-		suggestionPlaceholder: state.convByVar({ hant: "意見或建議", hans: "意见或建议" }),
-		next: state.convByVar({ hant: "下一步", hans: "下一步" }),
-		previous: state.convByVar({ hant: "上一步", hans: "上一步" }),
-		previewHeading: state.convByVar({ hant: "預覽", hans: "预览" }),
-		diffHeading: state.convByVar({ hant: "差異", hans: "差异" }),
-		diffLoading: state.convByVar({ hant: "差異載入中…", hans: "差异载入中…" }),
-		editHeading: state.convByVar({ hant: "檢查編輯", hans: "检查编辑" }),
-		editInstruction: state.convByVar({ hant: "在此調整要新增的維基語法內容，再前往預覽或差異。", hans: "在此调整要新增的维基语法内容，再前往预览或差异。" }),
-		editPlaceholder: state.convByVar({ hant: "在此輸入或修改文筆建議的維基語法內容…", hans: "在此输入或修改文笔建议的维基语法内容…" }),
-		loadAnnotations: state.convByVar({ hant: "載入批註", hans: "载入批注" }),
-		importFromFile: state.convByVar({ hant: "從檔案載入", hans: "从文件载入" }),
-		importSuccess: state.convByVar({ hant: "已從檔案載入批註。", hans: "已从文件载入批注。" }),
-		importError: state.convByVar({ hant: "載入檔案時發生錯誤。", hans: "读取文件时发生错误。" }),
-		importInvalid: state.convByVar({ hant: "無效的批註檔案。", hans: "无效的批注文件。" }),
-		annotationFallbackChapter: state.convByVar({ hant: "（未指定章節）", hans: "（未指定章节）" }),
-		chooseAnnotationRevision: state.convByVar({ hant: "選擇批註版本", hans: "选择批注版本" }),
-		chooseAnnotationRevisionHelp: state.convByVar({ hant: "選擇要載入哪個條目版本的批註。", hans: "选择要载入哪个条目版本的批注。" }),
-		loadingAnnotations: state.convByVar({ hant: "載入中…", hans: "载入中…" }),
-		loadSelectedAnnotations: state.convByVar({ hant: "載入", hans: "载入" }),
-		noAnnotations: state.convByVar({ hant: "這個條目還沒有批註。", hans: "这个条目还没有批注。" }),
-		noComments: state.convByVar({ hant: "沒有符合條件的評論，請調整選項或選擇其他版本。", hans: "没有符合条件的评论，请调整选项或选择其他版本。" }),
-		annotationFilters: state.convByVar({ hant: "載入範圍", hans: "载入范围" }),
-		annotationOnlyOwn: state.convByVar({ hant: "只載入我的評論", hans: "只载入我的评论" }),
-		annotationTopLevelOnly: state.convByVar({ hant: "只載入各討論串的首則評論", hans: "只载入各讨论串的首条评论" }),
-		annotationUnresolvedOnly: state.convByVar({ hant: "只載入尚未解決的評論", hans: "只载入尚未解决的评论" }),
-		annotationListFailed: state.convByVar({ hant: "無法取得批註版本，請重試。", hans: "无法获取批注版本，请重试。" }),
-		annotationLoadFailed: state.convByVar({ hant: "無法載入這個版本的批註，請重試或選擇其他版本。", hans: "无法载入这个版本的批注，请重试或选择其他版本。" }),
-		annotationArticleMissing: state.convByVar({ hant: "找不到這個條目。", hans: "找不到这个条目。" }),
-		retry: state.convByVar({ hant: "重試", hans: "重试" }),
-		close: state.convByVar({ hant: "關閉", hans: "关闭" }),
-		newest: state.convByVar({ hant: "最新", hans: "最新" })
+		dialogTitle: state.conv({ hant: "檢查「", hans: "检查「" }) + state.articleTitle + state.conv({ hant: "」的文筆", hans: "」的文笔" }),
+		save: state.conv({ hant: "儲存", hans: "保存" }),
+		saving: state.conv({ hant: "儲存中…", hans: "保存中…" }),
+		cancel: state.conv({ hant: "取消", hans: "取消" }),
+		addChapter: state.conv({ hant: "新增章節", hans: "新增章节" }),
+		removeChapter: state.conv({ hant: "刪除章節", hans: "删除章节" }),
+		addSuggestion: state.conv({ hant: "新增意見", hans: "新增意见" }),
+		removeSuggestion: state.conv({ hant: "刪除意見", hans: "删除意见" }),
+		chapterTitleLabel: state.conv({ hant: "章節標題", hans: "章节标题" }),
+		quoteLabel: state.conv({ hant: "引用原文", hans: "引用原文" }),
+		quotePlaceholder: state.conv({ hant: "原文句子（可留空）", hans: "原文句子（可留空）" }),
+		suggestionPlaceholder: state.conv({ hant: "意見或建議", hans: "意见或建议" }),
+		next: state.conv({ hant: "下一步", hans: "下一步" }),
+		previous: state.conv({ hant: "上一步", hans: "上一步" }),
+		previewHeading: state.conv({ hant: "預覽", hans: "预览" }),
+		diffHeading: state.conv({ hant: "差異", hans: "差异" }),
+		diffLoading: state.conv({ hant: "差異載入中…", hans: "差异载入中…" }),
+		editHeading: state.conv({ hant: "檢查編輯", hans: "检查编辑" }),
+		editInstruction: state.conv({ hant: "在此調整要新增的維基語法內容，再前往預覽或差異。", hans: "在此调整要新增的维基语法内容，再前往预览或差异。" }),
+		editPlaceholder: state.conv({ hant: "在此輸入或修改文筆建議的維基語法內容…", hans: "在此输入或修改文笔建议的维基语法内容…" }),
+		loadAnnotations: state.conv({ hant: "載入批註", hans: "载入批注" }),
+		importFromFile: state.conv({ hant: "從檔案載入", hans: "从文件载入" }),
+		importSuccess: state.conv({ hant: "已從檔案載入批註。", hans: "已从文件载入批注。" }),
+		importError: state.conv({ hant: "載入檔案時發生錯誤。", hans: "读取文件时发生错误。" }),
+		importInvalid: state.conv({ hant: "無效的批註檔案。", hans: "无效的批注文件。" }),
+		annotationFallbackChapter: state.conv({ hant: "（未指定章節）", hans: "（未指定章节）" }),
+		chooseAnnotationRevision: state.conv({ hant: "選擇批註版本", hans: "选择批注版本" }),
+		chooseAnnotationRevisionHelp: state.conv({ hant: "選擇要載入哪個條目版本的批註。", hans: "选择要载入哪个条目版本的批注。" }),
+		loadingAnnotations: state.conv({ hant: "載入中…", hans: "载入中…" }),
+		loadSelectedAnnotations: state.conv({ hant: "載入", hans: "载入" }),
+		noAnnotations: state.conv({ hant: "這個條目還沒有批註。", hans: "这个条目还没有批注。" }),
+		noComments: state.conv({ hant: "沒有符合條件的評論，請調整選項或選擇其他版本。", hans: "没有符合条件的评论，请调整选项或选择其他版本。" }),
+		annotationFilters: state.conv({ hant: "載入範圍", hans: "载入范围" }),
+		annotationOnlyOwn: state.conv({ hant: "只載入我的評論", hans: "只载入我的评论" }),
+		annotationTopLevelOnly: state.conv({ hant: "只載入各討論串的首則評論", hans: "只载入各讨论串的首条评论" }),
+		annotationUnresolvedOnly: state.conv({ hant: "只載入尚未解決的評論", hans: "只载入尚未解决的评论" }),
+		annotationListFailed: state.conv({ hant: "無法取得批註版本，請重試。", hans: "无法获取批注版本，请重试。" }),
+		annotationLoadFailed: state.conv({ hant: "無法載入這個版本的批註，請重試或選擇其他版本。", hans: "无法载入这个版本的批注，请重试或选择其他版本。" }),
+		annotationArticleMissing: state.conv({ hant: "找不到這個條目。", hans: "找不到这个条目。" }),
+		retry: state.conv({ hant: "重試", hans: "重试" }),
+		close: state.conv({ hant: "關閉", hans: "关闭" }),
+		newest: state.conv({ hant: "最新", hans: "最新" })
 	};
 }
 
@@ -468,7 +468,7 @@ export default {
 					const compactIds = isRecord(parsed) && parsed.format === annotationExportFormat;
 					const pageName = state.articleTitle || "";
 					if (!pageName) {
-						this.reportAnnotationLoadFailure(state.convByVar({ hant: "無法識別條目名稱，無法載入檔案中的批註。", hans: "无法识别条目名称，无法载入文件中的批注。" }));
+						this.reportAnnotationLoadFailure(state.conv({ hant: "無法識別條目名稱，無法載入檔案中的批註。", hans: "无法识别条目名称，无法载入文件中的批注。" }));
 						return;
 					}
 
@@ -554,7 +554,7 @@ export default {
 				if (!groups.length) { this.annotationPickerError = this.$options.i18n.noComments; return; }
 				this.applyAnnotationChapters(this.buildChaptersFromAnnotationGroups(groups));
 				this.closeAnnotationPicker();
-				mw.notify(state.convByVar({ hant: "已載入批註，請檢查後繼續。", hans: "已载入批注，请检查后继续。" }), { tag: 'review-tool' });
+				mw.notify(state.conv({ hant: "已載入批註，請檢查後繼續。", hans: "已载入批注，请检查后继续。" }), { tag: 'review-tool' });
 			} catch (error) {
 				if (token !== this.annotationImportToken) return;
 				console.error('[ReviewTool] Could not import annotation revision', error);
@@ -567,9 +567,9 @@ export default {
 		},
 		onAnnotationPickerOpen(this: CheckWritingDialogVm, open: boolean) { if (!open) this.closeAnnotationPicker(); },
 		annotationRevisionLabel(this: CheckWritingDialogVm, revision: AnnotatedRevision) {
-			const label = state.convByVar({ hant: `版本 ${revision.revisionId}`, hans: `版本 ${revision.revisionId}` });
+			const label = state.conv({ hant: `版本 ${revision.revisionId}`, hans: `版本 ${revision.revisionId}` });
 			if (!revision.timestamp) return label;
-			const date = new Intl.DateTimeFormat(state.convByVar({ hant: 'zh-Hant', hans: 'zh-Hans' }), { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(revision.timestamp));
+			const date = new Intl.DateTimeFormat(state.conv({ hant: 'zh-Hant', hans: 'zh-Hans' }), { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(revision.timestamp));
 			return `${label} · ${date}`;
 		},
 		buildChaptersFromAnnotationGroups(this: CheckWritingDialogVm, groups: AnnotationGroup[]) {
@@ -658,7 +658,7 @@ export default {
 			this.isSaving = true;
 			const { sec, pageTitleToUse, sectionIdToUse } = this.getPendingCheckWritingSectionInfo();
 			if (!sec || sectionIdToUse == null) {
-				const msg = state.convByVar({ hant: "無法識別文筆章節編號，請在討論頁的文筆章節附近點擊「檢查文筆」。", hans: "无法识别文笔章节编号，请在讨论页的文笔章节附近点击“检查文笔”。" });
+				const msg = state.conv({ hant: "無法識別文筆章節編號，請在討論頁的文筆章節附近點擊「檢查文筆」。", hans: "无法识别文笔章节编号，请在讨论页的文笔章节附近点击“检查文笔”。" });
 				if (mw && mw.notify) {
 					mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 				}
@@ -669,7 +669,7 @@ export default {
 
 			const bundle = this.buildPreviewBundle();
 			if (!bundle) {
-				const msg = state.convByVar({ hant: "請先輸入文筆建議內容，再嘗試儲存。", hans: "请先输入文笔建议内容，再尝试保存。" });
+				const msg = state.conv({ hant: "請先輸入文筆建議內容，再嘗試儲存。", hans: "请先输入文笔建议内容，再尝试保存。" });
 				if (mw && mw.notify) {
 					mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 				}
@@ -682,11 +682,11 @@ export default {
 				pageTitleToUse,
 				sectionIdToUse,
 				bundle.appendSuffix,
-				state.convByVar({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文筆建議", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文笔建议" })
+				state.conv({ hant: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文筆建議", hans: "使用 [[User:SuperGrey/gadgets/ReviewTool|ReviewTool]] 新增文笔建议" })
 			)
 				.then(() => {
 					if (mw && mw.notify) {
-						mw.notify(state.convByVar({ hant: "已成功新增文筆建議。", hans: "已成功新增文笔建议。" }), { tag: "review-tool" });
+						mw.notify(state.conv({ hant: "已成功新增文筆建議。", hans: "已成功新增文笔建议。" }), { tag: "review-tool" });
 					}
 					this.isSaving = false;
 					this.open = false;
@@ -695,7 +695,7 @@ export default {
 				})
 				.catch((error: unknown) => {
 					console.error("[ReviewTool] appendTextToSection failed", error);
-					const msg = state.convByVar({ hant: "新增文筆建議失敗，請稍後再試。", hans: "新增文笔建议失败，请稍后再试。" });
+					const msg = state.conv({ hant: "新增文筆建議失敗，請稍後再試。", hans: "新增文笔建议失败，请稍后再试。" });
 					if (mw && mw.notify) {
 						mw.notify(msg, { type: "error", title: "[ReviewTool]" });
 					}
